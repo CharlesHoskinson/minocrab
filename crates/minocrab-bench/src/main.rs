@@ -149,7 +149,7 @@ impl Side {
 const VAULT: &str =
     "corpus/zkir/signet-midnight-examples/examples/erc20-vault/contract/src/erc20-vault/zkir";
 const SIGNET: &str =
-    "corpus/zkir/signet-midnight-integration/packages/signet-contract/src/signet-contract/zkir";
+    "corpus/zkir/signet-midnight-integration-pr127/packages/signet-contract/src/signet-contract/zkir";
 
 fn targets() -> Vec<Target> {
     macro_rules! t {

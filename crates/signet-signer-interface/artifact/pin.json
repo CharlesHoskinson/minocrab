@@ -1,13 +1,13 @@
 {
-  "source": "corpus/zkir/signet-midnight-integration/packages/signet-contract/src/signet-contract",
+  "source": "corpus/zkir/signet-midnight-integration-pr127/packages/signet-contract/src/signet-contract",
   "compiler-version": "0.34.0",
   "language-version": "0.26.0",
   "runtime-version": "0.19.0",
-  "contract-info-sha256": "b30f60ef1322adb4498fc7b1d6f4e803fec2bea0bec70fb1d1215f5c128d33d1",
+  "contract-info-sha256": "11dc9d7005a8adf28c9eb094c37852e1357b3b5b72a3997c5ced8ebdc564ff3e",
   "circuits": {
     "respond": {
       "proof": true,
-      "zkir-sha256": "3ac11cc177f095b3417123f891c989763dc471fc9f5a719cdeec8a781285e0cc",
+      "zkir-sha256": "53926e7e15651d9bde296479a10ee46d21400725e0ee6fbaf4668e8c76e425b7",
       "inputs": 9,
       "do-communications-commitment": true,
       "constraints": [
@@ -24,10 +24,15 @@
     },
     "respondBidirectional": {
       "proof": true,
-      "zkir-sha256": "859c4c8ada61f9e4449dfc17f934779ad86142e3e31efab9fa271418be5ddbf6",
-      "inputs": 9,
+      "zkir-sha256": "54f4b830b625bf7213ef69dd53b1706012b1d1f515d2bc8268b779c03105e07b",
+      "inputs": 14,
       "do-communications-commitment": true,
       "constraints": [
+        "bits:8",
+        "bits:248",
+        "bits:64",
+        "bounded:3:2",
+        "bits:64",
         "bits:8",
         "bits:248",
         "bits:8",

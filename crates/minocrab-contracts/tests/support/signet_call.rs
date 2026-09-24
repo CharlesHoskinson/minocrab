@@ -52,7 +52,7 @@ use midnight_storage::storage::Array;
 use midnight_transient_crypto::commitment::PedersenRandomness;
 use midnight_transient_crypto::proofs::{ProofPreimage, VerifierKey};
 use minocrab::Fr;
-use minocrab_publisher::call::EcdsaSignature;
+use minocrab_publisher::call::{Attestation, EcdsaSignature};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 
@@ -61,6 +61,7 @@ use rand::SeedableRng;
 // crate now; re-exported under their old names so the suites that import them
 // from `support::signet_call` read unchanged.
 pub use minocrab_publisher::call::{empty_state, log_ops, operation, SIGNER_CIRCUITS};
+pub use minocrab_publisher::call::Attestation as RespondAttestation;
 pub use minocrab_publisher::fab::{bytesn_value, cell, scalar_input};
 
 pub type VmOp = Op<ResultModeVerify, InMemoryDB>;
@@ -297,6 +298,59 @@ pub fn respond_input(
     recovery_id: u8,
 ) -> AlignedValue {
     minocrab_publisher::call::respond_input(request_id, &signature(big_r_x, big_r_y, s, recovery_id))
+}
+
+/// `respondBidirectional`'s 288 Misc bytes (PR #127's layout) —
+/// `minocrab_publisher::call::respond_bidirectional_misc`, with the signature
+/// spread out as above.
+pub fn respond_bidirectional_misc(
+    request_id: &[u8; 32],
+    attestation: &Attestation,
+    big_r_x: &[u8; 32],
+    big_r_y: &[u8; 32],
+    s: &[u8; 32],
+    recovery_id: u8,
+) -> Vec<u8> {
+    minocrab_publisher::call::respond_bidirectional_misc(
+        minocrab_contracts::signet_contract::RESPOND_BIDIRECTIONAL_EVENT,
+        request_id,
+        attestation,
+        &signature(big_r_x, big_r_y, s, recovery_id),
+    )
+}
+
+/// `respondBidirectional`'s arguments with their COMPACT alignment: fourteen
+/// field limbs.
+pub fn respond_bidirectional_input(
+    request_id: &[u8; 32],
+    attestation: &Attestation,
+    big_r_x: &[u8; 32],
+    big_r_y: &[u8; 32],
+    s: &[u8; 32],
+    recovery_id: u8,
+) -> AlignedValue {
+    minocrab_publisher::call::respond_bidirectional_input(
+        request_id,
+        attestation,
+        &signature(big_r_x, big_r_y, s, recovery_id),
+    )
+}
+
+/// The attestation every bidirectional scenario in this suite uses: a
+/// finalised height with all eight bytes live, the `failed` verdict (variant
+/// 1, so a zero-vs-one confusion with `executed` is visible), a width that
+/// is not the height, and a digest distinct from the id.
+pub fn sample_attestation() -> Attestation {
+    let mut digest = [0u8; 32];
+    for (i, b) in digest.iter_mut().enumerate() {
+        *b = 0xd1u8.wrapping_add((i as u8).wrapping_mul(29));
+    }
+    Attestation {
+        block_height: 0x0102_0304_0506_0708,
+        output_kind: 1,
+        serialized_output_length: 0x0000_0000_0000_0020,
+        digest,
+    }
 }
 
 fn signature(

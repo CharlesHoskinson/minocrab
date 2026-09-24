@@ -63,7 +63,7 @@ const CHUNK: usize = 8;
 const VAULT_DIR: &str =
     "corpus/zkir/signet-midnight-examples/examples/erc20-vault/contract/src/erc20-vault/zkir";
 const SIGNET_DIR: &str =
-    "corpus/zkir/signet-midnight-integration/packages/signet-contract/src/signet-contract/zkir";
+    "corpus/zkir/signet-midnight-integration-pr127/packages/signet-contract/src/signet-contract/zkir";
 const MANAGER_DIR: &str = "corpus/zkir/aa-midnight-evm-experiment/contracts/manager/zkir";
 
 /// `(<preimage stem>, <repo-relative artifact path>)` for every dumped

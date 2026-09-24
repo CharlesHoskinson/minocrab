@@ -134,7 +134,7 @@ pub fn misc_preimage(inputs: Vec<Fr>, misc_bytes: &[u8]) -> ProofPreimage {
 /// deployed singleton).
 pub fn corpus_signet_zkir(name: &str) -> IrSource {
     let path = format!(
-        "{}/../../corpus/zkir/signet-midnight-integration/packages/signet-contract/src/signet-contract/zkir/{name}.zkir",
+        "{}/../../corpus/zkir/signet-midnight-integration-pr127/packages/signet-contract/src/signet-contract/zkir/{name}.zkir",
         env!("CARGO_MANIFEST_DIR")
     );
     minocrab_zkir::v3::read_zkir(&path).expect("corpus golden parses")

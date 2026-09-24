@@ -60,6 +60,7 @@
 //! (notes/mpc-publisher.org §2). The goldens are not inclusion proofs — see
 //! `tests/fixtures/mpc/README.md`.
 
+use midnight_base_crypto::fab::AlignedValue;
 use midnight_base_crypto::time::Timestamp;
 use midnight_ledger::events::EventDetails;
 use midnight_ledger::semantics::TransactionResult;
@@ -78,8 +79,9 @@ mod support;
 
 use support::signet_call::{
     bytesn_value, call_intent, call_prototype, calls_of, deploy_singleton, empty_state, log_ops,
-    managed_verifier_key, preimage_tx, respond_input, respond_misc, singleton_contract_state,
-    tx_context, ttl, unbalanced_strictness, VmOp, SIGNER_CIRCUITS,
+    managed_verifier_key, preimage_tx, respond_bidirectional_input, respond_bidirectional_misc,
+    respond_input, respond_misc, sample_attestation, singleton_contract_state, tx_context, ttl,
+    unbalanced_strictness, VmOp, SIGNER_CIRCUITS,
 };
 
 // ---- the goldens -----------------------------------------------------------
@@ -232,15 +234,24 @@ fn apply_respond_call(
     s: &[u8; 32],
     recovery_id: u8,
 ) -> AppliedCall {
+    apply_call(
+        entry_point,
+        &respond_misc(event_name, request_id, big_r_x, big_r_y, s, recovery_id),
+        respond_input(request_id, big_r_x, big_r_y, s, recovery_id),
+    )
+}
+
+/// Deploy the singleton under the committed keys, build ONE call of
+/// `entry_point` over `misc` and `input`, `well_formed` and `apply` it, and
+/// return what the chain would carry.
+fn apply_call(entry_point: &str, misc: &[u8], input: AlignedValue) -> AppliedCall {
     let tblock = Timestamp::from_secs(0);
     let (ledger, address) = deploy_singleton(
         singleton_contract_state(|c| Some(managed_verifier_key(c))),
         tblock,
     );
 
-    let misc = respond_misc(event_name, request_id, big_r_x, big_r_y, s, recovery_id);
-    let input = respond_input(request_id, big_r_x, big_r_y, s, recovery_id);
-    let proto = call_prototype(entry_point, address, input, &misc);
+    let proto = call_prototype(entry_point, address, input, misc);
     let intent = call_intent(vec![proto], ttl(tblock));
     let tx = preimage_tx(intent.clone());
 
@@ -355,15 +366,67 @@ fn respond_apply_matches_the_captured_transaction() {
     );
 }
 
+/// The captured `respondBidirectional` transaction predates PR #127: its
+/// payload is the OLD layout (requestId ‖ signature ‖ zeros), and the
+/// singleton this crate ports now emits requestId ‖ blockHeight ‖ outputKind
+/// ‖ serializedOutputLength ‖ digest ‖ signature ‖ zeros. So this capture no
+/// longer evidences the payload bytes; what it still evidences — and what
+/// this test holds it to — is everything that did not change: the entry
+/// point, the event name, the request id at offset 0, and the SHAPE of the
+/// Impact program (`push` of the three-cell Misc — version, tag, 288 bytes
+/// — then `log`; the pushed literal itself carries the payload, so it
+/// differs exactly where the payload does). A capture from a chain running the #127 singleton
+/// is owed (`tests/fixtures/mpc/README.md`); when it arrives, this becomes
+/// the full 288-byte comparison `respond` has.
 #[test]
-fn respond_bidirectional_apply_matches_the_captured_transaction() {
-    respond_matches_the_golden(
-        "respond-bidirectional-tx-181",
-        RESPOND_BIDIRECTIONAL_TX_181,
-        RESPOND_BIDIRECTIONAL_TX_181_SHA256,
-        "respondBidirectional",
-        signet_contract::RESPOND_BIDIRECTIONAL_EVENT,
+fn respond_bidirectional_apply_matches_the_captured_transactions_program() {
+    let who = "respond-bidirectional-tx-181";
+    let theirs = golden_call(
+        &golden(RESPOND_BIDIRECTIONAL_TX_181, RESPOND_BIDIRECTIONAL_TX_181_SHA256, who),
+        who,
     );
+    let event_name = signet_contract::RESPOND_BIDIRECTIONAL_EVENT;
+    let mut expected_name = [0u8; 32];
+    expected_name[..event_name.len()].copy_from_slice(event_name.as_bytes());
+    assert_eq!(theirs.emission.name, expected_name, "{who}: the golden's event name");
+    assert_eq!(theirs.entry_point.as_ref(), b"respondBidirectional", "{who}: the golden's entry point");
+    assert_eq!(theirs.emission.payload[..32], CAPTURE_REQUEST_ID, "{who}: the golden's request id");
+
+    // The golden's signature, at the OLD offsets, re-emitted through the
+    // NEW layout with a sample attestation.
+    let at = |from: usize| -> [u8; 32] {
+        let mut out = [0u8; 32];
+        out.copy_from_slice(&theirs.emission.payload[from..from + 32]);
+        out
+    };
+    let (request_id, big_r_x, big_r_y, s) = (at(0), at(32), at(64), at(96));
+    let recovery_id = theirs.emission.payload[128];
+    let attestation = sample_attestation();
+    let ours = apply_call(
+        "respondBidirectional",
+        &respond_bidirectional_misc(&request_id, &attestation, &big_r_x, &big_r_y, &s, recovery_id),
+        respond_bidirectional_input(&request_id, &attestation, &big_r_x, &big_r_y, &s, recovery_id),
+    );
+
+    assert_eq!(ours.entry_point, theirs.entry_point, "{who}: entry point");
+    // The program, with the pushed Misc literal's payload masked: op for op
+    // the same, and the same version and tag cells.
+    let shape = |program: &[VmOp]| -> String {
+        let s = format!("{program:?}");
+        let (head, tail) = s.split_once(", <[").expect("the push carries a third cell");
+        let (_payload, rest) = tail.split_once("]: b288>").expect("a 288-byte cell");
+        format!("{head}, <[…]: b288>{rest}")
+    };
+    assert_eq!(shape(&ours.program), shape(&theirs.program), "{who}: Impact program shape");
+    assert_eq!(ours.program.len(), 2, "{who}: push + log");
+    assert_eq!(ours.emission.name, theirs.emission.name, "{who}: event name");
+    assert_eq!(ours.emission.payload[..32], theirs.emission.payload[..32], "{who}: request id");
+    // And the layout really did move: the signature sits after the
+    // attestation now (payload offset 81, i.e. Misc offset 113), not where
+    // the capture had it (payload offset 32).
+    assert_eq!(ours.emission.payload[81..113], big_r_x, "{who}: bigR.x at the #127 offset");
+    assert_eq!(theirs.emission.payload[32..64], big_r_x, "{who}: bigR.x at the capture's offset");
+    assert_ne!(ours.emission.payload[32..64], big_r_x, "{who}: bigR.x is no longer at the old offset");
 }
 
 /// The deployed operations really do carry the COMMITTED verifier keys under

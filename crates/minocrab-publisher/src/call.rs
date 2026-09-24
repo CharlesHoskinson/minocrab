@@ -294,6 +294,22 @@ pub struct EcdsaSignature {
     pub recovery_id: u8,
 }
 
+/// The attestation half of `respondBidirectional`'s argument since
+/// midnight-integration PR #127 (M43): what the MPC signs over besides the
+/// request id — the finalised destination block, its verdict, the width of
+/// the output it attests — and the digest the signature is over, carried so
+/// a reader holding no output can check the signature.
+///
+/// `output_kind` is Compact's `enum OutputKind { executed, failed, unviable
+/// }`, i.e. the variant INDEX (0, 1, 2); the circuit constrains it below 3.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Attestation {
+    pub block_height: u64,
+    pub output_kind: u8,
+    pub serialized_output_length: u64,
+    pub digest: [u8; 32],
+}
+
 /// `signBidirectional`'s second argument: `{ version: Uint<8>, payload:
 /// Bytes<128> }`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -339,6 +355,52 @@ pub fn respond_misc(name: &str, request_id: &[u8; 32], sig: &EcdsaSignature) -> 
 pub fn respond_input(request_id: &[u8; 32], sig: &EcdsaSignature) -> AlignedValue {
     AlignedValue::concat([
         &bytesn_value(32, request_id),
+        &bytesn_value(32, &sig.big_r_x),
+        &bytesn_value(32, &sig.big_r_y),
+        &bytesn_value(32, &sig.s),
+        &bytesn_value(1, &[sig.recovery_id]),
+    ])
+}
+
+/// `respondBidirectional`'s 288 Misc bytes (PR #127's layout):
+/// `pad(32, name)` ‖ requestId(32) ‖ blockHeight LE(8) ‖ outputKind(1) ‖
+/// serializedOutputLength LE(8) ‖ digest(32) ‖ x(32) ‖ y(32) ‖ s(32) ‖
+/// recoveryId(1) ‖ zeros(78). The two `Uint<64>`s are `as Bytes<8>`, which
+/// Compact spells little-endian.
+pub fn respond_bidirectional_misc(
+    name: &str,
+    request_id: &[u8; 32],
+    attestation: &Attestation,
+    sig: &EcdsaSignature,
+) -> Vec<u8> {
+    let mut bytes = misc_with_name(name);
+    bytes[32..64].copy_from_slice(request_id);
+    bytes[64..72].copy_from_slice(&attestation.block_height.to_le_bytes());
+    bytes[72] = attestation.output_kind;
+    bytes[73..81].copy_from_slice(&attestation.serialized_output_length.to_le_bytes());
+    bytes[81..113].copy_from_slice(&attestation.digest);
+    bytes[113..145].copy_from_slice(&sig.big_r_x);
+    bytes[145..177].copy_from_slice(&sig.big_r_y);
+    bytes[177..209].copy_from_slice(&sig.s);
+    bytes[209] = sig.recovery_id;
+    bytes
+}
+
+/// `respondBidirectional`'s arguments with their COMPACT alignment, in the
+/// struct's field order: `Bytes<32>`, `Uint<64>` (an eight-byte atom),
+/// the enum (a one-byte atom), `Uint<64>`, `Bytes<32>`, then the signature's
+/// four. Fourteen field limbs.
+pub fn respond_bidirectional_input(
+    request_id: &[u8; 32],
+    attestation: &Attestation,
+    sig: &EcdsaSignature,
+) -> AlignedValue {
+    AlignedValue::concat([
+        &bytesn_value(32, request_id),
+        &bytesn_value(8, &attestation.block_height.to_le_bytes()),
+        &bytesn_value(1, &[attestation.output_kind]),
+        &bytesn_value(8, &attestation.serialized_output_length.to_le_bytes()),
+        &bytesn_value(32, &attestation.digest),
         &bytesn_value(32, &sig.big_r_x),
         &bytesn_value(32, &sig.big_r_y),
         &bytesn_value(32, &sig.s),
@@ -482,8 +544,10 @@ impl<D: DB> SignerCall<D> {
     }
 }
 
-/// `respond(requestId, signature)` — the call the MPC makes to publish a
-/// signature for a request that came in over Midnight.
+/// `respond(signatureRespondedEvent)` — the call the MPC makes to publish a
+/// signature for a request that came in over Midnight. PR #127 moved the
+/// request id INTO the event struct; the field vector and the payload are
+/// unchanged, so this builder is what it always was.
 pub fn respond<D: DB>(
     deployment: &Deployment,
     request_id: &[u8; 32],
@@ -494,19 +558,22 @@ pub fn respond<D: DB>(
     })
 }
 
-/// `respondBidirectional(requestId, signature)` — the same call for a
-/// request that came in over the bidirectional path. It differs from
-/// [`respond`] in exactly one way: the event name in the envelope.
+/// `respondBidirectional(respondBidirectionalEvent)` — the MPC's attestation
+/// of a foreign execution: the request id, the [`Attestation`] it signed
+/// over, and the signature. Since PR #127 this is NOT [`respond`] under
+/// another name: the payload carries the block height, output kind, output
+/// width and digest between the id and the signature.
 pub fn respond_bidirectional<D: DB>(
     deployment: &Deployment,
     request_id: &[u8; 32],
+    attestation: &Attestation,
     signature: &EcdsaSignature,
 ) -> Result<SignerCall<D>, PublishError> {
     signer_call(
         deployment,
         RESPOND_BIDIRECTIONAL,
-        respond_input(request_id, signature),
-        |name| respond_misc(name, request_id, signature),
+        respond_bidirectional_input(request_id, attestation, signature),
+        |name| respond_bidirectional_misc(name, request_id, attestation, signature),
     )
 }
 

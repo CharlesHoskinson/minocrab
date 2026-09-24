@@ -17,7 +17,8 @@ use midnight_storage::db::InMemoryDB;
 use midnight_transient_crypto::curve::Fr;
 use midnight_transient_crypto::fab::AlignedValueExt;
 use minocrab_publisher::call::{
-    empty_state, event_name, ContractKeyLocation, Deployment, EcdsaSignature, Notification,
+    empty_state, event_name, Attestation, ContractKeyLocation, Deployment, EcdsaSignature,
+    Notification,
     SignerCall, RESPOND, RESPOND_BIDIRECTIONAL, SIGNER_CIRCUITS, SIGN_BIDIRECTIONAL,
 };
 use minocrab_publisher::{respond, respond_bidirectional, sign_bidirectional, PublishError};
@@ -65,6 +66,15 @@ fn fill(seed: u8) -> [u8; 32] {
 
 fn signature() -> EcdsaSignature {
     EcdsaSignature { big_r_x: fill(0x11), big_r_y: fill(0x47), s: fill(0xa3), recovery_id: 1 }
+}
+
+fn attestation() -> Attestation {
+    Attestation {
+        block_height: 0x0102_0304_0506_0708,
+        output_kind: 1,
+        serialized_output_length: 32,
+        digest: fill(0xd1),
+    }
 }
 
 fn notification() -> Notification {
@@ -152,19 +162,11 @@ fn a_circuit_outside_the_expected_vk_table_has_no_key_location() {
 #[test]
 fn a_respond_call_lays_its_signature_out_where_the_singleton_says() {
     let (rid, sig) = (request_id(), signature());
-    for (circuit, event, call) in [
-        (
-            RESPOND,
-            SIGNATURE_RESPONDED_EVENT,
-            respond::<InMemoryDB>(&deployment(), &rid, &sig).expect("respond builds"),
-        ),
-        (
-            RESPOND_BIDIRECTIONAL,
-            RESPOND_BIDIRECTIONAL_EVENT,
-            respond_bidirectional::<InMemoryDB>(&deployment(), &rid, &sig)
-                .expect("respondBidirectional builds"),
-        ),
-    ] {
+    for (circuit, event, call) in [(
+        RESPOND,
+        SIGNATURE_RESPONDED_EVENT,
+        respond::<InMemoryDB>(&deployment(), &rid, &sig).expect("respond builds"),
+    )] {
         assert_eq!(call.circuit, circuit);
         assert_eq!(call.key_location.circuit_id, circuit);
         assert_eq!(call.misc.len(), MISC_SIZE);
@@ -181,6 +183,33 @@ fn a_respond_call_lays_its_signature_out_where_the_singleton_says() {
         // declares (minocrab-contracts' `input_schema_matches_the_corpus_artifact`).
         assert_eq!(field_repr_len(&call), 9, "{circuit}: argument limbs");
     }
+}
+
+/// `respondBidirectional`'s PR #127 layout: requestId(32) ‖ blockHeight
+/// LE(8) ‖ outputKind(1) ‖ length LE(8) ‖ digest(32) ‖ x ‖ y ‖ s ‖
+/// recoveryId ‖ zeros(78); fourteen limbs.
+#[test]
+fn a_respond_bidirectional_call_lays_its_attestation_out_where_the_singleton_says() {
+    let (rid, att, sig) = (request_id(), attestation(), signature());
+    let call = respond_bidirectional::<InMemoryDB>(&deployment(), &rid, &att, &sig)
+        .expect("respondBidirectional builds");
+    assert_eq!(call.circuit, RESPOND_BIDIRECTIONAL);
+    assert_eq!(call.key_location.circuit_id, RESPOND_BIDIRECTIONAL);
+    assert_eq!(call.misc.len(), MISC_SIZE);
+    let mut name = [0u8; 32];
+    name[..RESPOND_BIDIRECTIONAL_EVENT.len()].copy_from_slice(RESPOND_BIDIRECTIONAL_EVENT.as_bytes());
+    assert_eq!(&call.misc[..32], &name[..], "the event name");
+    assert_eq!(&call.misc[32..64], &rid[..], "the request id");
+    assert_eq!(&call.misc[64..72], &att.block_height.to_le_bytes()[..], "blockHeight, little-endian");
+    assert_eq!(call.misc[72], att.output_kind, "outputKind");
+    assert_eq!(&call.misc[73..81], &att.serialized_output_length.to_le_bytes()[..], "serializedOutputLength, little-endian");
+    assert_eq!(&call.misc[81..113], &att.digest[..], "digest");
+    assert_eq!(&call.misc[113..145], &sig.big_r_x[..], "bigR.x");
+    assert_eq!(&call.misc[145..177], &sig.big_r_y[..], "bigR.y");
+    assert_eq!(&call.misc[177..209], &sig.s[..], "s");
+    assert_eq!(call.misc[209], sig.recovery_id, "recoveryId");
+    assert!(call.misc[210..].iter().all(|b| *b == 0), "the tail is zero-padded");
+    assert_eq!(field_repr_len(&call), 14, "argument limbs");
 }
 
 /// `pad(32, name)` ‖ version(1) ‖ requestId(32) ‖ payload(128) ‖ zeros(95),

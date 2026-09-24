@@ -31,12 +31,12 @@ use signet_signer_interface::{
 
 /// Where the artifact came from, relative to the workspace root. The same
 /// string `pin.json` carries.
-const SOURCE: &str = "corpus/zkir/signet-midnight-integration/packages/signet-contract/src/signet-contract";
+const SOURCE: &str = "corpus/zkir/signet-midnight-integration-pr127/packages/signet-contract/src/signet-contract";
 
 /// The three circuits' argument lists, as the interface declares them.
 type SignBidirectional = (RequestId<Public>, SignBidirectionalEventNotification<Public>);
-type Respond = (RequestId<Public>, SignatureRespondedEvent<Public>);
-type RespondBidirectional = (RequestId<Public>, RespondBidirectionalEvent<Public>);
+type Respond = (SignatureRespondedEvent<Public>,);
+type RespondBidirectional = (RespondBidirectionalEvent<Public>,);
 
 fn crate_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))

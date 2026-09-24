@@ -55,22 +55,22 @@
       "proof": true,
       "arguments": [
         {
-          "name": "requestId",
-          "type": {
-            "type-name": "Alias",
-            "name": "RequestId",
-            "type": {
-              "type-name": "Bytes",
-              "length": 32
-            }
-          }
-        },
-        {
           "name": "signatureRespondedEvent",
           "type": {
             "type-name": "Struct",
             "name": "SignatureRespondedEvent",
             "elements": [
+              {
+                "name": "requestId",
+                "type": {
+                  "type-name": "Alias",
+                  "name": "RequestId",
+                  "type": {
+                    "type-name": "Bytes",
+                    "length": 32
+                  }
+                }
+              },
               {
                 "name": "signature",
                 "type": {
@@ -133,22 +133,55 @@
       "proof": true,
       "arguments": [
         {
-          "name": "requestId",
-          "type": {
-            "type-name": "Alias",
-            "name": "RequestId",
-            "type": {
-              "type-name": "Bytes",
-              "length": 32
-            }
-          }
-        },
-        {
           "name": "respondBidirectionalEvent",
           "type": {
             "type-name": "Struct",
             "name": "RespondBidirectionalEvent",
             "elements": [
+              {
+                "name": "requestId",
+                "type": {
+                  "type-name": "Alias",
+                  "name": "RequestId",
+                  "type": {
+                    "type-name": "Bytes",
+                    "length": 32
+                  }
+                }
+              },
+              {
+                "name": "blockHeight",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 18446744073709551615
+                }
+              },
+              {
+                "name": "outputKind",
+                "type": {
+                  "type-name": "Enum",
+                  "name": "OutputKind",
+                  "elements": [
+                    "executed",
+                    "failed",
+                    "unviable"
+                  ]
+                }
+              },
+              {
+                "name": "serializedOutputLength",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 18446744073709551615
+                }
+              },
+              {
+                "name": "digest",
+                "type": {
+                  "type-name": "Bytes",
+                  "length": 32
+                }
+              },
               {
                 "name": "signature",
                 "type": {

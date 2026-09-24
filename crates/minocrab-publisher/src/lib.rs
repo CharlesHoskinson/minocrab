@@ -57,8 +57,8 @@ pub mod prove;
 pub mod publish;
 
 pub use call::{
-    respond, respond_bidirectional, sign_bidirectional, ContractKeyLocation, Deployment,
-    EcdsaSignature, Notification, SignerCall, SIGNER_CIRCUITS,
+    respond, respond_bidirectional, sign_bidirectional, Attestation, ContractKeyLocation,
+    Deployment, EcdsaSignature, Notification, SignerCall, SIGNER_CIRCUITS,
 };
 pub use dust::{DustBalancer, NoDust};
 pub use error::PublishError;

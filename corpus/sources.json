@@ -68,6 +68,23 @@
       ]
     },
     {
+      "name": "signet-midnight-integration-pr127",
+      "url": "https://github.com/sig-net/midnight-integration",
+      "rev": "e9350c4c470db4a1886bc3b161c64d509dcec794",
+      "license": "UNLICENSED (sig-net internal)",
+      "paths": [
+        "packages/signet-contract",
+        "packages/signet-midnight"
+      ],
+      "flags": [
+        "--feature-zkir-v3"
+      ],
+      "compact_path_links": {
+        "@sig-net/midnight": "signet-midnight-integration-pr127/packages/signet-midnight"
+      },
+      "note": "PR #127 (align-with-protocol-spec) head, the production target of the Signet singleton (M43). The unsuffixed source stays at fff3421c for the vault, test-caller and Signet-module ports."
+    },
+    {
       "name": "signet-midnight-examples",
       "url": "https://github.com/sig-net/midnight-examples",
       "rev": "0d9c16601d2f6712cad57cf5c240ec9a201d9932",

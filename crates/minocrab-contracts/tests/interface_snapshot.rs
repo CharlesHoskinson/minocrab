@@ -716,29 +716,34 @@ in  notification_payload_4: Scalar<BLS12-381>
     (
         "signet_contract::respond",
         "\
-in  requestId_hi: Scalar<BLS12-381>
-in  requestId_lo: Scalar<BLS12-381>
-in  bigR_x_hi: Scalar<BLS12-381>
-in  bigR_x_lo: Scalar<BLS12-381>
-in  bigR_y_hi: Scalar<BLS12-381>
-in  bigR_y_lo: Scalar<BLS12-381>
-in  s_hi: Scalar<BLS12-381>
-in  s_lo: Scalar<BLS12-381>
-in  recoveryId: Scalar<BLS12-381>
+in  signatureRespondedEvent_requestId_hi: Scalar<BLS12-381>
+in  signatureRespondedEvent_requestId_lo: Scalar<BLS12-381>
+in  signatureRespondedEvent_signature_bigR_x_hi: Scalar<BLS12-381>
+in  signatureRespondedEvent_signature_bigR_x_lo: Scalar<BLS12-381>
+in  signatureRespondedEvent_signature_bigR_y_hi: Scalar<BLS12-381>
+in  signatureRespondedEvent_signature_bigR_y_lo: Scalar<BLS12-381>
+in  signatureRespondedEvent_signature_s_hi: Scalar<BLS12-381>
+in  signatureRespondedEvent_signature_s_lo: Scalar<BLS12-381>
+in  signatureRespondedEvent_signature_recoveryId: Scalar<BLS12-381>
 ",
     ),
     (
         "signet_contract::respond_bidirectional",
         "\
-in  requestId_hi: Scalar<BLS12-381>
-in  requestId_lo: Scalar<BLS12-381>
-in  bigR_x_hi: Scalar<BLS12-381>
-in  bigR_x_lo: Scalar<BLS12-381>
-in  bigR_y_hi: Scalar<BLS12-381>
-in  bigR_y_lo: Scalar<BLS12-381>
-in  s_hi: Scalar<BLS12-381>
-in  s_lo: Scalar<BLS12-381>
-in  recoveryId: Scalar<BLS12-381>
+in  respondBidirectionalEvent_requestId_hi: Scalar<BLS12-381>
+in  respondBidirectionalEvent_requestId_lo: Scalar<BLS12-381>
+in  respondBidirectionalEvent_blockHeight: Scalar<BLS12-381>
+in  respondBidirectionalEvent_outputKind: Scalar<BLS12-381>
+in  respondBidirectionalEvent_serializedOutputLength: Scalar<BLS12-381>
+in  respondBidirectionalEvent_digest_hi: Scalar<BLS12-381>
+in  respondBidirectionalEvent_digest_lo: Scalar<BLS12-381>
+in  respondBidirectionalEvent_signature_bigR_x_hi: Scalar<BLS12-381>
+in  respondBidirectionalEvent_signature_bigR_x_lo: Scalar<BLS12-381>
+in  respondBidirectionalEvent_signature_bigR_y_hi: Scalar<BLS12-381>
+in  respondBidirectionalEvent_signature_bigR_y_lo: Scalar<BLS12-381>
+in  respondBidirectionalEvent_signature_s_hi: Scalar<BLS12-381>
+in  respondBidirectionalEvent_signature_s_lo: Scalar<BLS12-381>
+in  respondBidirectionalEvent_signature_recoveryId: Scalar<BLS12-381>
 ",
     ),
     (

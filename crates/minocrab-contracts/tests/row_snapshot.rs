@@ -73,7 +73,7 @@ const SNAPSHOT: &[(&str, u8, usize)] = &[
     ("erc20_vault_pending::refund_redeem", 16, 35635),
     ("signet_contract::sign_bidirectional", 11, 1205),
     ("signet_contract::respond", 10, 1004),
-    ("signet_contract::respond_bidirectional", 10, 1004),
+    ("signet_contract::respond_bidirectional", 11, 1330),
     ("attest::map_only", 8, 135),
     ("attest::verify_only", 15, 25276),
     ("attest::sha_verify", 16, 48988),
