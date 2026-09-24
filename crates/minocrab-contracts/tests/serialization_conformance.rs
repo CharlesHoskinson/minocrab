@@ -907,24 +907,20 @@ fn sign_bidirectional_misc_bytes_are_canonical_borsh() {
         .expect("signBidirectional's Misc payload is canonical Borsh");
 }
 
-/// `respond` and `respondBidirectional` — the same payload shape under two
-/// event names, each checked against its own corpus artifact.
+/// `respond` — requestId ‖ signature, checked against its corpus artifact.
+/// Until midnight-integration PR #127 `respondBidirectional` shared this
+/// payload under its own event name and sat in the same table; its payload
+/// now carries the attestation (height, kind, width, digest) between the id
+/// and the signature, a different Borsh record, and its byte-level tamper
+/// coverage lives in `signet_construction.rs` (M43 B).
 #[test]
 fn respond_misc_bytes_are_canonical_borsh() {
-    let circuits = [
-        (
-            "respond",
-            signet_contract::SIGNATURE_RESPONDED_EVENT,
-            signet_contract::SignetContract::respond().ir,
-            deployed::corpus_signet_zkir("respond"),
-        ),
-        (
-            "respondBidirectional",
-            signet_contract::RESPOND_BIDIRECTIONAL_EVENT,
-            signet_contract::SignetContract::respond_bidirectional().ir,
-            deployed::corpus_signet_zkir("respondBidirectional"),
-        ),
-    ];
+    let circuits = [(
+        "respond",
+        signet_contract::SIGNATURE_RESPONDED_EVENT,
+        signet_contract::SignetContract::respond().ir,
+        deployed::corpus_signet_zkir("respond"),
+    )];
     let strategy = (respond_misc(), 0usize..minocrab_contracts::events::MISC_SIZE);
     TestRunner::new(gen::config())
         .run(&strategy, |(payload, tamper)| {
@@ -958,7 +954,7 @@ fn respond_misc_bytes_are_canonical_borsh() {
             }
             Ok(())
         })
-        .expect("the respond circuits' Misc payloads are canonical Borsh");
+        .expect("respond's Misc payload is canonical Borsh");
 }
 
 // ---- the wrapper's transparency ----------------------------------------------
