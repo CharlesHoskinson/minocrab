@@ -787,12 +787,11 @@ where
 fn alloy_words(encoded: &[u8]) -> Vec<[u8; 32]> {
     let tail = &encoded[4..];
     assert_eq!(tail.len() % 32, 0, "a static encoding is whole words");
-    tail.chunks_exact(32)
-        .map(|w| {
-            let mut out = [0u8; 32];
-            out.copy_from_slice(w);
-            out
-        })
+    // `chunks`, not `chunks_exact`: clippy now asks for `as_chunks`, which is
+    // Rust 1.88, past the workspace's 1.85 floor; the assert above makes
+    // every chunk a whole word either way.
+    tail.chunks(32)
+        .map(|w| <[u8; 32]>::try_from(w).expect("a whole word"))
         .collect()
 }
 
