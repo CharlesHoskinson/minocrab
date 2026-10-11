@@ -938,24 +938,58 @@ impl Builder3 {
     /// `assert 1`, which is the shape the rule deletes. Before the fold it
     /// would see nothing. It is ALWAYS ON, like the fold and unlike the
     /// dedup: it removes a check that holds on every preimage, so `run` is
-    /// preserved exactly (`MinocrabProofs.AssertIr.dropTrueAsserts_preserves_run`),
-    /// and no shipped circuit contains its shape today — it is dormant until
-    /// the typed EVM-call API's constant-true outcome rule emits one
-    /// (notes/evm-calls.org §3.2).
+    /// preserved exactly (`MinocrabProofs.AssertIr.dropTrueAsserts_preserves_run`).
+    /// It fires on the typed EVM-call API's constant-true outcome rule
+    /// (notes/evm-calls.org §3.2): the `assert(imm 1)` in
+    /// `erc20_vault_pending::{complete_swap, complete_supply,
+    /// complete_redeem}` (notes/ir-passes.org §13).
+    ///
+    /// EVERY PASS HERE IS A FILTER — it deletes instructions, never inserts
+    /// or reorders — and builds its map through `passes::retain_kept`, which
+    /// is what lets [`Builder3::finish_kept`] say where each built
+    /// instruction went. A pass added here must be one too.
     pub fn finish(self, communications_commitment: bool) -> IrSource {
-        let instructions = passes::fold_immediate_copies(self.instructions);
-        let instructions = passes::drop_true_asserts(instructions);
-        let instructions = if self.dedup_constraints {
-            passes::dedup_range_constraints(instructions)
+        self.finish_kept(communications_commitment).0
+    }
+
+    /// [`Builder3::finish`], and where every built instruction went.
+    ///
+    /// The passes above DELETE instructions, so an index taken while
+    /// building (`self.len()` at some point) names a different instruction,
+    /// or none, in the finished stream. The returned [`passes::Kept`] maps a
+    /// build-time index onto the finished one: `position` for an
+    /// instruction, `boundary` for the end of a half-open span. It is the
+    /// composition of each pass's own map, in the order the passes ran.
+    pub fn finish_kept(self, communications_commitment: bool) -> (IrSource, passes::Kept) {
+        let built = self.instructions.len();
+        #[cfg(debug_assertions)]
+        let built_stream = self.instructions.clone();
+        let (instructions, kept) = passes::fold_immediate_copies_kept(self.instructions);
+        let (instructions, dropped) = passes::drop_true_asserts_kept(instructions);
+        let kept = kept.compose(&dropped);
+        let (instructions, kept) = if self.dedup_constraints {
+            let (instructions, deduped) = passes::dedup_range_constraints_kept(instructions);
+            (instructions, kept.compose(&deduped))
         } else {
-            instructions
+            (instructions, kept)
         };
-        IrSource {
+        // The map covers exactly the stream that was built and the one that
+        // ships: a pass run above without composing its map fails here.
+        assert_eq!(kept.input_len(), built, "finish_kept: the map must start at the built stream");
+        assert_eq!(
+            kept.output_len(),
+            instructions.len(),
+            "finish_kept: compose every pass's map, in the order the passes run"
+        );
+        #[cfg(debug_assertions)]
+        passes::check_kept(&built_stream, &instructions, &kept);
+        let ir = IrSource {
             version: Default::default(),
             inputs: self.inputs,
             outputs: self.outputs.unwrap_or_default(),
             do_communications_commitment: communications_commitment,
             instructions: Arc::new(instructions),
-        }
+        };
+        (ir, kept)
     }
 }

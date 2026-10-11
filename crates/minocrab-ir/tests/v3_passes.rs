@@ -8,6 +8,10 @@
 //! implied is a missing range check, and an `assert` removed where it could
 //! fail is a missing check outright: both are invisible to every differential
 //! on an honest preimage.
+//!
+//! The last section pins the map `Builder3::finish_kept` composes from what
+//! each pass dropped, which carries build-time instruction indices onto the
+//! finished stream (§13).
 
 use minocrab_ir::v3::{passes::dedup_range_constraints, Builder3, IrType};
 use minocrab_zkir::v3::{Identifier, Instruction, Operand};
@@ -414,4 +418,47 @@ fn the_drop_is_a_verified_pass_in_the_finish_order() {
         !reports.iter().flat_map(|r| r.warnings.iter()).any(|w| w.contains("UNVERIFIED")),
         "no proof drift expected: {reports:?}",
     );
+}
+
+// ---- `Kept`: build-time indices onto the finished stream ---------------------
+//
+// notes/ir-passes.org §13. Every pass in `finish` only deletes, so each
+// reports one kept-or-dropped bit per input instruction, and
+// `Builder3::finish_kept` composes the three. The frontend moves its assert
+// messages and regions with that map. Each pass's own map is pinned beside
+// it (`passes/kept.rs`, on fixed and on random streams); this pins the
+// composition through `finish_kept`.
+
+/// Composition, through `finish_kept` with every pass on: the build-time
+/// index of each surviving instruction names that instruction in the
+/// finished stream, and `finish` is `finish_kept`'s stream.
+#[test]
+fn finish_kept_maps_build_indices_through_all_three_passes() {
+    let build = |b: &mut Builder3| {
+        b.dedup_range_constraints(true);
+        let x = b.input("x", IrType::Native);
+        let p = b.input("p", IrType::Native);
+        let one = b.copy(minocrab_ir::Fr::from(1u64)); // 0: folded
+        b.assert(one); // 1: dropped (assert 1 after the fold)
+        b.constrain_bits(x, 64); // 2: kept
+        b.constrain_bits(x, 64); // 3: deduped
+        b.assert(p); // 4: kept
+    };
+    let mut b = Builder3::new();
+    build(&mut b);
+    let (ir, kept) = b.finish_kept(false);
+    let mut again = Builder3::new();
+    build(&mut again);
+    assert_eq!(ir.instructions.to_vec(), again.finish(false).instructions.to_vec());
+
+    assert_eq!((kept.input_len(), kept.output_len()), (5, ir.instructions.len()));
+    assert_eq!(
+        (0..5).map(|i| kept.position(i)).collect::<Vec<_>>(),
+        [None, None, Some(0), None, Some(1)]
+    );
+    assert!(matches!(ir.instructions[1], Instruction::Assert { .. }));
+    // A span over only dropped instructions is empty; one over all five
+    // holds the two survivors.
+    assert_eq!((kept.boundary(0), kept.boundary(2)), (0, 0));
+    assert_eq!((kept.boundary(0), kept.boundary(5)), (0, 2));
 }

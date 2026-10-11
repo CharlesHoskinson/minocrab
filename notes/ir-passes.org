@@ -787,7 +787,7 @@ is forced in one direction and free in the other:
 Same caveat as the fold, inherited rather than introduced: =AssertMessage= and
 region indices are recorded at BUILD time, so a pass that removes an
 instruction shifts them. Pre-existing since §8; the dedup does not make it
-worse and does not fix it.
+worse and does not fix it. FIXED 2026-10-10, §13.
 
 ** WHAT FIX 2 BUILT ON TOP, and why it is a mode rather than a twin
 
@@ -967,7 +967,7 @@ the verdict identical to the run without it, while =imm 0=, =imm 2= and
 =imm -1= each REJECT. The theorem is the general claim; these are the
 witnesses that the two immediates really do fall on opposite sides.
 
-** ZERO MOVEMENT, MEASURED — the rule is DORMANT today
+** ZERO MOVEMENT, MEASURED — the rule is DORMANT today (SUPERSEDED 2026-10-10, §13: it fires on the =Pending= settles)
 
 Both dumps (=MINOCRAB_ZKIR_DUMP=, all 211 workspace circuits) with and
 without the pass wired into =finish=: *=diff -r= EMPTY*. =row_snapshot= under
@@ -978,7 +978,8 @@ That is not luck, it is the same measurement said forward: scanning every v3
 the 209 v3 artifacts under =corpus/= and =crates/= — finds *ZERO* whose
 =cond= is an immediate. Every one names a wire. So the rule removes nothing
 we ship today and is dormant until the typed EVM-call API's constant-true
-outcome rule emits its first one.
+outcome rule emits its first one. No longer dormant: the =Pending= settles
+emit it, and the rule removes it there (§13).
 
 ** =folded= DOES NOT GET IT, deliberately
 
@@ -1000,14 +1001,16 @@ the positions after it. Pre-existing since §8 and restated in §11; this rule
 inherits it and does not make it worse. The one thing it could have added — a
 message stranded on a DELETED assert — is not a new failure mode either: the
 deleted assert is the one that can never fail, so its message could never
-have been printed.
+have been printed. FIXED 2026-10-10, §13 — and the "never printed" half was
+too generous: the stranded message did not vanish, it shifted onto whatever
+instruction took its index.
 
 ** The pass ledger, updated
 
 | pass | vs compactc | gate |
 |------+-------------+------|
 | =fold_immediate_copies= | diverges by inlining (§8) | always on, both sides normalised |
-| =drop_true_asserts= | neutral (no artifact has the shape) | always on, =run= preserved in Lean |
+| =drop_true_asserts= | neutral (no compactc artifact has the shape); fires on =erc20_vault_pending::{complete_swap, complete_supply, complete_redeem}= (§13) | always on, =run= preserved in Lean |
 | =dedup_range_constraints= | prospective (§11) | opt-in, M10 warrant |
 
 =builtin_names()= is now the three, in =finish='s order, and
@@ -1015,3 +1018,204 @@ have been printed.
 =crates/minocrab-ir/tests/v3_passes.rs=, the =drop_true_asserts= section —
 the rule, the three refusals, the order through =finish=, the report's
 warnings, and the verified pipeline in =finish='s own order.
+
+* 13. BUILD-TIME INDICES, carried across the passes (2026-10-10)
+
+The caveat §11 and §12 recorded (pre-existing since §8's fold) was a live
+bug, not a theoretical one. =Circuit3= records two kinds of instruction
+index while it builds — =AssertMessage.instruction= (=v3/effects.rs=,
+=emit_assert=) and =Region='s =[start, end)= (=Circuit3::region=) — as
+=self.b.len()= at that moment, and =Builder3::finish= then deletes
+instructions: the copy fold on every circuit, the true-assert rule, and the
+dedup where the opt profile turns it on. Every index after a deleted
+instruction ran ahead of =Compiled3::ir=, so =Compiled3::assert_message(at)=
+— which =minocrab_sim::v3::simulate_compiled= uses to name a failed check —
+and =minocrab_sim::v3::profile= read the wrong instruction.
+
+** THE MEASUREMENT, on the 214 workspace circuits before the fix
+
+- 260 assert messages: 169 named an instruction that was not an =assert=
+  (3 of them belong to an assert the true-assert rule deletes); 12 named a
+  DIFFERENT assert, in four circuits; 79 were right.
+- 348 regions: 73 ran past the end of the stream. Of the other 275, 266
+  were shifted late by the copies the fold removed in front of them, and 9
+  did not move.
+- 56 circuits had a message off an assert or a region out of range.
+
+The wrong-assert cases are the ones a user sees. In =erc20_vault::initialise=
+(and =erc20_vault_pending::initialize=) a zero router failed with "Chain ID
+must be positive", a zero =stataUnderlying= with "Router cannot be zero",
+and a zero =stataToken= with "stataUnderlying cannot be zero" — each message
+one check late, because the fold removed copies in front of them.
+=erc20_vault::start_swap= reported "tokenOut cannot be zero" for a zero
+=amountOut=, and =manager::execute= reported "account already registered"
+for a swap that did not want a positive amount.
+
+** A CORRECTION TO §12: the true-assert rule is no longer dormant
+
+The three messages on deleted asserts are "The attested call did not
+succeed" in =erc20_vault_pending::{complete_swap, complete_supply,
+complete_redeem}= — the =Always= outcome rule's =assert(imm 1)=, which is
+exactly the shape §12 built the rule for. §12's "removes nothing we ship
+today" was true on 2026-09-06; the =Pending= settles have since emitted it,
+and the rule removes it there, as designed. §12's heading and ledger row
+carry the pointer.
+
+** THE FIX: every pass in =finish= is a filter, and says so in one place
+
+Every pass =Builder3::finish= runs is a FILTER — its output is a
+subsequence of its input, in order, with operands rewritten at most (the
+Lean models prove it of the algorithms: =dedup_sublist=,
+=dropTrueAsserts_sublist=, =fold_is_filter_map=) — so one kept-or-dropped
+bit per input instruction determines where everything went. The rule is
+ENFORCED, not just stated: all three passes delete through one helper,
+=passes::retain_kept=, which runs the pass's keep decision under
+=Vec::retain_mut= (each instruction once, in order) and records that same
+return value as the instruction's bit. The pass cannot drop an instruction
+without the map saying so, and cannot insert or reorder at all. The
+=_kept= passes return a =Kept= beside the stream; the unsuffixed passes are
+them with the map dropped. =Builder3::finish_kept= composes the maps in pass
+order (=Kept::compose=), asserts that the result starts at the built
+stream's length and ends at the finished one's (a pass added to =finish=
+without composing its map fails there), and under =debug_assertions=
+re-checks the law against both streams (=passes::check_kept=: each kept
+instruction is the finished instruction at its position, operands included,
+modulo the fold's variable-to-immediate rewrite; each dropped one is of a
+kind some pass deletes). =finish= is its stream. The =Pass= trait's docs
+state the filter rule for any pass that would join =finish=.
+
+=Kept= stores the running count of survivors, =before[i]= = how many of the
+first =i= instructions were kept, which gives the two maps the frontend
+needs:
+
+- =position(i)= — where instruction =i= landed, or =None= if it was
+  deleted. =Circuit3::finish= moves each =AssertMessage= by it and DROPS the
+  message whose assert was deleted (only the true-assert rule deletes an
+  =assert=, and that assert cannot fail).
+- =boundary(i)= — where the boundary in front of =i= landed. A region's
+  =[start, end)= maps to =[boundary(start), boundary(end))=, which holds
+  exactly the region's survivors in order, is empty when none survived, and
+  keeps nesting because =boundary= is monotone.
+
+=Circuit3::finish= then checks, under =debug_assertions= and without going
+through =boundary=, that each surviving message sits on its own assert's
+finished position in build order and that each region is exactly the run of
+positions its surviving instructions landed on. Every circuit any test
+builds runs both debug checks, so all 214 workspace circuits re-prove the
+mapping on every =cargo test=.
+
+Why this and not reconstruction after the fact: matching the finished
+stream back against the built one is easy for the passes that rewrite
+nothing and needs an argument for the fold, which rewrites operands; the
+bit recorded as the decision needs none. And why not record indices late:
+the regions and messages are taken where the author writes them, which is
+before any pass can run.
+
+** The API, and two panics for dmd
+
+=Kept= is INTERNAL TIER: it lives in the private =passes::kept= module and
+is re-exported from =passes= only under =unstable=, beside
+=Builder3::finish_kept=, its one producer. It bakes in "every pass in
+=finish= is a filter", which is a fact about today's =finish= and not a
+promise for the semver tier (notes/library-api.org §1). The =_kept= passes,
+=retain_kept=, =Kept::identity= and =Kept::compose= are crate-private;
+=compose='s length check is an internal invariant of =finish_kept=.
+
+Two rejections on the unstable surface are build-time panics, because the
+bound is a stream length known only at run time (the ladder's last rung):
+=Kept::position(i)= panics for =i >= input_len()= and =Kept::boundary(i)=
+for =i > input_len()=, each with a message naming the stream's length and
+saying to take the index from the same =Builder3= before =finish=. They
+exist so that =None= from =position= means "deleted" and nothing else: an
+index from the wrong builder would otherwise drop a message or clamp a
+region silently, the bug class this section fixes. RECORDED FOR DMD.
+
+** Proof and model status
+
+The pass BODIES changed shape: the fold and the dedup now decide inside a
+=retain_kept= closure instead of pushing onto a fresh vector, and
+=drop_true_asserts= is a =retain_kept= over =!is_true_assert=. Signatures
+and outputs did not change (the =_kept= passes equal the unsuffixed ones on
+100,000 random streams, =passes/kept.rs=). The Lean correspondence covers
+the algorithm as transcribed and rests on review that the Rust implements
+it; the new bodies were re-read against =FoldIr.lean=, =AssertIr.lean= and
+=DedupIr.lean= and are the same algorithm. The Kani stream harnesses are
+the non-closing specimens they were. The metadata remap itself — =Kept=,
+its composition, =Circuit3::finish='s moves — is NOT covered by any proof:
+it is tested (fixed and random streams per pass, random =Circuit3=
+programs, the debug checks on every built circuit), with the Lean
+=*_sublist= theorems as the warrant for the one property it depends on.
+
+** What else holds a build-time index, checked
+
+- =Disclosure3= holds NAMES (=DisclosedWire::Named=) or the folded constant
+  (=DisclosedWire::Constant=), never an index — unaffected, by §8's design.
+- =Circuit3::instruction_count= / =Builder3::len= are read DURING the build
+  (the entry core's "declaration emitted nothing" check, the disclose
+  tests' "costs no instruction"), where build-time is the right time — with
+  one exception that indexed the FINISHED stream: =minocrab-sim='s
+  =cryptocost= example sliced =est_rows(&compiled.ir)[before..]= with a
+  build-time =instruction_count()=. It was right only because the six
+  frame instructions in front of the ECDSA verify survive every pass. It
+  now measures the verify as a region of the finished stream; its output is
+  byte-identical.
+- The deferred hooks (=Circuit3::then=) hold lowered ops and a guard =Val=,
+  and are emitted before =finish= runs its passes.
+- =minocrab_sim::v3::profile= and =name_the_failed_assert= consume
+  =Compiled3::regions= / =assert_messages= — fixed through them, no change of
+  their own. =minocrab-bench='s =write_profiles= runs =profile()= on the
+  eDSL =Compiled3= of every benchmark circuit (compactc's parsed =.zkir=
+  carries no regions), so =target/bench/profiles/= is fixed through it too
+  and differs from any earlier run.
+- =passes::run_pipeline= and the CLI run over a bare instruction stream with
+  no metadata beside it, so there is nothing for them to move.
+
+** Region-attributed figures computed with the shifted spans
+
+Every region profile before this fix charged instructions to the wrong
+region wherever copies were folded in front of it. Affected, and not
+regenerated here: notes/benchmark.org "Ranked M7 optimisation targets" (the
+per-region instruction counts and shares: 198 for "signet: attestation
+verify", 288/256/211 for "abi words", 160 for "signet: notification"), and
+=BENCHMARK.md='s "confirmed by the region profiler under
+=target/bench/profiles/=" beside the 95–99% hash share (the per-circuit
+budgets themselves come from =cryptocost='s primitive costs and are
+unaffected). Per the house rule, any of these restated as current needs a
+fresh single-session =./bench.sh= (=minocrab-bench --profiles= alone
+refreshes the profiles without proving). The M7 list is a dated record of
+the circuits as they were, and notes/benchmark.org says so beside it.
+
+** Gates
+
+Zero movement: the 214-circuit ZKIR dump is byte-identical before and after
+(=diff -rq= empty) — the fix touches no instruction, only the metadata
+beside the stream. Pinned by:
+
+- =crates/minocrab-ir/src/v3/passes/kept.rs= (unit tests): each pass's map
+  against an independent expectation, operands included, on a fixed stream
+  with two distinct surviving asserts and on 100,000 random streams per
+  pass; composition equal to stepwise =position= and associative; the
+  identity; the three panics; the empty stream.
+- =crates/minocrab-ir/tests/v3_passes.rs=: the composition through
+  =finish_kept= with all three passes on.
+- =crates/minocrab/src/v3.rs=
+  (=assert_messages_survive_the_passes_that_drop_instructions=,
+  =regions_survive_the_passes_that_drop_instructions=, both failing before
+  the fix with the shapes above).
+- =crates/minocrab-sim/tests/v3_metadata.rs=: 5,000 random =Circuit3=
+  programs, half under the opt profile — each message on its own assert
+  (the argument or immediate it was written on), the dropped ones gone,
+  each region holding exactly its own messages and surviving instruction
+  count, regions nested or disjoint. Fails at program 5 before the fix.
+- =crates/minocrab-sim/tests/v3_end_to_end.rs=: a failing check reported
+  through =simulate_compiled= with its own message and a region profiled
+  with its own instruction, once with the fold and the true-assert rule and
+  once under the opt profile with a deduped constraint emptying its region
+  and a guarded assert.
+- =crates/minocrab-contracts/tests/metadata_indices.rs=: all 214 circuits
+  built (so both debug checks run on each), every message on an =assert= at
+  strictly rising positions, every region in range and nested or disjoint,
+  the counts pinned (257 messages, 348 regions) with the three dropped
+  messages named; and =erc20_vault::initialise= reporting each of its four
+  argument checks with its own message. Before the fix: 242 findings, and
+  a zero chain id reported "failed direct assertion".

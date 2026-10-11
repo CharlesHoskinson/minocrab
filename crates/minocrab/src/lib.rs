@@ -186,7 +186,9 @@ pub enum DisclosureKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Region {
     pub label: String,
-    /// Instruction index range [start, end).
+    /// Instruction index range [start, end) — of the FINISHED stream once
+    /// the circuit is finished, which moves it across the instructions the
+    /// IR passes delete (a region left with none is empty, `start == end`).
     pub start: usize,
     pub end: usize,
 }

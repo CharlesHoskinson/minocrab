@@ -852,7 +852,9 @@ impl<V: Visibility> Assertion for Wire3<FieldT, V> {
 /// uses it to name a failed check.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssertMessage {
-    /// Index of the `Assert` instruction this message belongs to.
+    /// Index of the `Assert` instruction this message belongs to — in the
+    /// FINISHED stream (`Compiled3::ir`) once [`Circuit3::finish`] has run,
+    /// which moves it across the instructions the passes delete.
     pub instruction: usize,
     /// What the check means, in the contract author's words.
     pub message: String,
@@ -2024,13 +2026,71 @@ impl Circuit3 {
                 .collect();
             self.b.output(&vals);
         }
+        // Regions and assert messages hold BUILD-time indices; the passes in
+        // `finish` delete instructions, so move both onto the finished stream
+        // (notes/ir-passes.org §13). A message whose assert was deleted goes
+        // with it; a region whose instructions were all deleted is empty.
+        let (ir, kept) = self.b.finish_kept(communications_commitment);
+        #[cfg(debug_assertions)]
+        let built = (self.regions.clone(), self.assert_messages.clone());
+        let regions: Vec<Region> = self
+            .regions
+            .into_iter()
+            .map(|r| Region {
+                start: kept.boundary(r.start),
+                end: kept.boundary(r.end),
+                label: r.label,
+            })
+            .collect();
+        let assert_messages: Vec<AssertMessage> = self
+            .assert_messages
+            .into_iter()
+            .filter_map(|m| {
+                kept.position(m.instruction).map(|instruction| AssertMessage {
+                    instruction,
+                    message: m.message,
+                })
+            })
+            .collect();
+        #[cfg(debug_assertions)]
+        moved_onto_the_finished_stream(&kept, &built.0, &built.1, &regions, &assert_messages);
         Compiled3 {
-            ir: self.b.finish(communications_commitment),
+            ir,
             disclosures: self.disclosures,
             witnesses: self.witnesses,
-            regions: self.regions,
-            assert_messages: self.assert_messages,
+            regions,
+            assert_messages,
         }
+    }
+}
+
+/// The metadata `Circuit3::finish` moved, checked one instruction at a time
+/// rather than through `Kept::boundary` (debug builds; `Builder3::finish_kept`
+/// has already checked each kept instruction against the one it became):
+/// every message whose assert survived sits at that assert's finished
+/// position, in build order, and every region is exactly the run of finished
+/// positions its surviving instructions landed on.
+#[cfg(debug_assertions)]
+fn moved_onto_the_finished_stream(
+    kept: &minocrab_ir::v3::passes::Kept,
+    built_regions: &[Region],
+    built_messages: &[AssertMessage],
+    regions: &[Region],
+    messages: &[AssertMessage],
+) {
+    let survivors: Vec<(usize, &str)> = built_messages
+        .iter()
+        .filter_map(|m| kept.position(m.instruction).map(|at| (at, m.message.as_str())))
+        .collect();
+    let moved: Vec<(usize, &str)> = messages.iter().map(|m| (m.instruction, m.message.as_str())).collect();
+    assert_eq!(moved, survivors, "Circuit3::finish: a message left its assert");
+    for (built, region) in built_regions.iter().zip(regions) {
+        let landed: Vec<usize> = (built.start..built.end).filter_map(|i| kept.position(i)).collect();
+        let span: Vec<usize> = (region.start..region.end).collect();
+        assert_eq!(landed, span, "Circuit3::finish: region {:?} left its instructions", region.label);
+        // An emptied region sits where its instructions were: after the
+        // survivors in front of it.
+        assert_eq!(region.start, kept.boundary(built.start), "region {:?}", region.label);
     }
 }
 
@@ -2057,5 +2117,99 @@ mod tests {
         let compiled = c.finish(false);
         assert_eq!(compiled.witnesses, 2);
         assert_eq!(compiled.ir.outputs.len(), 1);
+    }
+
+    /// The final-stream index of every `Assert`, in order.
+    fn assert_positions(compiled: &Compiled3) -> Vec<usize> {
+        use minocrab_ir::v3::Instruction;
+        compiled
+            .ir
+            .instructions
+            .iter()
+            .enumerate()
+            .filter(|(_, i)| matches!(i, Instruction::Assert { .. }))
+            .map(|(at, _)| at)
+            .collect()
+    }
+
+    /// `finish` drops instructions (the copy fold, the true-assert rule),
+    /// and every message must still name the assert it was written on. Here
+    /// `c.assert_with(c.constant(1), ..)` is `copy %k = 1; assert %k`: the
+    /// fold removes the copy and the true-assert rule removes the assert, so
+    /// two instructions vanish in front of the three real asserts. A message
+    /// recorded at its build-time index then lands two asserts late — "x
+    /// must hold" on the `z` check — and the dropped assert's message must
+    /// go with it.
+    #[test]
+    fn assert_messages_survive_the_passes_that_drop_instructions() {
+        let mut c = Circuit3::new();
+        let x = c.arg::<FieldT>("x");
+        let y = c.arg::<FieldT>("y");
+        let z = c.arg::<FieldT>("z");
+        let one = c.constant(1u64);
+        c.assert_with(one, Some("cannot fail"));
+        c.assert_with(x, Some("x must hold"));
+        c.assert_with(y, Some("y must hold"));
+        c.assert_with(z, Some("z must hold"));
+        let compiled = c.finish(false);
+
+        let asserts = assert_positions(&compiled);
+        assert_eq!(asserts.len(), 3, "the constant-true assert is dropped");
+        let named: Vec<Option<&str>> = asserts
+            .iter()
+            .map(|&at| compiled.assert_message(at))
+            .collect();
+        assert_eq!(
+            named,
+            [Some("x must hold"), Some("y must hold"), Some("z must hold")]
+        );
+        assert_eq!(
+            compiled.assert_messages.len(),
+            3,
+            "the dropped assert's message is dropped with it"
+        );
+        for m in &compiled.assert_messages {
+            assert!(asserts.contains(&m.instruction), "{m:?} names no assert");
+        }
+    }
+
+    /// A region's `[start, end)` is the same build-time position, and moves
+    /// the same way: a folded copy in front of a region shifts the span one
+    /// instruction late, so the region labelled for the `x` check covered
+    /// the `y` check instead. A region whose only instructions were dropped
+    /// is empty, and a region around both keeps both.
+    #[test]
+    fn regions_survive_the_passes_that_drop_instructions() {
+        let mut c = Circuit3::new();
+        let x = c.arg::<FieldT>("x");
+        let y = c.arg::<FieldT>("y");
+        c.region("outer", |c| {
+            c.region("folded away", |c| {
+                let one = c.constant(1u64);
+                c.assert(one);
+            });
+            c.region("x check", |c| c.assert(x));
+        });
+        c.region("y check", |c| c.assert(y));
+        let compiled = c.finish(false);
+
+        let asserts = assert_positions(&compiled);
+        assert_eq!(asserts.len(), 2);
+        let span = |label: &str| {
+            let r = compiled
+                .regions
+                .iter()
+                .find(|r| r.label == label)
+                .expect("region recorded");
+            (r.start, r.end)
+        };
+        assert_eq!(span("folded away"), (asserts[0], asserts[0]));
+        assert_eq!(span("x check"), (asserts[0], asserts[0] + 1));
+        assert_eq!(span("outer"), (asserts[0], asserts[0] + 1));
+        assert_eq!(span("y check"), (asserts[1], asserts[1] + 1));
+        let len = compiled.ir.instructions.len();
+        for r in &compiled.regions {
+            assert!(r.start <= r.end && r.end <= len, "{r:?} out of range");
+        }
     }
 }

@@ -379,3 +379,100 @@ fn circuit3_frontend_end_to_end() {
     assert_eq!(run.outputs, vec![IrValue::Native(expected)]);
     assert_eq!(compiled.disclosures.len(), 2);
 }
+
+/// A failed assert is reported with ITS message and a profile charges each
+/// region its own instructions, after `finish` has deleted instructions in
+/// front of both. `c.assert_with(c.constant(1), ..)` is a copy and an
+/// `assert 1`, both removed by the passes; before the build-time indices
+/// were moved onto the finished stream, a failing `z` check reported "x
+/// must hold" and the `z check` region held nothing (notes/ir-passes.org
+/// §13).
+#[test]
+fn a_failed_assert_and_a_region_survive_the_dropping_passes() {
+    use minocrab::v3::{Circuit3, FieldT};
+    use minocrab_sim::v3::{profile, simulate_compiled};
+
+    let mut c = Circuit3::new();
+    let x = c.arg::<FieldT>("x");
+    let y = c.arg::<FieldT>("y");
+    let z = c.arg::<FieldT>("z");
+    let one = c.constant(1u64);
+    c.assert_with(one, Some("cannot fail"));
+    c.assert_with(x, Some("x must hold"));
+    c.assert_with(y, Some("y must hold"));
+    c.region("z check", |c| c.assert_with(z, Some("z must hold")));
+    let compiled = c.finish(false);
+
+    let one_ = Fr::from(1u64);
+    let zero = Fr::from(0u64);
+    accept(&compiled.ir, &preimage(&[one_, one_, one_], &[], &[], &[]));
+    reject(&compiled.ir, &preimage(&[one_, one_, zero], &[], &[], &[]));
+    match simulate_compiled(&compiled, &preimage(&[one_, one_, zero], &[], &[], &[])) {
+        Err(Sim3Error::Failed { op: "assert", message, .. }) => {
+            assert_eq!(message, "failed assertion: z must hold")
+        }
+        other => panic!("expected the z assert to fail, got {other:?}"),
+    }
+
+    let z_check = profile(&compiled)
+        .regions
+        .into_iter()
+        .find(|r| r.label == "z check")
+        .expect("the region is profiled");
+    assert_eq!(z_check.instructions, 1);
+    assert_eq!(z_check.op_counts.get("assert"), Some(&1));
+}
+
+/// The same under the opt profile, with all three deleting passes firing and
+/// a guarded assert: a redundant 64-bit constraint after an 8-bit one is
+/// deduped out of its own region (which is left empty), a constant-true
+/// assert is folded and dropped, and both the guarded check and the plain
+/// one after it still fail with their own messages and are profiled in
+/// their own regions.
+#[test]
+fn messages_and_regions_survive_the_dedup_and_a_guarded_assert() {
+    use minocrab::v3::{Circuit3, FieldT};
+    use minocrab_sim::v3::{profile, simulate_compiled};
+
+    let mut c = Circuit3::new();
+    c.dedup_range_constraints(true);
+    let x = c.arg::<FieldT>("x");
+    let g = c.arg::<FieldT>("g");
+    let z = c.arg::<FieldT>("z");
+    let w = c.arg::<FieldT>("w");
+    c.assert_bits(x, 8);
+    c.region("redundant", |c| {
+        c.assert_bits(x, 64);
+    });
+    let one = c.constant(1u64);
+    c.assert_with(one, Some("cannot fail"));
+    c.region("guarded", |c| {
+        c.when_private(g, |c| c.assert_with(z, Some("z must hold under g")));
+    });
+    c.region("w check", |c| c.assert_with(w, Some("w must hold")));
+    let compiled = c.finish(false);
+
+    let (one_, zero) = (Fr::from(1u64), Fr::from(0u64));
+    accept(&compiled.ir, &preimage(&[one_, one_, one_, one_], &[], &[], &[]));
+    accept(&compiled.ir, &preimage(&[one_, zero, zero, one_], &[], &[], &[]));
+    for (inputs, want) in [
+        ([one_, one_, zero, one_], "failed assertion: z must hold under g"),
+        ([one_, one_, one_, zero], "failed assertion: w must hold"),
+    ] {
+        let pi = preimage(&inputs, &[], &[], &[]);
+        reject(&compiled.ir, &pi);
+        match simulate_compiled(&compiled, &pi) {
+            Err(Sim3Error::Failed { op: "assert", message, .. }) => assert_eq!(message, want),
+            other => panic!("expected {want:?}, got {other:?}"),
+        }
+    }
+
+    assert_eq!(compiled.assert_messages.len(), 2, "the constant-true assert's message goes with it");
+    let redundant = compiled.regions.iter().find(|r| r.label == "redundant").expect("recorded");
+    assert_eq!(redundant.start, redundant.end, "the deduped constraint left it empty");
+    let regions = profile(&compiled).regions;
+    let region = |label: &str| regions.iter().find(|r| r.label == label).expect("profiled");
+    assert_eq!(region("guarded").op_counts.get("assert"), Some(&1));
+    assert_eq!(region("w check").instructions, 1);
+    assert_eq!(region("w check").op_counts.get("assert"), Some(&1));
+}

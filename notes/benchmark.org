@@ -81,6 +81,10 @@ Region spans landed with this run (helpers annotate all 12 circuits;
 innermost region wins; regenerate with minocrab-bench --profiles — no
 proving needed). Instruction shares below; div_mod_power_of_two +
 reconstitute_field chains dominate every top region.
+(2026-10-10: these region figures were computed with spans that ran late
+by the copies folded in front of them; notes/ir-passes.org §13. A dated
+record of the circuits as they were, not regenerated; a fresh
+=minocrab-bench --profiles= gives the corrected attribution.)
 1. reverse_bytes32 in the ECDSA attestation verify: "signet:
    attestation verify" is 198 instructions (180 of them div_mod +
    reconstitute from the two byte-order reversals) — 45% of claim, 30%

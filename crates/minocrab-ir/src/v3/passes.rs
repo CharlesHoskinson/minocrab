@@ -59,6 +59,14 @@ impl<V> AssocMap<V> {
 use minocrab_zkir::v3::{Identifier, Instruction, IrSource, Operand};
 use minocrab_zkir::Fr;
 
+mod kept;
+use kept::retain_kept;
+/// INTERNAL TIER (`unstable`): the map `Builder3::finish_kept` returns.
+#[cfg(feature = "unstable")]
+pub use kept::Kept;
+#[cfg(not(feature = "unstable"))]
+use kept::Kept;
+
 /// Fold every `Copy` of an immediate into its consumers and drop it.
 ///
 /// This is what makes the named-immediate special cases unnecessary: every
@@ -82,9 +90,16 @@ use minocrab_zkir::Fr;
 /// `c.output(..)` on something that was never named) are not this pass's
 /// business — it only ever removes instructions it can prove are renames.
 pub fn fold_immediate_copies(instructions: Vec<Instruction>) -> Vec<Instruction> {
+    fold_immediate_copies_kept(instructions).0
+}
+
+/// [`fold_immediate_copies`], and the `Kept` map of which instructions it
+/// dropped (exactly the folded copies).
+pub(crate) fn fold_immediate_copies_kept(instructions: Vec<Instruction>) -> (Vec<Instruction>, Kept) {
     let named = immediate_copies(&instructions);
     if named.is_empty() {
-        return instructions;
+        let kept = Kept::identity(instructions.len());
+        return (instructions, kept);
     }
     let returned = returned_identifiers(&instructions);
 
@@ -106,20 +121,53 @@ pub fn fold_immediate_copies(instructions: Vec<Instruction>) -> Vec<Instruction>
         }
     };
 
-    let mut out = Vec::with_capacity(instructions.len());
-    for mut instruction in instructions {
-        for op in operands_mut(&mut instruction) {
+    retain_kept(instructions, |instruction| {
+        for op in operands_mut(instruction) {
             subst(op);
         }
         // Drop the copy itself, now that nothing names it.
-        if let Instruction::Copy { val: _, output } = &instruction {
-            if folded.contains(&output.0) {
-                continue;
+        !matches!(instruction, Instruction::Copy { val: _, output } if folded.contains(&output.0))
+    })
+}
+
+/// The `Kept` law, checked against the two streams it describes: each
+/// built instruction the map keeps is, at the position the map gives, the
+/// same instruction with at most a variable operand replaced by an immediate
+/// (the fold's one rewrite), and each one it drops is of a kind some pass in
+/// `Builder3::finish` deletes. `Builder3::finish_kept` runs it under
+/// `debug_assertions`, so every circuit a test builds re-proves that its
+/// assert messages and regions name their own instructions.
+pub(crate) fn check_kept(built: &[Instruction], finished: &[Instruction], kept: &Kept) {
+    assert_eq!(kept.input_len(), built.len(), "Kept law: the map starts at the built stream");
+    assert_eq!(kept.output_len(), finished.len(), "Kept law: the map ends at the finished stream");
+    for (index, instruction) in built.iter().enumerate() {
+        match kept.position(index) {
+            Some(at) => {
+                let mut expected = instruction.clone();
+                let mut landed = finished[at].clone();
+                for (want, got) in operands_mut(&mut expected).into_iter().zip(operands_mut(&mut landed)) {
+                    if matches!((&*want, &*got), (Operand::Variable(_), Operand::Immediate(_))) {
+                        *want = got.clone();
+                    }
+                }
+                assert_eq!(
+                    expected, finished[at],
+                    "Kept law: built instruction {index} is not the finished instruction {at}"
+                );
             }
+            None => assert!(
+                matches!(
+                    instruction,
+                    Instruction::Copy { .. }
+                        | Instruction::Assert { .. }
+                        | Instruction::ConstrainBits { .. }
+                        | Instruction::ConstrainToBoolean { .. }
+                ),
+                "Kept law: built instruction {index} ({instruction:?}) was dropped, and no pass in \
+                 finish deletes that kind"
+            ),
         }
-        out.push(instruction);
     }
-    out
 }
 
 /// Delete every `Assert` whose condition is the IMMEDIATE 1 — the check that
@@ -155,20 +203,24 @@ pub fn fold_immediate_copies(instructions: Vec<Instruction>) -> Vec<Instruction>
 /// a check that already held on every preimage, so the accepted set is
 /// unchanged (`MinocrabProofs.AssertIr.dropTrueAsserts_preserves_run`).
 ///
-/// # Instruction indices shift, exactly as the copy fold already shifts them
+/// # Instruction indices shift, and the `Kept` map carries them across
 ///
 /// `AssertMessage.instruction` and `Region`'s `[start, end)` are recorded at
 /// BUILD time (`minocrab::v3`), so any pass that removes an instruction moves
-/// the positions after it. Pre-existing since the copy fold (notes/
-/// ir-passes.org §8, restated in §11); this rule inherits it and does not
-/// widen it. The one thing it could have added — a message stranded on a
-/// DELETED assert — is not a new failure mode either: the deleted assert is
-/// the one that can never fail, so its message could never have been printed.
+/// the positions after it. Inside `Builder3::finish` this rule reports which
+/// ones it removed, and `Builder3::finish_kept` composes that with the other
+/// passes' maps so the frontend can move its
+/// indices onto the finished stream (notes/ir-passes.org §13). A message on
+/// a DELETED assert is dropped with it: that assert could never fail, so the
+/// message could never have been printed.
 pub fn drop_true_asserts(instructions: Vec<Instruction>) -> Vec<Instruction> {
-    instructions
-        .into_iter()
-        .filter(|instruction| !is_true_assert(instruction))
-        .collect()
+    drop_true_asserts_kept(instructions).0
+}
+
+/// [`drop_true_asserts`], and the `Kept` map of which instructions it
+/// dropped (exactly the asserts on the immediate 1).
+pub(crate) fn drop_true_asserts_kept(instructions: Vec<Instruction>) -> (Vec<Instruction>, Kept) {
+    retain_kept(instructions, |instruction| !is_true_assert(instruction))
 }
 
 /// `assert` on the immediate 1, and nothing else — not a variable that
@@ -244,12 +296,17 @@ fn is_true_assert(instruction: &Instruction) -> bool {
 /// - Anything else at all: no reordering, no renaming, no other instruction
 ///   kind. Everything kept keeps its order.
 pub fn dedup_range_constraints(instructions: Vec<Instruction>) -> Vec<Instruction> {
+    dedup_range_constraints_kept(instructions).0
+}
+
+/// [`dedup_range_constraints`], and the `Kept` map of which instructions it
+/// dropped (exactly the implied range constraints).
+pub(crate) fn dedup_range_constraints_kept(instructions: Vec<Instruction>) -> (Vec<Instruction>, Kept) {
     // The tightest bound proven for each identifier so far, in bits.
     let mut bound: AssocMap<u32> = AssocMap::default();
-    let mut out = Vec::with_capacity(instructions.len());
 
-    for instruction in instructions {
-        let established = match &instruction {
+    retain_kept(instructions, |instruction| {
+        let established = match &*instruction {
             Instruction::ConstrainBits { val: Operand::Variable(id), bits } => Some((id, *bits)),
             Instruction::ConstrainToBoolean { val: Operand::Variable(id) } => Some((id, 1)),
             _ => None,
@@ -258,7 +315,7 @@ pub fn dedup_range_constraints(instructions: Vec<Instruction>) -> Vec<Instructio
             match bound.get(&id.0) {
                 // Already proven at least this tight: the constraint is
                 // implied, so it carries no information the circuit lacks.
-                Some(&proven) if proven <= bits => continue,
+                Some(&proven) if proven <= bits => return false,
                 // Tighter than anything proven (or the first): keep it, and
                 // it is the bound from here on.
                 _ => {
@@ -266,9 +323,8 @@ pub fn dedup_range_constraints(instructions: Vec<Instruction>) -> Vec<Instructio
                 }
             }
         }
-        out.push(instruction);
-    }
-    out
+        true
+    })
 }
 
 /// [`fold_immediate_copies`] over a whole [`IrSource`] — the form the
@@ -551,6 +607,19 @@ pub struct PassReport {
 /// advisory warnings); [`Pass::run`] is provided and wraps it with the report.
 /// See the module header for the contract every pass must honour, and
 /// notes/library-api.org for where this sits in the library surface.
+///
+/// # A pass over a bare stream, and a pass inside `Builder3::finish`
+///
+/// A `Pass` run through [`run_pipeline`] works on a bare instruction stream
+/// with nothing beside it, so it may insert, delete or reorder. The passes
+/// `Builder3::finish` runs are held to more: the eDSL records instruction
+/// indices (assert messages, regions) while it builds, and `finish` carries
+/// them onto the finished stream by one kept-or-dropped bit per input
+/// instruction. So each of those passes is a FILTER — its output is a
+/// subsequence of its input, in order, with operands rewritten at most — and
+/// deletes through the module's one `retain_kept` helper, which records the
+/// bit as its keep decision (notes/ir-passes.org §13). A pass that inserts or
+/// reorders cannot join `finish` without a different map.
 pub trait Pass {
     /// This pass's name — for the report and the [`by_name`] registry.
     fn name(&self) -> &'static str;

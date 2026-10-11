@@ -753,15 +753,24 @@ fn ecdsa_part(
 
 /// What `rowcost::est_rows` adds up for one `secp256k1EcdsaVerify` — the
 /// instruction mix the eDSL emits (`minocrab_std::v3::secp256k1_ecdsa_verify`).
+/// The verify is measured as a REGION of the finished stream: `finish` deletes
+/// instructions, so a build-time instruction count cannot index the stream it
+/// returns (notes/ir-passes.org §13), and a region is moved onto it.
 fn ecdsa_estimate() -> f64 {
     let mut c = Circuit3::new();
     let pk = c.arg::<Secp256k1PointT>("pk");
     let [digest, r, s] = b32_args(&mut c, ["digest", "r", "s"]);
-    let before = c.instruction_count();
-    let sig = ecdsa_sig(&mut c, &r, &s);
-    let _ = secp256k1_ecdsa_verify(&mut c, &digest, &sig, pk);
+    c.region("ecdsa", |c| {
+        let sig = ecdsa_sig(c, &r, &s);
+        let _ = secp256k1_ecdsa_verify(c, &digest, &sig, pk);
+    });
     let compiled = c.finish(false);
-    rowcost::est_rows(&compiled.ir)[before..]
+    let verify = compiled
+        .regions
+        .iter()
+        .find(|r| r.label == "ecdsa")
+        .expect("the verify was built in its region");
+    rowcost::est_rows(&compiled.ir)[verify.start..verify.end]
         .iter()
         .map(|r| *r as f64)
         .sum()
