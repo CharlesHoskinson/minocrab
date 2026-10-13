@@ -33,14 +33,19 @@ circuit respond
 
 circuit respondBidirectional
   entry-point 070f4075d56ce40e4b842d54284d715f7eb36ed2b3a9b274d653cf4ad786eebc
-  arguments 9 slots, alignment [bytes 32, bytes 32, bytes 32, bytes 32, bytes 1]
+  arguments 14 slots, alignment [bytes 32, bytes 8, bytes 1, bytes 8, bytes 32, bytes 32, bytes 32, bytes 32, bytes 1]
       0  uint<8>      constrain_bits 8
       1  uint<248>    constrain_bits 248
-      2  uint<8>      constrain_bits 8
-      3  uint<248>    constrain_bits 248
-      4  uint<8>      constrain_bits 8
-      5  uint<248>    constrain_bits 248
-      6  uint<8>      constrain_bits 8
-      7  uint<248>    constrain_bits 248
-      8  uint<8>      constrain_bits 8
+      2  uint<64>     constrain_bits 64
+      3  uint<0..3>   less_than 3 (2 bits) + assert
+      4  uint<64>     constrain_bits 64
+      5  uint<8>      constrain_bits 8
+      6  uint<248>    constrain_bits 248
+      7  uint<8>      constrain_bits 8
+      8  uint<248>    constrain_bits 248
+      9  uint<8>      constrain_bits 8
+     10  uint<248>    constrain_bits 248
+     11  uint<8>      constrain_bits 8
+     12  uint<248>    constrain_bits 248
+     13  uint<8>      constrain_bits 8
   result 0 slots, alignment []

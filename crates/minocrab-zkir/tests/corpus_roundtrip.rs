@@ -83,7 +83,17 @@ fn round_trips_entire_corpus() {
         // The v3 count does not move — the new ones are v2, since only the
         // sig-net sources carry --feature-zkir-v3. All 814 pre-existing
         // artifacts are byte-identical under the new compiler.
-        (831, 92),
+        // 831/92 → 834/95 at M43 A: the second signet-midnight-integration
+        // pin (pr127, e9350c4) adds the singleton's three v3 circuits at
+        // PR #127 beside the fff3421c ones (the Signet module and its
+        // circuits.compact compile to no artifact of their own).
+        // 834/95 → 849/110 at M44 A: the corpus repinned to
+        // midnight-examples main (375071b, the FLUSH-PATTERN vault) and
+        // midnight-integration v0.24.1 (the V1 Signet vocabulary). The
+        // flush-pattern vault's circuit set is larger than the
+        // seventeen-circuit one it replaces, and all fifteen new artifacts
+        // are v3.
+        (849, 110),
         "corpus size moved: {} files ({} v3). If the corpus was deliberately \
          recompiled or extended, update this assertion in the same commit and say \
          which source moved it; otherwise the checkout is incomplete.",

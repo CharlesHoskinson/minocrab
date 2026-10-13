@@ -950,6 +950,35 @@ impl<const N: usize> Bytes<N, Public> {
     }
 }
 
+/// Compact's `Bytes<0>`: a value with NO slots and one zero-length FAB atom.
+///
+/// It exists because the Signet V1 vocabulary (`@sig-net/midnight` 0.24)
+/// pins a record field to it (`respondSerializationSchema: Bytes<0>`) and a
+/// circuit argument may be one (`serializedOutput: Bytes<0>`, the empty
+/// output of a failed or unviable attestation). compactc gives it zero input
+/// slots and zero limbs — the atom is in the alignment, nothing is in the
+/// value — so a one-limb [`Bytes<N>`] cannot stand for it: it is its own type.
+#[derive(Clone, Copy)]
+pub struct Bytes0<V: Vis3 = Private>(std::marker::PhantomData<fn() -> V>);
+
+impl<V: Vis3> Default for Bytes0<V> {
+    fn default() -> Self {
+        Bytes0(std::marker::PhantomData)
+    }
+}
+
+impl<V: Vis3> Bytes0<V> {
+    /// The one value there is.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The same (absent) value at the other visibility.
+    pub fn private(self) -> Bytes0<Private> {
+        Bytes0::default()
+    }
+}
+
 /// A Compact-level `Bytes<32>`: the `[hi, lo]` native slot pair (hi = byte
 /// 31, lo = bytes 0..30 little-endian).
 #[derive(Clone, Copy)]
@@ -1613,7 +1642,7 @@ impl<V: Vis3, const N: usize> BytesN<V, N> {
     /// order (byte 0 first), packed into FAB slot order.
     pub fn literal(c: &mut Circuit3, bytes: &[u8]) -> Self {
         assert_eq!(bytes.len(), N, "Bytes<{N}> literal length");
-        Self::from_limbs(literal_limbs(c, bytes))
+        Self::from_limbs(bytes_literal_limbs(c, bytes))
     }
 
     /// Constrain a `Bytes<N>` entering the circuit (8·leftover bits, then
@@ -1690,7 +1719,7 @@ impl<V: Vis3> BytesNDyn<V> {
     /// order (byte 0 first), packed into FAB slot order; `len` is the
     /// literal's own length.
     pub fn literal(c: &mut Circuit3, bytes: &[u8]) -> BytesNDyn<V> {
-        BytesNDyn::new(bytes.len(), literal_limbs(c, bytes))
+        BytesNDyn::new(bytes.len(), bytes_literal_limbs(c, bytes))
     }
 
     /// Constrain a `Bytes<len>` entering the circuit (8·leftover bits,
@@ -1704,7 +1733,12 @@ impl<V: Vis3> BytesNDyn<V> {
 
 /// The constant limbs of a byte-string literal (byte 0 first in), FAB slot
 /// order out.
-fn literal_limbs<V: Vis3>(c: &mut Circuit3, bytes: &[u8]) -> Vec<Wire3<FieldT, V>> {
+///
+/// Public because the limbing rule has to live in ONE place and a
+/// `Bytes<N>`-shaped type outside this module needs it: the Signet record's
+/// output-deserialization schema is a byte literal of any width at all
+/// (`signet_v1::SchemaLiteral`), below and above the 31-byte limb.
+pub fn bytes_literal_limbs<V: Vis3>(c: &mut Circuit3, bytes: &[u8]) -> Vec<Wire3<FieldT, V>> {
     let mut limbs: Vec<Wire3<FieldT, V>> = bytes
         .chunks(31)
         .map(|chunk| V::from_public(c.constant(Fr::from_le_bytes(chunk).expect("≤31 bytes fit"))))

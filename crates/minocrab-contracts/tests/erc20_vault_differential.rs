@@ -2,15 +2,16 @@
 //! notes/ledger-abi.org §6 — the benchmark target running on MinoCrab,
 //! plus acceptance agreement on guard failures and tampering.
 //!
-//! Seventeen circuits since M28 (signet-midnight-examples `0d9c1660`):
-//! for each, PI-equality on the reference model's preimage against
-//! compactc's own artifact, the guard failures both artifacts must reject,
-//! and the tamper sweep (every transcript and witness element perturbed;
-//! zero acceptance disagreements). The per-circuit scenario builders live in
-//! `tests/vault/model.rs` — the reference model the property harness and
-//! the adversarial sweeps share.
+//! Twenty-nine circuits since M44 (signet-midnight-examples `375071b`, the
+//! flush pattern): for each, PI-equality on the reference model's preimage
+//! against compactc's own artifact, the guard failures both artifacts must
+//! reject, and the tamper sweep (every transcript and witness element
+//! perturbed; zero acceptance disagreements). The per-circuit scenario
+//! builders live in `tests/vault/model.rs`.
 
+use midnight_transient_crypto::proofs::ProofPreimage;
 use minocrab::Fr;
+use minocrab_contracts::signet_v1::output_kind;
 use minocrab_sim::v3::{assert_call_compatible, simulate};
 use minocrab_zkir::v3::IrSource;
 
@@ -22,46 +23,62 @@ use vault::model::*;
 use vault::tamper;
 
 /// Both artifacts must REJECT this preimage.
-fn both_reject(circuit: Circuit, pi: &midnight_transient_crypto::proofs::ProofPreimage, why: &str) {
+fn both_reject(circuit: Circuit, pi: &ProofPreimage, why: &str) {
     assert!(simulate(&circuit.ir(), pi).is_err(), "ours accepts: {why}");
     assert!(simulate(circuit.corpus(), pi).is_err(), "corpus accepts: {why}");
 }
 
 /// PI-equality on the reference preimage, dumped for the bench.
-fn matches(circuit: Circuit, pi: &midnight_transient_crypto::proofs::ProofPreimage) {
+fn matches(circuit: Circuit, pi: &ProofPreimage) {
     support::dump_preimage(circuit.zkir_name(), pi);
     assert_call_compatible(&circuit.ir(), circuit.corpus(), pi);
+}
+
+/// [`matches`], and the model's op stream REPLAYED through Midnight's
+/// reference VM against the scenario's pre-state: every `popeq` the model
+/// claims is checked against a real state tree, so the pre-state the
+/// differential pins is real rather than asserted.
+fn check<S: Scenario>(circuit: Circuit, s: &S) {
+    let pre = s.pre_state();
+    let ops = s.ops();
+    vault::exec::run(&pre, &s.self_addr(), &ops)
+        .unwrap_or_else(|e| panic!("{}: the reference VM rejects the model's run: {e}", circuit.zkir_name()));
+    matches(circuit, &s.preimage());
 }
 
 fn ours(circuit: Circuit) -> IrSource {
     circuit.ir()
 }
 
-// ==== initialise ===========================================================================
+fn sweep(circuit: Circuit, pi: &ProofPreimage) {
+    tamper::assert_full_sweep(&ours(circuit), circuit.corpus(), pi);
+}
+
+// ==== initialise / setGasParams / addAllowedToken ===========================================
 
 #[test]
 fn initialise_matches_corpus() {
-    matches(Circuit::Initialise, &InitialiseScenario::new().preimage());
+    check(Circuit::Initialise, &InitialiseScenario::new());
 }
 
 #[test]
 fn initialise_rejects_guard_failures() {
-    // Already initialised: the counter reads back 1.
     let mut s = InitialiseScenario::new();
-    s.env.initialised = 1;
+    s.env.initialised = true;
     both_reject(Circuit::Initialise, &s.preimage(), "already initialised");
 
-    // Wrong deployer secret.
+    let mut s = InitialiseScenario::new();
+    s.key_version = 0;
+    both_reject(Circuit::Initialise, &s.preimage(), "key version zero");
+
     let mut s = InitialiseScenario::new();
     s.sk[0] ^= 1;
     both_reject(Circuit::Initialise, &s.preimage(), "wrong secret");
 
-    // Zero chain id.
     let mut s = InitialiseScenario::new();
     s.chain_id = 0;
     both_reject(Circuit::Initialise, &s.preimage(), "zero chain id");
 
-    // Zero router / underlying / wrapper.
     for i in 0..3 {
         let mut s = InitialiseScenario::new();
         match i {
@@ -75,655 +92,706 @@ fn initialise_rejects_guard_failures() {
 
 #[test]
 fn initialise_rejects_tampering() {
-    let c = Circuit::Initialise;
-    tamper::assert_full_sweep(&ours(c), c.corpus(), &InitialiseScenario::new().preimage());
-}
-
-// ==== the allowances =======================================================================
-
-#[test]
-fn approve_stata_matches_corpus() {
-    matches(Circuit::ApproveStata, &ApproveStataScenario::new().preimage());
+    sweep(Circuit::Initialise, &InitialiseScenario::new().preimage());
 }
 
 #[test]
-fn approve_stata_rejects_guard_failures() {
-    let mut s = ApproveStataScenario::new();
-    s.env.initialised = 0;
-    both_reject(Circuit::ApproveStata, &s.preimage(), "not initialised");
-
-    let mut s = ApproveStataScenario::new();
-    s.key_version = 0;
-    both_reject(Circuit::ApproveStata, &s.preimage(), "keyVersion 0");
-
-    let mut s = ApproveStataScenario::new();
-    s.request_exists = true;
-    both_reject(Circuit::ApproveStata, &s.preimage(), "request exists");
+fn set_gas_params_matches_corpus() {
+    check(Circuit::SetGasParams, &SetGasParamsScenario::new());
 }
 
 #[test]
-fn approve_stata_rejects_tampering() {
-    let c = Circuit::ApproveStata;
-    tamper::assert_full_sweep(&ours(c), c.corpus(), &ApproveStataScenario::new().preimage());
+fn set_gas_params_rejects_guard_failures() {
+    let mut s = SetGasParamsScenario::new();
+    s.env.initialised = false;
+    both_reject(Circuit::SetGasParams, &s.preimage(), "not initialised");
+
+    let mut s = SetGasParamsScenario::new();
+    s.sk[0] ^= 1;
+    both_reject(Circuit::SetGasParams, &s.preimage(), "not the deployer");
+
+    let mut s = SetGasParamsScenario::new();
+    s.max_fee = 0;
+    s.priority_fee = 0;
+    both_reject(Circuit::SetGasParams, &s.preimage(), "zero max fee");
+
+    let mut s = SetGasParamsScenario::new();
+    s.priority_fee = s.max_fee + 1;
+    both_reject(Circuit::SetGasParams, &s.preimage(), "priority fee above max fee");
+
+    for i in 0..5 {
+        let mut s = SetGasParamsScenario::new();
+        s.limits[i] = 0;
+        both_reject(Circuit::SetGasParams, &s.preimage(), "zero gas limit");
+    }
 }
 
 #[test]
-fn approve_router_matches_corpus() {
-    matches(Circuit::ApproveRouter, &ApproveRouterScenario::new().preimage());
+fn set_gas_params_rejects_tampering() {
+    sweep(Circuit::SetGasParams, &SetGasParamsScenario::new().preimage());
 }
 
 #[test]
-fn approve_router_rejects_guard_failures() {
-    let mut s = ApproveRouterScenario::new();
-    s.env.initialised = 0;
-    both_reject(Circuit::ApproveRouter, &s.preimage(), "not initialised");
+fn add_allowed_token_matches_corpus() {
+    check(Circuit::AddAllowedToken, &AddAllowedTokenScenario::new());
+}
 
-    let mut s = ApproveRouterScenario::new();
+#[test]
+fn add_allowed_token_rejects_guard_failures() {
+    let mut s = AddAllowedTokenScenario::new();
+    s.sk[0] ^= 1;
+    both_reject(Circuit::AddAllowedToken, &s.preimage(), "not the deployer");
+    let mut s = AddAllowedTokenScenario::new();
     s.erc20 = [0u8; 20];
-    both_reject(Circuit::ApproveRouter, &s.preimage(), "zero erc20");
-
-    let mut s = ApproveRouterScenario::new();
-    s.key_version = 0;
-    both_reject(Circuit::ApproveRouter, &s.preimage(), "keyVersion 0");
-
-    let mut s = ApproveRouterScenario::new();
-    s.request_exists = true;
-    both_reject(Circuit::ApproveRouter, &s.preimage(), "request exists");
+    both_reject(Circuit::AddAllowedToken, &s.preimage(), "zero address");
 }
 
 #[test]
-fn approve_router_rejects_tampering() {
-    let c = Circuit::ApproveRouter;
-    tamper::assert_full_sweep(&ours(c), c.corpus(), &ApproveRouterScenario::new().preimage());
+fn add_allowed_token_rejects_tampering() {
+    sweep(Circuit::AddAllowedToken, &AddAllowedTokenScenario::new().preimage());
 }
 
-// ==== deposit ==============================================================================
+// ==== the queue ==============================================================================
+
+#[test]
+fn flush_queue_matches_corpus() {
+    check(Circuit::FlushQueue, &FlushScenario::new());
+}
+
+#[test]
+fn flush_queue_empty_matches_corpus() {
+    let mut s = FlushScenario::new();
+    s.slots = vec![Slot::Empty; minocrab_contracts::erc20_vault::FLUSH_SLOTS];
+    check(Circuit::FlushQueue, &s);
+}
+
+/// A sent request distinct from the canonical one: another index, another
+/// nonce, so another flushed index and another request id.
+fn distinct(mut s: Sent, salt: u64) -> Sent {
+    s.in_index += salt;
+    s.evm_nonce += salt;
+    s
+}
+
+#[test]
+fn flush_queue_every_action_matches_corpus() {
+    // Five vault-signed requests take five consecutive nonces, a deposit
+    // keeps the caller's, and three attestations fold their heights in
+    // (one of them lower than the running globalLastSeen). The attestation
+    // slots' requests are SENT ones at other nonces, so their flushed
+    // indices do not collide with the request slots' (the reference VM
+    // caught the collision when they were the same canonical requests).
+    let mut s = FlushScenario::new();
+    let mut low = Attestation::failed();
+    low.block_height = 1;
+    s.slots = vec![
+        Slot::Request(Sent::withdraw()),
+        Slot::Request(Sent::swap()),
+        Slot::Attestation(distinct(Sent::supply(), 100), Attestation::executed_u256(40_000)),
+        Slot::Request(Sent::supply()),
+        Slot::Request(Sent::redeem()),
+        Slot::Request(Sent::approve_router()),
+        Slot::Request(Sent::deposit()),
+        Slot::Attestation(distinct(Sent::withdraw(), 200), Attestation::executed_bool(true)),
+        Slot::Attestation(distinct(Sent::redeem(), 300), low),
+        Slot::Empty,
+    ];
+    check(Circuit::FlushQueue, &s);
+}
+
+#[test]
+fn flush_queue_rejects_tampering() {
+    sweep(Circuit::FlushQueue, &FlushScenario::new().preimage());
+}
+
+#[test]
+fn queue_attestation0_matches_corpus() {
+    let s = QueueAttestationScenario::of(Sent::withdraw(), Attestation::failed());
+    check(Circuit::QueueAttestation0, &s);
+    let s = QueueAttestationScenario::of(Sent::approve_router(), Attestation::unviable());
+    check(Circuit::QueueAttestation0, &s);
+    let replaced = Sent::withdraw();
+    let s = QueueAttestationScenario::of(Sent::replace_nonce(&replaced), Attestation::executed_empty());
+    check(Circuit::QueueAttestation0, &s);
+}
+
+#[test]
+fn queue_attestation1_matches_corpus() {
+    let s = QueueAttestationScenario::of(Sent::deposit(), Attestation::executed_bool(true));
+    check(Circuit::QueueAttestation1, &s);
+    let s = QueueAttestationScenario::of(Sent::withdraw(), Attestation::executed_bool(false));
+    check(Circuit::QueueAttestation1, &s);
+}
+
+#[test]
+fn queue_attestation32_matches_corpus() {
+    let s = QueueAttestationScenario::of(Sent::swap(), Attestation::executed_u256(5_500));
+    check(Circuit::QueueAttestation32, &s);
+    let s = QueueAttestationScenario::of(Sent::supply(), Attestation::executed_u256(41_000));
+    check(Circuit::QueueAttestation32, &s);
+}
+
+#[test]
+fn queue_attestation_rejects_guard_failures() {
+    let fresh = || QueueAttestationScenario::of(Sent::deposit(), Attestation::executed_bool(true));
+
+    let mut s = fresh();
+    s.sent_exists = false;
+    both_reject(Circuit::QueueAttestation1, &s.preimage(), "request not sent");
+
+    let mut s = fresh();
+    s.open = false;
+    both_reject(Circuit::QueueAttestation1, &s.preimage(), "request not open");
+
+    let mut s = fresh();
+    s.attestation.block_height = s.sent.last_seen;
+    both_reject(Circuit::QueueAttestation1, &s.preimage(), "stale attestation");
+
+    let mut s = fresh();
+    s.already_queued = true;
+    both_reject(Circuit::QueueAttestation1, &s.preimage(), "already queued");
+
+    let mut s = fresh();
+    s.already_flushed = true;
+    both_reject(Circuit::QueueAttestation1, &s.preimage(), "already flushed");
+
+    // A signature under another key.
+    let mut s = fresh();
+    s.sent.env.key_seed ^= 1;
+    let mut pi = s.preimage();
+    let good = fresh().preimage();
+    pi.public_transcript_outputs = good.public_transcript_outputs.clone();
+    pi.public_transcript_inputs = good.public_transcript_inputs.clone();
+    both_reject(Circuit::QueueAttestation1, &pi, "wrong response key");
+}
+
+#[test]
+fn queue_attestation_rejects_tampering() {
+    sweep(Circuit::QueueAttestation0, &QueueAttestationScenario::of(Sent::withdraw(), Attestation::failed()).preimage());
+    sweep(Circuit::QueueAttestation1, &QueueAttestationScenario::of(Sent::deposit(), Attestation::executed_bool(true)).preimage());
+    sweep(Circuit::QueueAttestation32, &QueueAttestationScenario::of(Sent::swap(), Attestation::executed_u256(5_500)).preimage());
+}
+
+// ==== the starts ============================================================================
+
+fn start_guard_failures(circuit: Circuit, fresh: fn() -> StartScenario) {
+    let mut s = fresh();
+    s.sent.env.initialised = false;
+    both_reject(circuit, &s.preimage(), "not initialised");
+
+    let mut s = fresh();
+    s.queued = true;
+    both_reject(circuit, &s.preimage(), "index queued");
+
+    let mut s = fresh();
+    s.in_args = true;
+    both_reject(circuit, &s.preimage(), "index in the args map");
+}
 
 #[test]
 fn start_deposit_matches_corpus() {
-    matches(Circuit::StartDeposit, &StartDepositScenario::new().preimage());
+    check(Circuit::StartDeposit, &StartScenario::deposit());
 }
 
 #[test]
 fn start_deposit_rejects_guard_failures() {
-    let c = Circuit::StartDeposit;
-    let mut s = StartDepositScenario::new();
-    s.env.initialised = 0;
-    both_reject(c, &s.preimage(), "not initialised");
-
-    let mut s = StartDepositScenario::new();
-    s.erc20 = [0u8; 20];
-    both_reject(c, &s.preimage(), "zero erc20");
-
-    let mut s = StartDepositScenario::new();
-    s.amount = 0;
-    both_reject(c, &s.preimage(), "zero amount");
-
-    let mut s = StartDepositScenario::new();
-    s.amount = u128::from(u64::MAX) + 1;
-    both_reject(c, &s.preimage(), "amount above u64");
-
-    let mut s = StartDepositScenario::new();
-    s.gas_limit = 0;
-    both_reject(c, &s.preimage(), "zero gas limit");
-
-    let mut s = StartDepositScenario::new();
-    s.key_version = 0;
-    both_reject(c, &s.preimage(), "keyVersion 0");
-
-    let mut s = StartDepositScenario::new();
-    s.request_exists = true;
-    both_reject(c, &s.preimage(), "request exists");
+    start_guard_failures(Circuit::StartDeposit, StartScenario::deposit);
+    let mut s = StartScenario::deposit();
+    s.allowed = false;
+    both_reject(Circuit::StartDeposit, &s.preimage(), "ERC20 not allowed");
+    for amount in [0u128, u128::from(u64::MAX) + 1] {
+        let mut s = StartScenario::deposit();
+        if let Args::Deposit { amount: a, .. } = &mut s.sent.args {
+            *a = amount;
+        }
+        both_reject(Circuit::StartDeposit, &s.preimage(), "amount out of range");
+    }
+    let mut s = StartScenario::deposit();
+    if let Args::Deposit { gas, .. } = &mut s.sent.args {
+        gas.limit = 0;
+    }
+    both_reject(Circuit::StartDeposit, &s.preimage(), "zero gas limit");
 }
 
 #[test]
 fn start_deposit_rejects_tampering() {
-    let c = Circuit::StartDeposit;
-    tamper::assert_full_sweep(&ours(c), c.corpus(), &StartDepositScenario::new().preimage());
+    sweep(Circuit::StartDeposit, &StartScenario::deposit().preimage());
 }
-
-#[test]
-fn complete_deposit_matches_corpus() {
-    matches(Circuit::CompleteDeposit, &CompleteDepositScenario::new().preimage());
-}
-
-/// recipient = some(right(vault)) — the auto-receive branch FIRES: the
-/// guarded kernel.self read and the receive claim join the transcript.
-#[test]
-fn complete_deposit_matches_corpus_recipient_self() {
-    let mut s = CompleteDepositScenario::new();
-    s.recipient = ClaimRecipient::Contract(s.env().self_addr);
-    assert!(s.auto_receive());
-    matches(Circuit::CompleteDeposit, &s.preimage());
-}
-
-/// recipient = some(right(other-contract)) — branch off, but the guarded
-/// kernel.self read still fires (its guard is only !is_left).
-#[test]
-fn complete_deposit_matches_corpus_recipient_other_contract() {
-    let mut s = CompleteDepositScenario::new();
-    s.recipient = ClaimRecipient::Contract(tagged32(b"other-ct", 0));
-    assert!(!s.auto_receive());
-    matches(Circuit::CompleteDeposit, &s.preimage());
-}
-
-/// recipient = none — mint to left(ownPublicKey()): the guarded witnesses
-/// are consumed, the branch is off.
-#[test]
-fn complete_deposit_matches_corpus_recipient_none() {
-    let mut s = CompleteDepositScenario::new();
-    s.recipient = ClaimRecipient::None(tagged32(b"own-pk", 0x43));
-    matches(Circuit::CompleteDeposit, &s.preimage());
-}
-
-#[test]
-fn complete_deposit_rejects_guard_failures() {
-    let c = Circuit::CompleteDeposit;
-    // Failed EVM transfer: serializedOutput 0x00.
-    let mut s = CompleteDepositScenario::new();
-    s.serialized_output = 0;
-    both_reject(c, &s.preimage(), "transfer failed");
-
-    // Bad attestation signature (s + 1).
-    let s = CompleteDepositScenario::new();
-    let mut pi = s.preimage();
-    pi.inputs[7] = pi.inputs[7] + Fr::from(1u64);
-    both_reject(c, &pi, "bad signature");
-
-    // Request not found (member reads back 0).
-    let mut s = CompleteDepositScenario::new();
-    s.settle.pending = false;
-    both_reject(c, &s.preimage(), "deposit not found");
-
-    // Not the depositor: wrong secret key.
-    let mut s = CompleteDepositScenario::new();
-    s.settle.claimant_sk = Some(tagged32(b"someone-else", 0x99));
-    both_reject(c, &s.preimage(), "not the depositor");
-
-    // Not initialised.
-    let mut s = CompleteDepositScenario::new();
-    s.d.env.initialised = 0;
-    both_reject(c, &s.preimage(), "not initialised");
-}
-
-#[test]
-fn complete_deposit_rejects_tampering() {
-    let c = Circuit::CompleteDeposit;
-    tamper::assert_full_sweep(&ours(c), c.corpus(), &CompleteDepositScenario::new().preimage());
-}
-
-// ==== withdraw =============================================================================
 
 #[test]
 fn start_withdraw_matches_corpus() {
-    matches(Circuit::StartWithdraw, &StartWithdrawScenario::new().preimage());
+    check(Circuit::StartWithdraw, &StartScenario::withdraw());
 }
 
 #[test]
 fn start_withdraw_rejects_guard_failures() {
-    let c = Circuit::StartWithdraw;
-    let mut s = StartWithdrawScenario::new();
-    s.env.initialised = 0;
-    both_reject(c, &s.preimage(), "not initialised");
-
-    let mut s = StartWithdrawScenario::new();
-    s.erc20 = [0u8; 20];
-    both_reject(c, &s.preimage(), "zero erc20");
-
-    let mut s = StartWithdrawScenario::new();
-    s.amount = 0;
-    both_reject(c, &s.preimage(), "zero amount");
-
-    let mut s = StartWithdrawScenario::new();
-    s.amount = u128::from(u64::MAX) + 1;
-    both_reject(c, &s.preimage(), "amount above u64");
-
-    // Wrong coin colour: not the vault token for this ERC20.
-    let mut s = StartWithdrawScenario::new();
-    s.coin_color = Some(tagged32(b"other-color", 0x01));
-    both_reject(c, &s.preimage(), "wrong colour");
-
-    // Coin value != amount.
-    let mut s = StartWithdrawScenario::new();
-    s.coin_value = Some(s.amount + 1);
-    both_reject(c, &s.preimage(), "coin value mismatch");
-
-    let mut s = StartWithdrawScenario::new();
-    s.key_version = 0;
-    both_reject(c, &s.preimage(), "keyVersion 0");
-
-    let mut s = StartWithdrawScenario::new();
-    s.request_exists = true;
-    both_reject(c, &s.preimage(), "request exists");
+    start_guard_failures(Circuit::StartWithdraw, StartScenario::withdraw);
+    let mut s = StartScenario::withdraw();
+    if let Args::Withdraw { dest, .. } = &mut s.sent.args {
+        *dest = [0u8; 20];
+    }
+    both_reject(Circuit::StartWithdraw, &s.preimage(), "zero destination");
+    // The coin's value must equal the amount.
+    let mut s = StartScenario::withdraw();
+    s.coin.as_mut().unwrap().value += 1;
+    both_reject(Circuit::StartWithdraw, &s.preimage(), "coin value mismatch");
+    // The coin must be THIS ERC20's vault token.
+    let mut s = StartScenario::withdraw();
+    s.coin.as_mut().unwrap().color[0] ^= 1;
+    both_reject(Circuit::StartWithdraw, &s.preimage(), "wrong colour");
 }
 
 #[test]
 fn start_withdraw_rejects_tampering() {
-    let c = Circuit::StartWithdraw;
-    tamper::assert_full_sweep(&ours(c), c.corpus(), &StartWithdrawScenario::new().preimage());
+    sweep(Circuit::StartWithdraw, &StartScenario::withdraw().preimage());
 }
-
-#[test]
-fn complete_withdraw_success_matches_corpus() {
-    matches(Circuit::CompleteWithdraw, &CompleteWithdrawScenario::new(1).preimage());
-}
-
-#[test]
-fn complete_withdraw_refund_matches_corpus() {
-    matches(Circuit::CompleteWithdraw, &CompleteWithdrawScenario::new(0).preimage());
-}
-
-#[test]
-fn complete_withdraw_rejects_guard_failures() {
-    let c = Circuit::CompleteWithdraw;
-    // Bad signature.
-    let s = CompleteWithdrawScenario::new(1);
-    let mut pi = s.preimage();
-    pi.inputs[7] = pi.inputs[7] + Fr::from(1u64);
-    both_reject(c, &pi, "bad signature");
-
-    // Withdrawal not found.
-    let mut s = CompleteWithdrawScenario::new(1);
-    s.settle.pending = false;
-    both_reject(c, &s.preimage(), "withdrawal not found");
-
-    // On the refund branch, not the withdrawer.
-    let mut s = CompleteWithdrawScenario::new(0);
-    s.settle.claimant_sk = Some(tagged32(b"someone-else", 0x99));
-    both_reject(c, &s.preimage(), "not the withdrawer");
-
-    // On the SUCCESS branch anyone may settle: a stranger's secret is fine.
-    let mut s = CompleteWithdrawScenario::new(1);
-    s.settle.claimant_sk = Some(tagged32(b"someone-else", 0x99));
-    matches(c, &s.preimage());
-
-    let mut s = CompleteWithdrawScenario::new(1);
-    s.w.env.initialised = 0;
-    both_reject(c, &s.preimage(), "not initialised");
-}
-
-/// On the SUCCESS branch the caller's secret is witnessed (the commitment
-/// is hoisted out of the `if`) but asserted by nothing — anyone may settle
-/// a succeeded withdrawal — so a perturbed secret is accepted by BOTH
-/// artifacts and only the transcript sweep applies there. The refund
-/// branch reads every witness, and takes the full sweep.
-#[test]
-fn complete_withdraw_rejects_tampering() {
-    let c = Circuit::CompleteWithdraw;
-    tamper::assert_transcript_sweep(&ours(c), c.corpus(), &CompleteWithdrawScenario::new(1).preimage());
-    tamper::assert_full_sweep(&ours(c), c.corpus(), &CompleteWithdrawScenario::new(0).preimage());
-}
-
-#[test]
-fn refund_withdraw_matches_corpus() {
-    matches(Circuit::RefundWithdraw, &RefundWithdrawScenario::new().preimage());
-}
-
-#[test]
-fn refund_withdraw_rejects_guard_failures() {
-    let c = Circuit::RefundWithdraw;
-    // A success-shaped output is not the MPC failure output.
-    let mut s = RefundWithdrawScenario::new();
-    s.serialized_output = [0, 0, 0, 0, 1];
-    both_reject(c, &s.preimage(), "not the failure output");
-
-    let mut s = RefundWithdrawScenario::new();
-    s.settle.pending = false;
-    both_reject(c, &s.preimage(), "withdrawal not found");
-
-    let mut s = RefundWithdrawScenario::new();
-    s.settle.claimant_sk = Some(tagged32(b"someone-else", 0x99));
-    both_reject(c, &s.preimage(), "not the withdrawer");
-
-    let s = RefundWithdrawScenario::new();
-    let mut pi = s.preimage();
-    pi.inputs[7] = pi.inputs[7] + Fr::from(1u64);
-    both_reject(c, &pi, "bad signature");
-}
-
-#[test]
-fn refund_withdraw_rejects_tampering() {
-    let c = Circuit::RefundWithdraw;
-    tamper::assert_full_sweep(&ours(c), c.corpus(), &RefundWithdrawScenario::new().preimage());
-}
-
-// ==== swap =================================================================================
 
 #[test]
 fn start_swap_matches_corpus() {
-    matches(Circuit::StartSwap, &StartSwapScenario::new().preimage());
+    check(Circuit::StartSwap, &StartScenario::swap());
 }
 
 #[test]
 fn start_swap_rejects_guard_failures() {
-    let c = Circuit::StartSwap;
-    let mut s = StartSwapScenario::new();
-    s.env.initialised = 0;
-    both_reject(c, &s.preimage(), "not initialised");
-
-    let mut s = StartSwapScenario::new();
-    s.token_in = [0u8; 20];
-    both_reject(c, &s.preimage(), "zero tokenIn");
-
-    let mut s = StartSwapScenario::new();
-    s.token_out = [0u8; 20];
-    both_reject(c, &s.preimage(), "zero tokenOut");
-
-    let mut s = StartSwapScenario::new();
-    s.amount_out = 0;
-    both_reject(c, &s.preimage(), "zero amountOut");
-
-    let mut s = StartSwapScenario::new();
-    s.amount_in_max = 0;
-    both_reject(c, &s.preimage(), "zero amountInMaximum");
-
-    let mut s = StartSwapScenario::new();
-    s.amount_out = u128::from(u64::MAX) + 1;
-    both_reject(c, &s.preimage(), "amountOut above u64");
-
-    let mut s = StartSwapScenario::new();
-    s.amount_in_max = u128::from(u64::MAX) + 1;
-    both_reject(c, &s.preimage(), "amountInMaximum above u64");
-
-    let mut s = StartSwapScenario::new();
-    s.coin_color = Some(tagged32(b"other-color", 0x01));
-    both_reject(c, &s.preimage(), "wrong colour");
-
-    let mut s = StartSwapScenario::new();
-    s.coin_value = Some(s.amount_in_max - 1);
-    both_reject(c, &s.preimage(), "coin value mismatch");
-
-    let mut s = StartSwapScenario::new();
-    s.request_exists = true;
-    both_reject(c, &s.preimage(), "request exists");
+    start_guard_failures(Circuit::StartSwap, StartScenario::swap);
+    let mut s = StartScenario::swap();
+    s.allowed = false;
+    both_reject(Circuit::StartSwap, &s.preimage(), "erc20AddressOut not allowed");
+    let mut s = StartScenario::swap();
+    if let Args::Swap { amount_out, .. } = &mut s.sent.args {
+        *amount_out = 0;
+    }
+    both_reject(Circuit::StartSwap, &s.preimage(), "zero amountOut");
 }
 
 #[test]
 fn start_swap_rejects_tampering() {
-    let c = Circuit::StartSwap;
-    tamper::assert_full_sweep(&ours(c), c.corpus(), &StartSwapScenario::new().preimage());
+    sweep(Circuit::StartSwap, &StartScenario::swap().preimage());
 }
-
-#[test]
-fn complete_swap_matches_corpus() {
-    matches(Circuit::CompleteSwap, &CompleteSwapScenario::new().preimage());
-}
-
-/// An exact spend mints a zero-value change coin.
-#[test]
-fn complete_swap_exact_spend_matches_corpus() {
-    let mut s = CompleteSwapScenario::new();
-    s.amount_in = s.s.amount_in_max_u64();
-    assert_eq!(s.change(), Some(0));
-    matches(Circuit::CompleteSwap, &s.preimage());
-}
-
-#[test]
-fn complete_swap_rejects_guard_failures() {
-    let c = Circuit::CompleteSwap;
-    // The most dangerous arithmetic in the contract: amountIn above the cap.
-    let mut s = CompleteSwapScenario::new();
-    s.amount_in = s.s.amount_in_max_u64() + 1;
-    both_reject(c, &s.preimage(), "change underflow");
-
-    // changeNonce == mintNonce.
-    let mut s = CompleteSwapScenario::new();
-    s.change_nonce = s.settle.mint_nonce;
-    both_reject(c, &s.preimage(), "change nonce equals mint nonce");
-
-    let mut s = CompleteSwapScenario::new();
-    s.settle.pending = false;
-    both_reject(c, &s.preimage(), "swap not found");
-
-    let mut s = CompleteSwapScenario::new();
-    s.settle.claimant_sk = Some(tagged32(b"someone-else", 0x99));
-    both_reject(c, &s.preimage(), "not the swapper");
-
-    let s = CompleteSwapScenario::new();
-    let mut pi = s.preimage();
-    pi.inputs[7] = pi.inputs[7] + Fr::from(1u64);
-    both_reject(c, &pi, "bad signature");
-}
-
-#[test]
-fn complete_swap_rejects_tampering() {
-    let c = Circuit::CompleteSwap;
-    tamper::assert_full_sweep(&ours(c), c.corpus(), &CompleteSwapScenario::new().preimage());
-}
-
-#[test]
-fn refund_swap_matches_corpus() {
-    matches(Circuit::RefundSwap, &RefundSwapScenario::new().preimage());
-}
-
-#[test]
-fn refund_swap_rejects_guard_failures() {
-    let c = Circuit::RefundSwap;
-    let mut s = RefundSwapScenario::new();
-    s.serialized_output = [0, 0, 0, 0, 1];
-    both_reject(c, &s.preimage(), "not the failure output");
-
-    let mut s = RefundSwapScenario::new();
-    s.settle.pending = false;
-    both_reject(c, &s.preimage(), "swap not found");
-
-    let mut s = RefundSwapScenario::new();
-    s.settle.claimant_sk = Some(tagged32(b"someone-else", 0x99));
-    both_reject(c, &s.preimage(), "not the swapper");
-}
-
-#[test]
-fn refund_swap_rejects_tampering() {
-    let c = Circuit::RefundSwap;
-    tamper::assert_full_sweep(&ours(c), c.corpus(), &RefundSwapScenario::new().preimage());
-}
-
-// ==== supply ===============================================================================
 
 #[test]
 fn start_supply_matches_corpus() {
-    matches(Circuit::StartSupply, &StartSupplyScenario::new().preimage());
+    check(Circuit::StartSupply, &StartScenario::supply());
 }
 
 #[test]
 fn start_supply_rejects_guard_failures() {
-    let c = Circuit::StartSupply;
-    let mut s = StartSupplyScenario::new();
-    s.env.initialised = 0;
-    both_reject(c, &s.preimage(), "not initialised");
-
-    let mut s = StartSupplyScenario::new();
-    s.amount = 0;
-    both_reject(c, &s.preimage(), "zero amount");
-
-    let mut s = StartSupplyScenario::new();
-    s.amount = u128::from(u64::MAX) + 1;
-    both_reject(c, &s.preimage(), "amount above u64");
-
-    let mut s = StartSupplyScenario::new();
-    s.coin_color = Some(tagged32(b"other-color", 0x01));
-    both_reject(c, &s.preimage(), "wrong colour");
-
-    let mut s = StartSupplyScenario::new();
-    s.coin_value = Some(s.amount + 1);
-    both_reject(c, &s.preimage(), "coin value mismatch");
-
-    let mut s = StartSupplyScenario::new();
-    s.request_exists = true;
-    both_reject(c, &s.preimage(), "request exists");
+    start_guard_failures(Circuit::StartSupply, StartScenario::supply);
+    let mut s = StartScenario::supply();
+    s.coin.as_mut().unwrap().value += 1;
+    both_reject(Circuit::StartSupply, &s.preimage(), "coin value mismatch");
 }
 
 #[test]
 fn start_supply_rejects_tampering() {
-    let c = Circuit::StartSupply;
-    tamper::assert_full_sweep(&ours(c), c.corpus(), &StartSupplyScenario::new().preimage());
+    sweep(Circuit::StartSupply, &StartScenario::supply().preimage());
 }
-
-#[test]
-fn complete_supply_matches_corpus() {
-    matches(Circuit::CompleteSupply, &CompleteSupplyScenario::new().preimage());
-}
-
-#[test]
-fn complete_supply_rejects_guard_failures() {
-    let c = Circuit::CompleteSupply;
-    let mut s = CompleteSupplyScenario::new();
-    s.settle.pending = false;
-    both_reject(c, &s.preimage(), "supply not found");
-
-    let mut s = CompleteSupplyScenario::new();
-    s.settle.claimant_sk = Some(tagged32(b"someone-else", 0x99));
-    both_reject(c, &s.preimage(), "not the supplier");
-
-    let s = CompleteSupplyScenario::new();
-    let mut pi = s.preimage();
-    pi.inputs[7] = pi.inputs[7] + Fr::from(1u64);
-    both_reject(c, &pi, "bad signature");
-}
-
-#[test]
-fn complete_supply_rejects_tampering() {
-    let c = Circuit::CompleteSupply;
-    tamper::assert_full_sweep(&ours(c), c.corpus(), &CompleteSupplyScenario::new().preimage());
-}
-
-#[test]
-fn refund_supply_matches_corpus() {
-    matches(Circuit::RefundSupply, &RefundSupplyScenario::new().preimage());
-}
-
-#[test]
-fn refund_supply_rejects_guard_failures() {
-    let c = Circuit::RefundSupply;
-    let mut s = RefundSupplyScenario::new();
-    s.serialized_output = [0, 0, 0, 0, 1];
-    both_reject(c, &s.preimage(), "not the failure output");
-
-    let mut s = RefundSupplyScenario::new();
-    s.settle.pending = false;
-    both_reject(c, &s.preimage(), "supply not found");
-
-    let mut s = RefundSupplyScenario::new();
-    s.settle.claimant_sk = Some(tagged32(b"someone-else", 0x99));
-    both_reject(c, &s.preimage(), "not the supplier");
-}
-
-#[test]
-fn refund_supply_rejects_tampering() {
-    let c = Circuit::RefundSupply;
-    tamper::assert_full_sweep(&ours(c), c.corpus(), &RefundSupplyScenario::new().preimage());
-}
-
-// ==== redeem ===============================================================================
 
 #[test]
 fn start_redeem_matches_corpus() {
-    matches(Circuit::StartRedeem, &StartRedeemScenario::new().preimage());
+    check(Circuit::StartRedeem, &StartScenario::redeem());
 }
 
 #[test]
 fn start_redeem_rejects_guard_failures() {
-    let c = Circuit::StartRedeem;
-    let mut s = StartRedeemScenario::new();
-    s.env.initialised = 0;
-    both_reject(c, &s.preimage(), "not initialised");
-
-    let mut s = StartRedeemScenario::new();
-    s.shares = 0;
-    both_reject(c, &s.preimage(), "zero shares");
-
-    let mut s = StartRedeemScenario::new();
-    s.shares = u128::from(u64::MAX) + 1;
-    both_reject(c, &s.preimage(), "shares above u64");
-
-    let mut s = StartRedeemScenario::new();
-    s.coin_color = Some(tagged32(b"other-color", 0x01));
-    both_reject(c, &s.preimage(), "wrong colour");
-
-    let mut s = StartRedeemScenario::new();
-    s.coin_value = Some(s.shares + 1);
-    both_reject(c, &s.preimage(), "coin value mismatch");
-
-    let mut s = StartRedeemScenario::new();
-    s.request_exists = true;
-    both_reject(c, &s.preimage(), "request exists");
+    start_guard_failures(Circuit::StartRedeem, StartScenario::redeem);
+    let mut s = StartScenario::redeem();
+    s.coin.as_mut().unwrap().color[0] ^= 1;
+    both_reject(Circuit::StartRedeem, &s.preimage(), "wrong colour");
 }
 
 #[test]
 fn start_redeem_rejects_tampering() {
-    let c = Circuit::StartRedeem;
-    tamper::assert_full_sweep(&ours(c), c.corpus(), &StartRedeemScenario::new().preimage());
+    sweep(Circuit::StartRedeem, &StartScenario::redeem().preimage());
+}
+
+#[test]
+fn start_approve_router_matches_corpus() {
+    check(Circuit::StartApproveRouter, &StartScenario::approve_router());
+}
+
+#[test]
+fn start_approve_stata_matches_corpus() {
+    check(Circuit::StartApproveStata, &StartScenario::approve_stata());
+}
+
+#[test]
+fn start_approve_rejects_guard_failures() {
+    start_guard_failures(Circuit::StartApproveRouter, StartScenario::approve_router);
+    start_guard_failures(Circuit::StartApproveStata, StartScenario::approve_stata);
+    let mut s = StartScenario::approve_router();
+    s.sent.sk[0] ^= 1;
+    both_reject(Circuit::StartApproveRouter, &s.preimage(), "not the deployer");
+    let mut s = StartScenario::approve_stata();
+    s.sent.sk[0] ^= 1;
+    both_reject(Circuit::StartApproveStata, &s.preimage(), "not the deployer");
+}
+
+#[test]
+fn start_approve_rejects_tampering() {
+    sweep(Circuit::StartApproveRouter, &StartScenario::approve_router().preimage());
+    sweep(Circuit::StartApproveStata, &StartScenario::approve_stata().preimage());
+}
+
+#[test]
+fn start_replace_nonce_matches_corpus() {
+    check(Circuit::StartReplaceNonce, &StartScenario::replace_nonce());
+    // Every vault-signed action's map is one arm of sentVaultNonce.
+    for replaced in [Sent::approve_router(), Sent::swap(), Sent::supply(), Sent::redeem()] {
+        let mut s = StartScenario::of(Sent::replace_nonce(&replaced));
+        s.replaced = Some(Box::new(replaced));
+        check(Circuit::StartReplaceNonce, &s);
+    }
+    // A replacement of a replacement.
+    let first = Sent::replace_nonce(&Sent::withdraw());
+    let mut s = StartScenario::of(Sent::replace_nonce(&first));
+    s.sent.in_index = 0xee;
+    s.replaced = Some(Box::new(first));
+    check(Circuit::StartReplaceNonce, &s);
+}
+
+#[test]
+fn start_replace_nonce_rejects_guard_failures() {
+    start_guard_failures(Circuit::StartReplaceNonce, StartScenario::replace_nonce);
+    let mut s = StartScenario::replace_nonce();
+    s.sent.sk[0] ^= 1;
+    both_reject(Circuit::StartReplaceNonce, &s.preimage(), "not the deployer");
+    // A deposit has no vault nonce.
+    let deposit = Sent::deposit();
+    let mut s = StartScenario::of(Sent::replace_nonce(&deposit));
+    s.replaced = Some(Box::new(deposit));
+    both_reject(Circuit::StartReplaceNonce, &s.preimage(), "deposit has no vault nonce");
+}
+
+#[test]
+fn start_replace_nonce_rejects_tampering() {
+    sweep(Circuit::StartReplaceNonce, &StartScenario::replace_nonce().preimage());
+}
+
+// ==== the sends =============================================================================
+
+fn send_guard_failures(circuit: Circuit, sent: fn() -> Sent) {
+    let mut s = SendScenario::of(sent());
+    s.flushed = false;
+    both_reject(circuit, &s.preimage(), "request not flushed");
+    let mut s = SendScenario::of(sent());
+    s.already_sent = true;
+    both_reject(circuit, &s.preimage(), "request already sent");
+    let mut s = SendScenario::of(sent());
+    s.sent.env.key_version = 0;
+    both_reject(circuit, &s.preimage(), "key version zero");
+}
+
+#[test]
+fn send_deposit_matches_corpus() {
+    check(Circuit::SendDeposit, &SendScenario::of(Sent::deposit()));
+}
+
+#[test]
+fn send_deposit_rejects_guard_failures() {
+    send_guard_failures(Circuit::SendDeposit, Sent::deposit);
+    // The depositor's path may not be the reserved response-key path.
+    let mut s = SendScenario::of(Sent::deposit());
+    if let Args::Deposit { path, .. } = &mut s.sent.args {
+        *path = vault::prims::pad32(minocrab_contracts::signet_v1::RESPONSE_KEY_PATH);
+    }
+    both_reject(Circuit::SendDeposit, &s.preimage(), "reserved path");
+}
+
+#[test]
+fn send_deposit_rejects_tampering() {
+    sweep(Circuit::SendDeposit, &SendScenario::of(Sent::deposit()).preimage());
+}
+
+#[test]
+fn send_withdraw_matches_corpus() {
+    check(Circuit::SendWithdraw, &SendScenario::of(Sent::withdraw()));
+}
+
+#[test]
+fn send_withdraw_rejects_guard_failures() {
+    send_guard_failures(Circuit::SendWithdraw, Sent::withdraw);
+}
+
+#[test]
+fn send_withdraw_rejects_tampering() {
+    sweep(Circuit::SendWithdraw, &SendScenario::of(Sent::withdraw()).preimage());
+}
+
+#[test]
+fn send_swap_matches_corpus() {
+    check(Circuit::SendSwap, &SendScenario::of(Sent::swap()));
+}
+
+#[test]
+fn send_swap_rejects_guard_failures() {
+    send_guard_failures(Circuit::SendSwap, Sent::swap);
+}
+
+#[test]
+fn send_swap_rejects_tampering() {
+    sweep(Circuit::SendSwap, &SendScenario::of(Sent::swap()).preimage());
+}
+
+#[test]
+fn send_supply_matches_corpus() {
+    check(Circuit::SendSupply, &SendScenario::of(Sent::supply()));
+}
+
+#[test]
+fn send_supply_rejects_guard_failures() {
+    send_guard_failures(Circuit::SendSupply, Sent::supply);
+}
+
+#[test]
+fn send_supply_rejects_tampering() {
+    sweep(Circuit::SendSupply, &SendScenario::of(Sent::supply()).preimage());
+}
+
+#[test]
+fn send_redeem_matches_corpus() {
+    check(Circuit::SendRedeem, &SendScenario::of(Sent::redeem()));
+}
+
+#[test]
+fn send_redeem_rejects_guard_failures() {
+    send_guard_failures(Circuit::SendRedeem, Sent::redeem);
+}
+
+#[test]
+fn send_redeem_rejects_tampering() {
+    sweep(Circuit::SendRedeem, &SendScenario::of(Sent::redeem()).preimage());
+}
+
+#[test]
+fn send_approve_matches_corpus() {
+    check(Circuit::SendApprove, &SendScenario::of(Sent::approve_router()));
+    check(Circuit::SendApprove, &SendScenario::of(Sent::approve_stata()));
+}
+
+#[test]
+fn send_approve_rejects_guard_failures() {
+    send_guard_failures(Circuit::SendApprove, Sent::approve_router);
+}
+
+#[test]
+fn send_approve_rejects_tampering() {
+    sweep(Circuit::SendApprove, &SendScenario::of(Sent::approve_stata()).preimage());
+}
+
+#[test]
+fn send_replace_nonce_matches_corpus() {
+    check(Circuit::SendReplaceNonce, &SendScenario::of(Sent::replace_nonce(&Sent::withdraw())));
+}
+
+#[test]
+fn send_replace_nonce_rejects_guard_failures() {
+    send_guard_failures(Circuit::SendReplaceNonce, || Sent::replace_nonce(&Sent::withdraw()));
+    // A send of the wrong action's entry.
+    let mut s = SendScenario::of(Sent::replace_nonce(&Sent::withdraw()));
+    s.sent.args = Sent::withdraw().args;
+    both_reject(Circuit::SendReplaceNonce, &s.preimage(), "wrong action");
+}
+
+#[test]
+fn send_replace_nonce_rejects_tampering() {
+    sweep(Circuit::SendReplaceNonce, &SendScenario::of(Sent::replace_nonce(&Sent::withdraw())).preimage());
+}
+
+// ==== the completions =======================================================================
+
+fn complete_guard_failures(circuit: Circuit, fresh: fn() -> CompleteScenario) {
+    let mut s = fresh();
+    s.sent_exists = false;
+    both_reject(circuit, &s.preimage(), "request not sent");
+
+    let mut s = fresh();
+    s.open = false;
+    both_reject(circuit, &s.preimage(), "request not open");
+
+    let mut s = fresh();
+    s.flushed = false;
+    both_reject(circuit, &s.preimage(), "attestation not flushed");
+
+    let mut s = fresh();
+    s.attestation.block_height = s.sent.last_seen;
+    both_reject(circuit, &s.preimage(), "stale attestation");
+
+    let mut s = fresh();
+    s.sk[0] ^= 1;
+    both_reject(circuit, &s.preimage(), "not the requester");
+
+    let mut s = fresh();
+    s.event_present = false;
+    both_reject(circuit, &s.preimage(), "event missing");
+
+    // An executed verdict's output must match the attested digest.
+    let mut s = fresh();
+    if s.executed() && !s.output.is_empty() {
+        s.output[0] = s.output[0] + Fr::from(1u64);
+        both_reject(circuit, &s.preimage(), "output does not match the attestation");
+    }
+}
+
+#[test]
+fn complete_deposit_matches_corpus() {
+    check(Circuit::CompleteDeposit, &CompleteScenario::of(Sent::deposit(), Attestation::executed_bool(true)));
+    // A transfer that returned false mints nothing.
+    check(Circuit::CompleteDeposit, &CompleteScenario::of(Sent::deposit(), Attestation::executed_bool(false)));
+    // Failed and unviable close the request.
+    check(Circuit::CompleteDeposit, &CompleteScenario::of(Sent::deposit(), Attestation::failed()));
+    check(Circuit::CompleteDeposit, &CompleteScenario::of(Sent::deposit(), Attestation::unviable()));
+    // The three recipient shapes.
+    let mut s = CompleteScenario::of(Sent::deposit(), Attestation::executed_bool(true));
+    s.recipient = ClaimRecipient::None(s.own_pk);
+    check(Circuit::CompleteDeposit, &s);
+    let mut s = CompleteScenario::of(Sent::deposit(), Attestation::executed_bool(true));
+    s.recipient = ClaimRecipient::Contract(tagged32(b"other-contract", 0x77));
+    check(Circuit::CompleteDeposit, &s);
+    let mut s = CompleteScenario::of(Sent::deposit(), Attestation::executed_bool(true));
+    s.recipient = ClaimRecipient::Contract(SELF_ADDR);
+    check(Circuit::CompleteDeposit, &s);
+}
+
+#[test]
+fn complete_deposit_rejects_guard_failures() {
+    complete_guard_failures(Circuit::CompleteDeposit, || CompleteScenario::of(Sent::deposit(), Attestation::executed_bool(true)));
+}
+
+#[test]
+fn complete_deposit_rejects_tampering() {
+    sweep(Circuit::CompleteDeposit, &CompleteScenario::of(Sent::deposit(), Attestation::executed_bool(true)).preimage());
+    sweep(Circuit::CompleteDeposit, &CompleteScenario::of(Sent::deposit(), Attestation::failed()).preimage());
+}
+
+#[test]
+fn complete_withdraw_matches_corpus() {
+    check(Circuit::CompleteWithdraw, &CompleteScenario::of(Sent::withdraw(), Attestation::executed_bool(true)));
+    check(Circuit::CompleteWithdraw, &CompleteScenario::of(Sent::withdraw(), Attestation::executed_bool(false)));
+    check(Circuit::CompleteWithdraw, &CompleteScenario::of(Sent::withdraw(), Attestation::failed()));
+    check(Circuit::CompleteWithdraw, &CompleteScenario::of(Sent::withdraw(), Attestation::unviable()));
+}
+
+#[test]
+fn complete_withdraw_rejects_guard_failures() {
+    complete_guard_failures(Circuit::CompleteWithdraw, || CompleteScenario::of(Sent::withdraw(), Attestation::executed_bool(true)));
+}
+
+#[test]
+fn complete_withdraw_rejects_tampering() {
+    sweep(Circuit::CompleteWithdraw, &CompleteScenario::of(Sent::withdraw(), Attestation::executed_bool(true)).preimage());
+    sweep(Circuit::CompleteWithdraw, &CompleteScenario::of(Sent::withdraw(), Attestation::executed_bool(false)).preimage());
+}
+
+#[test]
+fn complete_swap_matches_corpus() {
+    check(Circuit::CompleteSwap, &CompleteScenario::of(Sent::swap(), Attestation::executed_u256(5_500)));
+    // An exact spend mints a zero-value change coin.
+    check(Circuit::CompleteSwap, &CompleteScenario::of(Sent::swap(), Attestation::executed_u256(6_000)));
+    check(Circuit::CompleteSwap, &CompleteScenario::of(Sent::swap(), Attestation::failed()));
+    check(Circuit::CompleteSwap, &CompleteScenario::of(Sent::swap(), Attestation::unviable()));
+}
+
+#[test]
+fn complete_swap_rejects_guard_failures() {
+    complete_guard_failures(Circuit::CompleteSwap, || CompleteScenario::of(Sent::swap(), Attestation::executed_u256(5_500)));
+    // The nonces must differ.
+    let mut s = CompleteScenario::of(Sent::swap(), Attestation::executed_u256(5_500));
+    s.change_nonce = s.mint_nonce;
+    both_reject(Circuit::CompleteSwap, &s.preimage(), "equal nonces");
+    // amountIn above amountInMaximum underflows the change.
+    let s = CompleteScenario::of(Sent::swap(), Attestation::executed_u256(6_001));
+    both_reject(Circuit::CompleteSwap, &s.preimage(), "amountIn above the maximum");
+    // An attested value at or above 2^128 fails checkedTruncationU128.
+    let mut s = CompleteScenario::of(Sent::swap(), Attestation::executed_u256(5_500));
+    s.attestation.output[0] = Fr::from(1u64);
+    s.output = s.attestation.output.clone();
+    both_reject(Circuit::CompleteSwap, &s.preimage(), "value exceeds Uint<128>");
+}
+
+#[test]
+fn complete_swap_rejects_tampering() {
+    sweep(Circuit::CompleteSwap, &CompleteScenario::of(Sent::swap(), Attestation::executed_u256(5_500)).preimage());
+    sweep(Circuit::CompleteSwap, &CompleteScenario::of(Sent::swap(), Attestation::failed()).preimage());
+}
+
+#[test]
+fn complete_supply_matches_corpus() {
+    check(Circuit::CompleteSupply, &CompleteScenario::of(Sent::supply(), Attestation::executed_u256(41_500)));
+    check(Circuit::CompleteSupply, &CompleteScenario::of(Sent::supply(), Attestation::failed()));
+}
+
+#[test]
+fn complete_supply_rejects_guard_failures() {
+    complete_guard_failures(Circuit::CompleteSupply, || CompleteScenario::of(Sent::supply(), Attestation::executed_u256(41_500)));
+    // Shares at or above 2^64 cannot be minted.
+    let s = CompleteScenario::of(Sent::supply(), Attestation::executed_u256(u128::from(u64::MAX) + 1));
+    both_reject(Circuit::CompleteSupply, &s.preimage(), "shares exceed Uint<64>");
+}
+
+#[test]
+fn complete_supply_rejects_tampering() {
+    sweep(Circuit::CompleteSupply, &CompleteScenario::of(Sent::supply(), Attestation::executed_u256(41_500)).preimage());
 }
 
 #[test]
 fn complete_redeem_matches_corpus() {
-    matches(Circuit::CompleteRedeem, &CompleteRedeemScenario::new().preimage());
+    check(Circuit::CompleteRedeem, &CompleteScenario::of(Sent::redeem(), Attestation::executed_u256(42_500)));
+    check(Circuit::CompleteRedeem, &CompleteScenario::of(Sent::redeem(), Attestation::unviable()));
 }
 
 #[test]
 fn complete_redeem_rejects_guard_failures() {
-    let c = Circuit::CompleteRedeem;
-    let mut s = CompleteRedeemScenario::new();
-    s.settle.pending = false;
-    both_reject(c, &s.preimage(), "redeem not found");
-
-    let mut s = CompleteRedeemScenario::new();
-    s.settle.claimant_sk = Some(tagged32(b"someone-else", 0x99));
-    both_reject(c, &s.preimage(), "not the redeemer");
-
-    let s = CompleteRedeemScenario::new();
-    let mut pi = s.preimage();
-    pi.inputs[7] = pi.inputs[7] + Fr::from(1u64);
-    both_reject(c, &pi, "bad signature");
+    complete_guard_failures(Circuit::CompleteRedeem, || CompleteScenario::of(Sent::redeem(), Attestation::executed_u256(42_500)));
 }
 
 #[test]
 fn complete_redeem_rejects_tampering() {
-    let c = Circuit::CompleteRedeem;
-    tamper::assert_full_sweep(&ours(c), c.corpus(), &CompleteRedeemScenario::new().preimage());
+    sweep(Circuit::CompleteRedeem, &CompleteScenario::of(Sent::redeem(), Attestation::executed_u256(42_500)).preimage());
 }
 
 #[test]
-fn refund_redeem_matches_corpus() {
-    matches(Circuit::RefundRedeem, &RefundRedeemScenario::new().preimage());
+fn complete_approve_matches_corpus() {
+    check(Circuit::CompleteApprove, &CompleteScenario::of(Sent::approve_router(), Attestation::executed_bool(true)));
+    check(Circuit::CompleteApprove, &CompleteScenario::of(Sent::approve_stata(), Attestation::failed()));
 }
 
 #[test]
-fn refund_redeem_rejects_guard_failures() {
-    let c = Circuit::RefundRedeem;
-    let mut s = RefundRedeemScenario::new();
-    s.serialized_output = [0, 0, 0, 0, 1];
-    both_reject(c, &s.preimage(), "not the failure output");
-
-    let mut s = RefundRedeemScenario::new();
-    s.settle.pending = false;
-    both_reject(c, &s.preimage(), "redeem not found");
-
-    let mut s = RefundRedeemScenario::new();
-    s.settle.claimant_sk = Some(tagged32(b"someone-else", 0x99));
-    both_reject(c, &s.preimage(), "not the redeemer");
+fn complete_approve_rejects_guard_failures() {
+    complete_guard_failures(Circuit::CompleteApprove, || CompleteScenario::of(Sent::approve_router(), Attestation::executed_bool(true)));
 }
 
 #[test]
-fn refund_redeem_rejects_tampering() {
-    let c = Circuit::RefundRedeem;
-    tamper::assert_full_sweep(&ours(c), c.corpus(), &RefundRedeemScenario::new().preimage());
+fn complete_approve_rejects_tampering() {
+    sweep(Circuit::CompleteApprove, &CompleteScenario::of(Sent::approve_router(), Attestation::executed_bool(true)).preimage());
 }
 
-/// Every one of the seventeen corpus artifacts has a twin here, and the
-/// input schemas agree — the cheap check that runs before any preimage.
 #[test]
-fn every_circuit_has_a_corpus_twin_with_the_same_schema() {
-    for c in Circuit::ALL {
-        let types = |ir: &IrSource| {
-            serde_json::to_value(&ir.inputs)
-                .unwrap()
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|ti| ti["type"].clone())
-                .collect::<Vec<_>>()
-        };
-        assert_eq!(types(&c.ir()), types(c.corpus()), "{}: input schema", c.zkir_name());
-    }
+fn complete_replace_nonce_matches_corpus() {
+    let replaced = Sent::withdraw();
+    check(Circuit::CompleteReplaceNonce, &CompleteScenario::of(Sent::replace_nonce(&replaced), Attestation::executed_empty()));
+    check(Circuit::CompleteReplaceNonce, &CompleteScenario::of(Sent::replace_nonce(&replaced), Attestation::unviable()));
+}
+
+#[test]
+fn complete_replace_nonce_rejects_guard_failures() {
+    complete_guard_failures(Circuit::CompleteReplaceNonce, || {
+        CompleteScenario::of(Sent::replace_nonce(&Sent::withdraw()), Attestation::executed_empty())
+    });
+    // The record's digest must be over the EMPTY output on every verdict.
+    let mut s = CompleteScenario::of(Sent::replace_nonce(&Sent::withdraw()), Attestation::executed_empty());
+    s.attestation.width = 1;
+    s.attestation.output = vec![Fr::from(1u64)];
+    both_reject(Circuit::CompleteReplaceNonce, &s.preimage(), "a non-empty attested output");
+}
+
+#[test]
+fn complete_replace_nonce_rejects_tampering() {
+    sweep(Circuit::CompleteReplaceNonce, &CompleteScenario::of(Sent::replace_nonce(&Sent::withdraw()), Attestation::executed_empty()).preimage());
+}
+
+/// The verdicts a completion takes are exactly the three the protocol names.
+#[test]
+fn output_kinds_are_three() {
+    assert_eq!(output_kind::COUNT, 3);
 }

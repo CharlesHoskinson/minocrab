@@ -27,12 +27,17 @@ use minocrab::Fr;
 use super::prims::{atom, bytesn_value, cell, VmOp};
 
 /// The Pending lineage's field count, and compactc's segment length.
-pub const FIELDS: u8 = 22;
+///
+/// TWENTY-ONE SINCE M44 RUNG D, where it was twenty-two: `Signet` lost its
+/// request-nonce counter and its caip2 cell and gained `mpcKeyVersion`. The
+/// count is not cosmetic — it sets the SEGMENTATION BOUNDARY below, so one
+/// field fewer moves every path in the block.
+pub const FIELDS: u8 = 21;
 const SEGMENT: u8 = 15;
 
 /// A field's two-element path: `[segment, offset]`. The remainder segment
-/// LEADS (`batch` in determine-ledger-paths.ss), so the first `22 mod 15 =
-/// 7` fields sit in segment 0.
+/// LEADS (`batch` in determine-ledger-paths.ss), so the first `21 mod 15 =
+/// 6` fields sit in segment 0.
 pub fn segment_of(field: u8) -> (u8, u8) {
     assert!(field < FIELDS, "field {field} is not one of the vault's {FIELDS}");
     let lead = FIELDS % SEGMENT;

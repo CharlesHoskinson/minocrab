@@ -82,9 +82,14 @@ fn ep_hash_matches_upstream_for_every_corpus_circuit() {
     // compact/examples/types/examples.compact started compiling because
     // Uint<0> became a legal type (CHANGELOG 0.33.111). The hash rule
     // itself did not move: every circuit name in the corpus, the new
-    // source's included, still hashes to upstream's entry point.
+    // source's included, still hashes to upstream's entry point. +3 at
+    // M43 A: the second signet-midnight-integration pin (pr127, e9350c4),
+    // the singleton's three circuits at PR #127. +3 at M44 A: the third
+    // pin (v0.24.1, a80e98e) — three artifacts: the singleton, the Signet
+    // module and its oracle program; the vault's 17 → 29 circuits replace
+    // each other within its one artifact.
     assert_eq!(
-        artifacts, 316,
+        artifacts, 322,
         "the corpus artifact count moved; re-read notes/corpus-sources.org before \
          refreshing this number"
     );

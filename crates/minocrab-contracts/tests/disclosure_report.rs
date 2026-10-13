@@ -28,14 +28,16 @@ use vault::model::*;
 ///
 /// Regenerate with `--ignored --nocapture print_start_deposit_disclosure_report`.
 const START_DEPOSIT_REPORT: &str = "\
-depositor identity commitment | disclosed | -, 1a6f81ba97ed069ae2e8228f8262a7c6639207a0284600ccc6c6cefb75faa3
+depositor identity commitment | disclosed | -, 0f9c39975e1f14849c53385ebc9e0298aef16bb918faa6186e06691a2c7e28
 impact public input | statement | 01
-request id | disclosed | -, 7d3772434413379766fae88e0f67c8339dfc6c27b021afc5bdb9e6bf129527
-request record | disclosed | 31, 7661756c742d61646472, 04, 01, -, 1a6f81ba97ed069ae2e8228f8262a7c6639207a0284600ccc6c6cefb75faa3, -, -, -, -, -, -, a736aa, 07, 00ca9a3b, 00ac23fc06, e8fd, 65726332302d746f6b656e2d636f6e7472616374, -, 01, a9059cbb, 02, 74, 0000000000000000000000007661756c742d65766d2d616464722d32306279, 40, 000000000000000000000000000000000000000000000000000000000001e2, -, -, 6569703135353a3131313535313131, 227d5d, 5b7b226e616d65223a2273756363657373222c2274797065223a22626f6f6c, 227d5d, 5b7b226e616d65223a2273756363657373222c2274797065223a22626f6f6c
-the deposited ERC20 | disclosed | 65726332302d746f6b656e2d636f6e7472616374
-the deposited amount | disclosed | 40e201
-xcall communications commitment | disclosed | e14745ddce19580a721a4fb11ffd11174a2c8644ca13a3ebbf07bdbe3887ba4d
-xcall entry-point hash | disclosed | f3, 8f2c97ee5f46d2d83348ccfdb2b2b1fec86db22198200fd0601b8647ec443e";
+the caller's EVM account nonce | disclosed | 11
+the caller-chosen request index | disclosed | bc9a78563412
+the deposited ERC20 | disclosed | 65726332302d746f6b656e2d6164647265737321
+the deposited amount | disclosed | 40420f
+the request's EIP-1559 fee envelope | disclosed | 00902f5009
+the request's EIP-1559 fee envelope | disclosed | 00943577
+the request's EIP-1559 fee envelope | disclosed | 905f01
+the request's ownership commitment | disclosed | -, 3ccff5f8d992d4111463daaf9853d87eaf1d2ee838157f016a56692a715993";
 
 fn report_lines(compiled: &Compiled3, pi: &ProofPreimage) -> Vec<String> {
     let (_run, report) = simulate_compiled(compiled, pi).expect("the circuit accepts");
@@ -50,7 +52,7 @@ fn report_lines(compiled: &Compiled3, pi: &ProofPreimage) -> Vec<String> {
 #[test]
 fn the_start_deposit_disclosure_report_is_valued() {
     let compiled = erc20_vault::Vault::start_deposit();
-    let pi = StartDepositScenario::new().preimage();
+    let pi = StartScenario::deposit().preimage();
     let lines = report_lines(&compiled, &pi);
 
     // Nothing resolves to `<not computed>`: every record points at a value
@@ -61,13 +63,18 @@ fn the_start_deposit_disclosure_report_is_valued() {
         lines.join("\n")
     );
 
-    // One record per LOGICAL value, however many wires it has: the identity
-    // commitment and the request id report two limbs each on one line, the
-    // request record its thirty-odd, the settle view's token and amount one
-    // each, and the cross-contract call's two disclosures are the ledger
-    // layer's own (declared by the CALLER — see `start_deposit`'s signature).
+    // One record per LOGICAL value, however many wires it has: the two
+    // commitments — the depositor's identity and the request's ownership —
+    // report their two limbs each on one line, and the deposited ERC20, the
+    // caller-chosen request index, the deposited amount and the caller's EVM
+    // account nonce one each. The gas params are three records under ONE
+    // label (gas limit, maxFeePerGas, maxPriorityFeePerGas, in that order),
+    // so nine lines for seven labels. Under M44's flush pattern
+    // `startDeposit` only files the request, so the cross-contract call's
+    // own disclosures — the entry-point hash and the communications
+    // commitment — are `sendDeposit`'s, not this circuit's.
     let disclosed: Vec<&String> = lines.iter().filter(|l| l.contains("| disclosed |")).collect();
-    assert_eq!(disclosed.len(), 7, "{}", lines.join("\n"));
+    assert_eq!(disclosed.len(), 9, "{}", lines.join("\n"));
 
     let golden: Vec<String> = START_DEPOSIT_REPORT.lines().map(str::to_string).collect();
     let summary = summarize(&lines);
@@ -96,7 +103,7 @@ fn summarize(lines: &[String]) -> Vec<String> {
 #[ignore]
 fn print_start_deposit_disclosure_report() {
     let compiled = erc20_vault::Vault::start_deposit();
-    let pi = StartDepositScenario::new().preimage();
+    let pi = StartScenario::deposit().preimage();
     for line in summarize(&report_lines(&compiled, &pi)) {
         println!("{line}");
     }

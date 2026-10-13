@@ -36,10 +36,10 @@ use midnight_onchain_state::state::{ContractState, StateValue};
 use midnight_storage::DefaultDB;
 
 use reader::{
-    decode_notification, resolve_verified_record_v2, signet_field_node_by_path,
-    unpack_notification_v1, Resolved, MISC_PAYLOAD_LEN,
+    decode_notification, resolve_verified_record_v1, resolve_verified_record_v2,
+    signet_field_node_by_path, unpack_notification_v1, Resolved, MISC_PAYLOAD_LEN,
 };
-use records::SignBidirectionalRecordV2;
+use records::{SignBidirectionalRecordV1, SignBidirectionalRecordV2};
 pub use sign::Signature;
 
 /// What happened on the destination chain — chosen by the test.
@@ -66,6 +66,32 @@ pub struct Attestation {
     pub signature: Signature,
     /// The record the MPC read, for the test's own assertions.
     pub record: SignBidirectionalRecordV2,
+}
+
+/// The MPC's V1 answer (M44 rung D): what a `Succeeded`/`Failed` ticket
+/// takes.
+///
+/// THREE THINGS THE V2 ATTESTATION DID NOT CARRY. The block HEIGHT the call
+/// was observed at (the spec's M2 field, which the outbox's last-seen check
+/// consumes, and which the reference contract used to have to smuggle in as
+/// a call's return word); the VERDICT as its own field
+/// ([`hashing::v1::output_kind`]) rather than as a response-kind byte glued
+/// to the front of the output; and the attested WIDTH, inside the digest, so
+/// an output of the wrong length cannot verify.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AttestationV1 {
+    pub request_id: [u8; 32],
+    pub block_height: u64,
+    /// `OutputKind` — executed, failed or unviable.
+    pub output_kind: u64,
+    /// `serializedOutput`: the EVM body ALONE. No kind byte in front of it,
+    /// and empty for a non-execution.
+    pub output: Vec<u8>,
+    /// The digest signed, carried on the event for off-chain readers.
+    pub digest: [u8; 32],
+    pub signature: Signature,
+    /// The record the MPC read, for the test's own assertions.
+    pub record: SignBidirectionalRecordV1,
 }
 
 /// Why the MPC would not sign — the reader's own drop reasons, by name.
@@ -150,6 +176,58 @@ impl SigNetSim {
     /// The attestation digest — [`hashing::compute_response_hash`].
     pub fn attestation_digest(request_id: &[u8; 32], output: &[u8]) -> [u8; 32] {
         hashing::compute_response_hash(request_id, output)
+    }
+
+    /// EVERYTHING THE MPC DOES, ON V1 RECORDS: resolve, decide the verdict,
+    /// sign `calculateSignetAttestationDigestV1`.
+    ///
+    /// It is a method rather than a second `Responder` impl because the
+    /// height is the caller's to choose here — a simulated MPC has no chain
+    /// to read one from — and because the V2 path above is still the one the
+    /// captured fixtures exercise.
+    pub fn respond_v1(
+        &mut self,
+        event_payload: &[u8; MISC_PAYLOAD_LEN],
+        caller_state: &StateValue<DefaultDB>,
+        outcome: EvmOutcome,
+        block_height: u64,
+    ) -> Result<AttestationV1, Refusal> {
+        let notification = decode_notification(event_payload);
+        let unpacked =
+            unpack_notification_v1(&notification).map_err(|e| Refusal::Notification(format!("{e:#}")))?;
+        let map = signet_field_node_by_path(caller_state, &unpacked.requests_path)
+            .map_err(|e| Refusal::Path(format!("{e:#}")))?;
+        let record = match resolve_verified_record_v1(map, notification.request_id) {
+            Resolved::Found(record) => *record,
+            Resolved::Absent => return Err(Refusal::Absent),
+            Resolved::Dropped { reason, detail } => return Err(Refusal::Dropped { reason, detail }),
+        };
+        // The requester the key derives under is the address the record was
+        // READ from — the notification's caller address — never the record's
+        // own `sender` field (convert.rs's rule).
+        let caller = unpacked.caller_address;
+        let (output_kind, output) = match outcome {
+            // No kind byte in front: the verdict is its own field now.
+            EvmOutcome::Executed { body } => (hashing::v1::output_kind::EXECUTED, body),
+            EvmOutcome::NeverExecuted => (hashing::v1::output_kind::FAILED, Vec::new()),
+        };
+        let digest = hashing::v1::attestation_digest(
+            &notification.request_id,
+            block_height,
+            output_kind,
+            &output,
+        );
+        let d = self.root + self.response_epsilon(u32::from(record.key_version), &caller);
+        let signature = sign::sign(&digest, &d);
+        Ok(AttestationV1 {
+            request_id: notification.request_id,
+            block_height,
+            output_kind,
+            output,
+            digest,
+            signature,
+            record,
+        })
     }
 }
 

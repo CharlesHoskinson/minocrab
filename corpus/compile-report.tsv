@@ -473,6 +473,12 @@ src/signet-midnight-experiments/experiments/xcall/contract/src/caller.compact	ok
 src/signet-midnight-experiments/experiments/xcall/contract/src/target.compact	ok	
 src/signet-midnight-experiments/experiments/xcontract-events/contract/src/token.compact	ok	
 src/signet-midnight-experiments/experiments/xcontract-events/contract/src/vault.compact	ok	
+src/signet-midnight-integration-pr127/packages/signet-contract/src/signet-contract.compact	ok	
+src/signet-midnight-integration-pr127/packages/signet-midnight/src/Signet.compact	ok	
+src/signet-midnight-integration-pr127/packages/signet-midnight/src/circuits.compact	ok	
+src/signet-midnight-integration-v0241/packages/signet-contract/src/signet-contract.compact	ok	
+src/signet-midnight-integration-v0241/packages/signet-midnight/src/Signet.compact	ok	
+src/signet-midnight-integration-v0241/packages/signet-midnight/src/circuits.compact	ok	
 src/signet-midnight-integration/packages/midnight-serde/tests/fixtures/serde-fixtures.compact	ok	
 src/signet-midnight-integration/packages/signet-contract/src/signet-contract.compact	ok	
 src/signet-midnight-integration/packages/signet-midnight/src/Signet.compact	ok	

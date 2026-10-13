@@ -14,10 +14,9 @@ use midnight_transient_crypto::hash::{transient_commit, transient_hash};
 use midnight_transient_crypto::proofs::{KeyLocation, ProofPreimage};
 use midnight_zkir_v3::ir_instructions::ec_mul::ec_mul_offcircuit;
 use minocrab::Fr;
-use minocrab_contracts::erc20_vault::{REFUND_PAD, TRANSFER_SELECTOR, VAULT_PATH};
-use minocrab_contracts::evm::Filing;
-use minocrab_contracts::evm_flow::FAILURE_KIND;
-use minocrab_contracts::signet::RECORD_FORMAT_VERSION;
+use minocrab_contracts::erc20_vault::{TRANSFER_SELECTOR, VAULT_PATH};
+use minocrab_contracts::evm_flow::REFUND_PAD;
+use minocrab_contracts::signet_v1::{output_kind, schema, OutputSchema, ETHEREUM_CAIP2_ID};
 use minocrab_zkir::v3::IrValue;
 
 use super::ops;
@@ -25,20 +24,22 @@ use super::prims::*;
 
 // ---- the ledger fields, by declaration index ---------------------------------
 //
-// `signet: Signet` is five fields, then `transfers: Pending<…, 2>` is two.
+// `signet: Signet` is FOUR fields under V1 (the request nonce and the caip2
+// id went: notes/vault-flush.org §6), then `transfers: Pending<…, 2>` is two.
 
 pub const SIGNET_SIGNER: u8 = 0;
 pub const MPC_RESPONSE_KEY: u8 = 1;
-pub const SIGNET_REQUEST_NONCE: u8 = 2;
-pub const CAIP2_ID: u8 = 3;
-pub const EVM_CHAIN_ID: u8 = 4;
-pub const TRANSFERS_RECORDS: u8 = 5;
-pub const TRANSFERS_ENVS: u8 = 6;
+pub const MPC_KEY_VERSION: u8 = 2;
+pub const EVM_CHAIN_ID: u8 = 3;
+pub const TRANSFERS_RECORDS: u8 = 4;
+pub const TRANSFERS_ENVS: u8 = 5;
 
-/// The kind a `treasury::Transfer` request files and settles under —
-/// the FILING's byte, not the call's (M38 rung A).
-pub const TRANSFER_KIND: u8 =
-    <minocrab_contracts::treasury::Transfer as Filing>::KIND;
+/// The attested width of `erc20::Transfer`'s `bool` — one Borsh byte, the
+/// `LEN` inside the digest.
+pub const TRANSFER_OUTPUT_LEN: usize = 1;
+
+/// The treasury's output schema, as the record carries it.
+pub type TransferSchema = <schema::Success as OutputSchema>::At<minocrab::Public>;
 
 /// The circuit's own `kernel.self()`.
 pub const SELF_ADDR: [u8; 32] = {
@@ -85,8 +86,8 @@ pub struct Env {
     pub signer_addr: [u8; 32],
     /// The MPC response key's secret scalar seed.
     pub key_seed: u64,
-    pub request_nonce: u64,
-    pub caip2: [u8; 32],
+    /// `mpcKeyVersion`, a CELL under V1 — no circuit takes one.
+    pub key_version: u8,
     pub chain_id: u64,
     /// The singleton's `signBidirectional` entry-point hash.
     pub ep: [u8; 32],
@@ -100,14 +101,11 @@ impl Default for Env {
 
 impl Env {
     pub fn new() -> Env {
-        let mut caip2 = [0u8; 32];
-        caip2[..15].copy_from_slice(b"eip155:11155111");
         Env {
             self_addr: SELF_ADDR,
             signer_addr: tagged32(b"signet-addr", 0x32),
             key_seed: 0xf00d_face,
-            request_nonce: 4,
-            caip2,
+            key_version: 1,
             chain_id: 11_155_111,
             ep: minocrab_ledger::ep_hash("signBidirectional"),
         }
@@ -131,15 +129,8 @@ impl Env {
     pub fn read_signer(&self) -> Vec<VmOp> {
         ops::read(SIGNET_SIGNER, false, bytesn_value(32, &self.signer_addr))
     }
-    pub fn read_nonce(&self) -> Vec<VmOp> {
-        ops::read(
-            SIGNET_REQUEST_NONCE,
-            true,
-            bytesn_value(8, &self.request_nonce.to_le_bytes()),
-        )
-    }
-    pub fn read_caip2(&self) -> Vec<VmOp> {
-        ops::read(CAIP2_ID, false, bytesn_value(32, &self.caip2))
+    pub fn read_key_version(&self) -> Vec<VmOp> {
+        ops::read(MPC_KEY_VERSION, false, bytesn_value(1, &[self.key_version]))
     }
     pub fn read_chain_id(&self) -> Vec<VmOp> {
         ops::read(
@@ -192,14 +183,20 @@ pub fn owner_commit_of(sk: &[u8; 32], request_id: &[u8; 32]) -> [u8; 32] {
     commit_digest_of(REFUND_PAD, &[sk_hi, sk_lo], request_id)
 }
 
-// ---- the V2 signing record ----------------------------------------------------
+// ---- the V1 signing record ----------------------------------------------------
 
 /// The `transfer(to, amount)` record `send` files — `erc20::Transfer`'s
 /// selector, gas limit and fee envelope, spelled out here so the model does
 /// not read them off the type it is checking.
+///
+/// V1 since M44 rung D: `keyVersion` leads, the request nonce is GONE, the
+/// destination is the constant `pad(32, "eip155:1")`, and the record ends
+/// with `signatureDest`, `params` and the OUTPUT SCHEMA — so the id is no
+/// longer a hash of the whole record but of
+/// `RequestIdPreimageV1`, whose transaction enters as a digest
+/// (`prims::tx_params_digest`, `prims::request_id_v1`).
 #[derive(Clone, Debug)]
 pub struct Req {
-    pub key_version: u8,
     pub evm_nonce: u64,
     pub token: [u8; 20],
     pub to: [u8; 20],
@@ -207,24 +204,27 @@ pub struct Req {
 }
 
 impl Req {
-    /// `SignBidirectionalEventV2::limbs()`'s order, off-circuit.
+    /// The two ABI words `transfer(to, amount)` encodes to.
+    pub fn words(&self) -> [[u8; 32]; 2] {
+        [
+            abi_addr_word(&self.to),
+            abi_num_word(u128::from(self.amount)),
+        ]
+    }
+
+    /// `SignBidirectionalEventV1::limbs()`'s order, off-circuit.
     pub fn limbs(&self, env: &Env) -> Vec<Fr> {
         let (sender_hi, sender_lo) = b32_slots(&env.self_addr);
         let (path_hi, path_lo) = b32_slots(&pad32(VAULT_PATH));
+        let (dest_hi, dest_lo) = b32_slots(&pad32(ETHEREUM_CAIP2_ID));
         let mut l = vec![
-            Fr::from(u64::from(RECORD_FORMAT_VERSION)),
+            Fr::from(u64::from(env.key_version)),
             sender_hi,
             sender_lo,
-            Fr::from(env.request_nonce),
-            Fr::from(u64::from(self.key_version)),
             path_hi,
             path_lo,
-            Fr::from(0u64), // algo
-            Fr::from(0u64), // dest
-            Fr::from(0u64),
-            Fr::from(0u64),
-            Fr::from(0u64), // params: 3 zero limbs
-            Fr::from(0u64), // tx_param_type
+            Fr::from(0u64), // algo: ecdsa
+            Fr::from(0u64), // txParamType: evmType2
             Fr::from(env.chain_id),
             Fr::from(self.evm_nonce),
             u128_limb(1_000_000_000),  // FIXED_PRIORITY_FEE
@@ -236,32 +236,55 @@ impl Req {
             Fr::from_le_bytes(&TRANSFER_SELECTOR).expect("4 bytes fit"),
             Fr::from(2u64), // no_words
         ];
-        for w in [
-            abi_addr_word(&self.to),
-            abi_num_word(u128::from(self.amount)),
-        ] {
+        for w in self.words() {
             let (hi, lo) = b32_slots(&w);
             l.push(hi);
             l.push(lo);
         }
         l.push(Fr::from(0u64)); // access_list_entry_count
-        let (caip2_hi, caip2_lo) = b32_slots(&env.caip2);
-        l.push(caip2_hi);
-        l.push(caip2_lo);
-        l.push(Fr::from(u64::from(TRANSFER_KIND)));
+        l.push(dest_hi);
+        l.push(dest_lo);
+        l.push(Fr::from(0u64)); // signatureDest: unused
+        l.push(Fr::from(0u64)); // params: 3 zero limbs
+        l.push(Fr::from(0u64));
+        l.push(Fr::from(0u64));
+        l.extend(schema_limbs(schema::Success::BYTES));
         l
     }
 
     pub fn atoms() -> Vec<AlignmentAtom> {
-        minocrab_contracts::signet::SignBidirectionalEventV2::<minocrab::Public, 2>::atoms()
+        minocrab_contracts::signet_v1::SignBidirectionalEventV1::<
+            minocrab::Public,
+            2,
+            TransferSchema,
+        >::atoms()
     }
 
     pub fn av(&self, env: &Env) -> AlignedValue {
         aligned_atoms(&Self::atoms(), &self.limbs(env))
     }
 
+    /// `calculateEvmType2TxParamsDigestV1` over the two USED words.
+    pub fn tx_digest(&self, env: &Env) -> [u8; 32] {
+        let words = self.words();
+        tx_params_digest(
+            env.chain_id,
+            self.evm_nonce,
+            1_000_000_000,
+            30_000_000_000,
+            100_000,
+            &self.token,
+            Some((&TRANSFER_SELECTOR, &words)),
+        )
+    }
+
     pub fn request_id(&self, env: &Env) -> [u8; 32] {
-        request_id_of(&self.limbs(env))
+        request_id_v1(
+            env.key_version,
+            &env.self_addr,
+            &pad32(VAULT_PATH),
+            &self.tx_digest(env),
+        )
     }
 }
 
@@ -295,44 +318,52 @@ pub fn call_witnesses(env: &Env, cc_rand: Fr) -> Vec<Fr> {
     vec![cc_rand, ep_hi, ep_lo]
 }
 
-/// `calculateAttestationDigestBorsh(requestId, Attested { kind, output })`:
-/// Poseidon over `[id.hi, id.lo, packed]` where `packed` is the serialized
-/// output `kind ‖ borsh(output)` as ONE byte string in FAB's 31-byte
-/// little-endian limbing — the MPC's `compute_response_hash` rule
-/// (2026-09-07, decisions.org T1; `tests/vault_pending/model.rs` spells out
-/// why one leaf below thirty bytes packs as `kind + 256·leaf`).
+/// A ticket's argument slots: `respond: RespondBidirectionalEvent` then
+/// `serializedOutput` — signed over the V1 digest the VERDICT implies
+/// (`prims::attestation_digest`: tag, id, height, verdict, WIDTH, output).
 ///
-/// `output_limbs` is EMPTY for the MPC's failure output — the kind byte is
-/// the whole of it — and one limb for an executed `transfer`. That
-/// difference is why `Pending::refund` hashes twice.
-pub fn attestation_digest(request_id: &[u8; 32], kind: u8, output_limbs: &[Fr]) -> [u8; 32] {
-    let (hi, lo) = b32_slots(request_id);
-    assert!(output_limbs.len() <= 1, "the treasury's transfer returns one Bool leaf");
-    let packed = match output_limbs.first() {
-        None => Fr::from(u64::from(kind)),
-        Some(leaf) => Fr::from(u64::from(kind)) + *leaf * Fr::from(256u64),
-    };
-    transient_upgrade(&[hi, lo, packed])
-}
-
-/// A ticket's argument slots: `requestId`, `respond`, `serializedOutput` —
-/// signed over the digest the KIND implies.
+/// `signed_width` and `signed_output_limbs` are the EMPTY output (0, no
+/// limbs) for a `failed` or `unviable` verdict and the one `Bool` byte for
+/// an `executed` one. That difference — in the width as much as in the limbs
+/// — is why `Pending::refund` hashes twice.
+///
+/// Slot order is the derive's: `requestId` (two), `blockHeight`,
+/// `outputKind`, `serializedOutputLength`, `digest` (two), `signature`
+/// (`bigR.x` two, `bigR.y` two, `s` two, `recoveryId`), then the output.
+/// [`OUTPUT_KIND_SLOT`] names the one the tests relabel.
+#[allow(clippy::too_many_arguments)]
 pub fn ticket_inputs(
     key_seed: u64,
     nonce_seed: u64,
     request_id: &[u8; 32],
-    kind: u8,
+    block_height: u64,
+    output_kind: u64,
+    signed_width: usize,
     signed_output_limbs: &[Fr],
     ticket_output: Fr,
 ) -> Vec<Fr> {
-    let digest = attestation_digest(request_id, kind, signed_output_limbs);
+    let digest = attestation_digest(
+        request_id,
+        block_height,
+        output_kind,
+        signed_width,
+        signed_output_limbs,
+    );
     let (rx_le, s_le, _pk) = sign(&digest, &scalar(key_seed), &scalar(nonce_seed));
     let (rid_hi, rid_lo) = b32_slots(request_id);
+    let (d_hi, d_lo) = b32_slots(&digest);
     let (rx_hi, rx_lo) = b32_slots(&rx_le);
     let (s_hi, s_lo) = b32_slots(&s_le);
     vec![
         rid_hi,
         rid_lo,
+        Fr::from(block_height),
+        Fr::from(output_kind),
+        Fr::from(signed_width as u64),
+        // `digest` on the event is for off-chain readers; nothing in the
+        // circuit reads it, so the honest value is the real one.
+        d_hi,
+        d_lo,
         rx_hi,
         rx_lo,
         Fr::from(0u64),
@@ -340,10 +371,12 @@ pub fn ticket_inputs(
         s_hi,
         s_lo,
         Fr::from(0u64), // recoveryId (unread)
-        Fr::from(u64::from(kind)),
         ticket_output,
     ]
 }
+
+/// The `outputKind` argument slot of a ticket — index 3, by the order above.
+pub const OUTPUT_KIND_SLOT: usize = 3;
 
 // ---- send ---------------------------------------------------------------------
 
@@ -368,7 +401,6 @@ impl SendScenario {
             env: Env::new(),
             sk: tagged32(b"treasurer", 0x22),
             req: Req {
-                key_version: 1,
                 evm_nonce: 11,
                 token: *b"erc20-token-contract",
                 to: *b"dest-evm-address-20b",
@@ -400,7 +432,6 @@ impl SendScenario {
     pub fn inputs(&self) -> Vec<Fr> {
         vec![
             Fr::from(self.req.evm_nonce),
-            Fr::from(u64::from(self.req.key_version)),
             b20(&self.req.token),
             b20(&self.req.to),
             Fr::from(self.req.amount),
@@ -417,11 +448,9 @@ impl SendScenario {
     pub fn ops(&self) -> Vec<VmOp> {
         let rid = self.request_id();
         let mut o = self.env.kernel_self();
-        o.extend(self.env.read_nonce());
-        o.extend(self.env.read_caip2());
         o.extend(self.env.read_chain_id());
+        o.extend(self.env.read_key_version());
         o.extend(ops::member(TRANSFERS_RECORDS, &rid, self.request_exists));
-        o.extend(ops::counter_inc(SIGNET_REQUEST_NONCE));
         o.extend(ops::insert(TRANSFERS_RECORDS, &rid, self.req.av(&self.env)));
         o.extend(ops::insert(TRANSFERS_ENVS, &rid, self.env_av()));
         o.extend(self.env.read_signer());
@@ -458,26 +487,37 @@ pub enum Attestation {
 }
 
 impl Attestation {
-    pub fn kind(self) -> u8 {
+    /// The MPC's VERDICT — `OutputKind`, where the `fff3421c` lineage had a
+    /// response kind byte.
+    pub fn output_kind(self) -> u64 {
         match self {
-            Attestation::ExecutedTrue | Attestation::ExecutedFalse => TRANSFER_KIND,
-            Attestation::NeverExecuted => FAILURE_KIND,
+            Attestation::ExecutedTrue | Attestation::ExecutedFalse => output_kind::EXECUTED,
+            Attestation::NeverExecuted => output_kind::FAILED,
         }
     }
 
-    /// The limbs AFTER the kind byte in the signed preimage.
+    /// The attested WIDTH inside the digest: the `bool`'s one byte for an
+    /// execution, zero for a non-execution.
+    pub fn signed_width(self) -> usize {
+        match self {
+            Attestation::ExecutedTrue | Attestation::ExecutedFalse => TRANSFER_OUTPUT_LEN,
+            Attestation::NeverExecuted => 0,
+        }
+    }
+
+    /// The output limbs inside the signed preimage.
     pub fn signed_output_limbs(self) -> Vec<Fr> {
         match self {
             Attestation::ExecutedTrue => vec![Fr::from(1u64)],
             Attestation::ExecutedFalse => vec![Fr::from(0u64)],
-            // `FailureResponse { kind: u8 }` — one byte, no payload.
+            // A failed or unviable request has nothing to decode.
             Attestation::NeverExecuted => vec![],
         }
     }
 
-    /// What the ticket's output slot carries. For the failure kind the slot
-    /// is outside the signed preimage, so the prover picks it — and a
-    /// `Bool` argument is range-constrained to 0 or 1 whatever it holds.
+    /// What the ticket's output slot carries. For a non-execution the slot
+    /// is outside the signed preimage, so the prover picks it — zero, which
+    /// satisfies the `Bytes<1>` range constraint.
     pub fn ticket_output(self) -> Fr {
         match self {
             Attestation::ExecutedTrue => Fr::from(1u64),
@@ -497,6 +537,8 @@ pub struct SettleScenario {
     pub presented_sk: Option<[u8; 32]>,
     pub own_pk: [u8; 32],
     pub nonce_seed: u64,
+    /// The height the MPC attests, disclosed by both settles.
+    pub block_height: u64,
 }
 
 impl SettleScenario {
@@ -508,6 +550,7 @@ impl SettleScenario {
             presented_sk: None,
             own_pk: tagged32(b"own-public-key", 0x55),
             nonce_seed: 0x5eed_1234,
+            block_height: 21_000_000,
         }
     }
 
@@ -520,7 +563,9 @@ impl SettleScenario {
             self.send.env.key_seed,
             self.nonce_seed,
             &self.send.request_id(),
-            self.attestation.kind(),
+            self.block_height,
+            self.attestation.output_kind(),
+            self.attestation.signed_width(),
             &self.attestation.signed_output_limbs(),
             self.attestation.ticket_output(),
         )
@@ -538,15 +583,14 @@ impl SettleScenario {
         vec![hi, lo, pk_hi, pk_lo]
     }
 
+    /// The settle's op stream. The record is REMOVED WITHOUT BEING READ:
+    /// nothing in a V1 settle needs a field of it (there is no kind byte and
+    /// no format version to re-assert), so `Pending::consume` is a
+    /// membership check and two removals.
     pub fn ops(&self) -> Vec<VmOp> {
         let rid = self.send.request_id();
         let mut o = self.send.env.read_mpc_key();
         o.extend(ops::member(TRANSFERS_RECORDS, &rid, self.pending));
-        o.extend(ops::lookup(
-            TRANSFERS_RECORDS,
-            &rid,
-            self.send.req.av(&self.send.env),
-        ));
         o.extend(ops::remove(TRANSFERS_RECORDS, &rid));
         o.extend(ops::lookup(TRANSFERS_ENVS, &rid, self.send.env_av()));
         o.extend(ops::remove(TRANSFERS_ENVS, &rid));

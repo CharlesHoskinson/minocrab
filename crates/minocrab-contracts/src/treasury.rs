@@ -18,18 +18,20 @@
 //! |-----------------------------------|--------------------------------|
 //! | `a9059cbb`                        | `erc20::Transfer::selector()`  |
 //! | the two ABI words, the word count | `AbiTuple` (checked, E0080)    |
-//! | the response type and its schema  | `Attested<Bool>` at the kind   |
+//! | the output schema in the record   | `Filed<_, schema::Success>`    |
+//! | the attested width and its decode | `AbiReturn for Bool`           |
 //! | the gas envelope and limit        | `build_tx` + `erc20::Transfer` |
-//! | the signing path                  | `SigningPath::contract_path`   |
+//! | the signing path                  | `Signing::contract`            |
 //! | the notification depth and path   | the slot's own ledger path     |
-//! | the record format version         | `Pending::complete` / `refund` |
+//! | the MPC key version               | `Signet::mpc_key_version`      |
 //! | `&TREASURY.signet`                | `#[derive(Ledger)]`            |
 //! | the owner commitment and its gate | `Owned` + `request_owned`      |
 //! | "a `false` must not complete"     | `erc20::Transfer::succeeded`   |
 //!
 //! WHAT IS STILL WRITTEN, on purpose (notes/evm-calls.org §5): the labels,
-//! the `Discloses` tuple, and the two values §7 has yet to find a home for —
-//! the EVM nonce and the MPC key version.
+//! the `Discloses` tuple, and the one value §7 has yet to find a home for —
+//! the EVM nonce. (The MPC key version found one in M44 rung D: it is a cell
+//! of the `Signet` block, so no circuit takes it.)
 //!
 //! CALLEE ALLOW-LIST: this example takes the token as an argument, which a
 //! deployment must not do unqualified — a non-conforming ERC-20 that returns
@@ -45,22 +47,22 @@ use minocrab_std::v3::{
 };
 
 use crate::evm::erc20::{self, Erc20};
-use crate::evm::Kinded;
+use crate::evm::Filed;
 use crate::evm_flow::{Contract, Failed, Owned, Pending, Succeeded};
 use crate::signet_flow::{Requested, Settled, Signet};
+use crate::signet_v1::schema;
 
 /// HOW THIS TREASURY FILES ITS ONE CALL: the library's
-/// [`erc20::Transfer`] under response kind 1.
+/// [`erc20::Transfer`], decoded under the `success` schema.
 ///
-/// The kind is the treasury's own choice — a kind is per DEPLOYMENT, and
-/// this one happens to pick the byte the vault uses for a withdrawal. The
-/// return field is the anonymous default, because a Solidity `transfer`'s
-/// return IS anonymous, so a settle circuit's argument slot is
-/// `serializedOutput.output`.
+/// The schema is the one the deployed lineage files a `transfer` with —
+/// `[{"name":"success","type":"bool"}]` — so the MPC decodes the `bool` and
+/// attests one byte, which [`erc20::Transfer`]'s own
+/// [`EvmCall::succeeded`](crate::evm::EvmCall::succeeded) then reads.
 ///
 /// One name, written once: the slot, both tickets and both settle
 /// signatures are all `Transfer` (notes/evm-interfaces.org §2.2).
-pub type Transfer = Kinded<erc20::Transfer, 1>;
+pub type Transfer = Filed<erc20::Transfer, schema::Success>;
 
 /// What `refund` needs back: how much was sent.
 ///
@@ -73,9 +75,9 @@ pub struct Amount {
     pub amount: Uint<64, Public>,
 }
 
-/// Seven ledger fields from two declarations: the Signet configuration
-/// (signer, MPC key, request nonce, caip2 id, chain id) and the transfer
-/// slot's record and environment maps.
+/// Six ledger fields from two declarations: the Signet configuration
+/// (signer, MPC key, key version, chain id) and the transfer slot's record
+/// and environment maps.
 #[derive(Ledger)]
 pub struct Treasury {
     /// The block's one Sig Network configuration. `#[derive(Ledger)]` finds
@@ -101,13 +103,12 @@ label! {
 
 #[contract]
 impl Treasury {
-    /// `send(evmNonce, keyVersion, token, to, amount)` — file
+    /// `send(evmNonce, token, to, amount)` — file
     /// `token.transfer(to, amount)`, remembering the amount and the caller.
     #[circuit]
     pub fn send(
         c: &mut Circuit3,
         evm_nonce: Uint<64>,
-        key_version: Uint<8>,
         token: Contract<Erc20>,
         to: Bytes<20>,
         amount: Uint<64>,
@@ -119,7 +120,6 @@ impl Treasury {
             c,
             token,
             (to, amount.widen::<128>()),
-            key_version,
             evm_nonce,
             |_, _| Amount {
                 amount: Uint::from_field_unchecked(sent),
@@ -143,7 +143,8 @@ impl Treasury {
     }
 
     /// `refund(ticket)` — the transfer did not succeed, either way it can
-    /// fail: the MPC's failure kind, or a mined call that returned `false`.
+    /// fail: the MPC's `failed` / `unviable` verdict, or an `executed` call
+    /// that returned `false`.
     ///
     /// ONLY THE ORIGINAL CALLER: `refund_to_owner` witnesses a fresh secret
     /// and opens the environment's commitment against it. A real treasury
@@ -155,9 +156,10 @@ impl Treasury {
         ticket: Failed<Transfer>,
     ) -> Discloses<(Settled, RefundRecipient)> {
         // The attested flag comes back too — `false` for a mined call that
-        // moved nothing, and prover-chosen padding when the MPC attested
-        // its failure kind. A treasury has no use for it; naming it `_`
-        // says so where dropping it silently would not.
+        // moved nothing, and prover-chosen padding when the MPC's verdict
+        // was a non-execution (whose attested output is empty). A treasury
+        // has no use for it; naming it `_` says so where dropping it
+        // silently would not.
         let (_owner, _env, _flag) = TREASURY
             .transfers
             .refund_to_owner::<RefundRecipient>(c, ticket);

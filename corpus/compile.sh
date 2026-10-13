@@ -50,6 +50,21 @@ done
 # location, so the weekly determinism job could not pass from CI's path.
 export COMPACT_PATH=".compact-path"
 
+# A source may carry its OWN links (a second pin of a repo whose packages
+# import each other, e.g. signet-midnight-integration-pr127): those go into
+# `.compact-path-<source>` and that source compiles with it on the path
+# ahead of the shared one (M43 A).
+declare -A SRC_PATH
+while IFS=$'\t' read -r n pkg target; do
+  dir=".compact-path-$n"
+  mkdir -p "$dir/$(dirname "$pkg")"
+  depth=$(($(grep -o "/" <<<"$pkg" | wc -l | tr -d ' ') + 1))
+  prefix=""
+  for ((i = 0; i < depth; i++)); do prefix="../$prefix"; done
+  ln -sfn "${prefix}src/$target" "$dir/$pkg"
+  SRC_PATH[$n]="$dir"
+done < <(jq -r '.sources[] | select(.compact_path_links) | .name as $n | .compact_path_links | to_entries[] | [$n, .key, .value] | @tsv' sources.json)
+
 # keep other sources' lines when filtering
 if [[ -n "$FILTER" && -f "$REPORT" ]]; then
   grep -v "^src/$FILTER/" "$REPORT" > "$REPORT.tmp" || true
@@ -74,7 +89,8 @@ while IFS= read -r f; do
   rm -rf "$out"
   mkdir -p "$out"
   # shellcheck disable=SC2086 — flags are intentionally word-split
-  if err=$("$COMPACTC" --skip-zk $flags "$f" "$out" 2>&1); then
+  path="${SRC_PATH[$srcname]:+${SRC_PATH[$srcname]}:}.compact-path"
+  if err=$(COMPACT_PATH="$path" "$COMPACTC" --skip-zk $flags "$f" "$out" 2>&1); then
     ok=$((ok + 1))
     rm -rf "$out/contract" "$out/keys"
     printf '%s\tok\t\n' "$f" >> "$REPORT"

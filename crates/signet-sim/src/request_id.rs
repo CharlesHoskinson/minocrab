@@ -9,7 +9,7 @@ use sha3::{Digest, Keccak256};
 
 use crate::records::{
     CompactMaybe, EvmAccessListEntry, EvmCalldata, EvmType2TxParams, SignBidirectionalRecord,
-    SignBidirectionalRecordV2,
+    SignBidirectionalRecordV1, SignBidirectionalRecordV2,
 };
 
 /// keccak256 — the LEGACY id rule (see [`crate::hashing::legacy_request_id`]).
@@ -49,6 +49,26 @@ pub fn binary_repr_v2(record: &SignBidirectionalRecordV2) -> Vec<u8> {
     push_tx_params(&mut buf, &record.tx_params);
     buf.extend_from_slice(&record.caip2_id);
     buf.push(record.response_kind);
+    buf
+}
+
+/// The V1 record's byte layout — what the ledger cell's FAB binary is, so a
+/// test can fill a cell from a record and a decoder can be checked against
+/// it. NOT a hash preimage: the V1 id hashes
+/// [`crate::hashing::v1::request_id`]'s seven-field struct instead.
+///
+/// `respondSerializationSchema` is `Bytes<0>` and contributes nothing.
+pub fn binary_repr_v1(record: &SignBidirectionalRecordV1) -> Vec<u8> {
+    let mut buf = vec![record.key_version];
+    buf.extend_from_slice(&record.sender);
+    buf.extend_from_slice(&record.path);
+    buf.push(record.algo);
+    buf.push(record.tx_param_type);
+    push_tx_params(&mut buf, &record.tx_params);
+    buf.extend_from_slice(&record.execution_dest);
+    buf.push(record.signature_dest);
+    buf.extend_from_slice(&record.params);
+    buf.extend_from_slice(&record.output_deserialization_schema);
     buf
 }
 

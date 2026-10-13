@@ -7,7 +7,7 @@
 //! difference.
 //!
 //! Source artifact:
-//! `corpus/zkir/signet-midnight-integration/packages/signet-contract/src/signet-contract`
+//! `corpus/zkir/signet-midnight-integration-pr127/packages/signet-contract/src/signet-contract`
 //! (compiler 0.34.0, language 0.26.0, runtime 0.19.0), pinned by
 //! `artifact/pin.json` and checked by `tests/artifact_agreement.rs`.
 //!
@@ -31,7 +31,7 @@
 pub mod notification;
 
 use minocrab::Public;
-use minocrab_std::v3::{b32_newtype, interface, BytesN, CircuitArg, Uint, Vis3, B32};
+use minocrab_std::v3::{b32_newtype, interface, BoundedUint, BytesN, CircuitArg, Uint, Vis3, B32};
 
 b32_newtype! {
     /// Compact `RequestId = Bytes<32>`.
@@ -60,23 +60,29 @@ pub struct Signature<V: Vis3> {
     pub recovery_id: Uint<8, V>,
 }
 
-/// Compact `struct SignatureRespondedEvent { signature: Signature }`.
+/// Compact `struct SignatureRespondedEvent { requestId: RequestId, signature: Signature }`.
 #[derive(Clone, CircuitArg)]
 pub struct SignatureRespondedEvent<V: Vis3> {
+    pub request_id: RequestId<V>,
     pub signature: Signature<V>,
 }
 
-/// Compact `struct RespondBidirectionalEvent { signature: Signature }`.
+/// Compact `struct RespondBidirectionalEvent { requestId: RequestId, blockHeight: Uint<64>, outputKind: OutputKind, serializedOutputLength: Uint<64>, digest: Bytes<32>, signature: Signature }`.
 #[derive(Clone, CircuitArg)]
 pub struct RespondBidirectionalEvent<V: Vis3> {
+    pub request_id: RequestId<V>,
+    pub block_height: Uint<64, V>,
+    pub output_kind: BoundedUint<3, V>,
+    pub serialized_output_length: Uint<64, V>,
+    pub digest: B32<V>,
     pub signature: Signature<V>,
 }
 
 /// ```text
 /// contract SignetSigner {
 ///   circuit signBidirectional(requestId: RequestId, notification: SignBidirectionalEventNotification): [];
-///   circuit respond(requestId: RequestId, signatureRespondedEvent: SignatureRespondedEvent): [];
-///   circuit respondBidirectional(requestId: RequestId, respondBidirectionalEvent: RespondBidirectionalEvent): [];
+///   circuit respond(signatureRespondedEvent: SignatureRespondedEvent): [];
+///   circuit respondBidirectional(respondBidirectionalEvent: RespondBidirectionalEvent): [];
 /// }
 /// ```
 #[interface]
@@ -87,15 +93,9 @@ pub trait SignetSigner {
         notification: SignBidirectionalEventNotification<Public>,
     );
 
-    /// `circuit respond(requestId: RequestId, signatureRespondedEvent: SignatureRespondedEvent): []`
-    fn respond(
-        request_id: RequestId<Public>,
-        signature_responded_event: SignatureRespondedEvent<Public>,
-    );
+    /// `circuit respond(signatureRespondedEvent: SignatureRespondedEvent): []`
+    fn respond(signature_responded_event: SignatureRespondedEvent<Public>);
 
-    /// `circuit respondBidirectional(requestId: RequestId, respondBidirectionalEvent: RespondBidirectionalEvent): []`
-    fn respond_bidirectional(
-        request_id: RequestId<Public>,
-        respond_bidirectional_event: RespondBidirectionalEvent<Public>,
-    );
+    /// `circuit respondBidirectional(respondBidirectionalEvent: RespondBidirectionalEvent): []`
+    fn respond_bidirectional(respond_bidirectional_event: RespondBidirectionalEvent<Public>);
 }

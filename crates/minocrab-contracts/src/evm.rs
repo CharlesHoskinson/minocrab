@@ -32,12 +32,13 @@
 //!    live one module per interface: [`erc20`], [`erc4626`], [`erc721`],
 //!    [`uniswap_v3`], [`aave_v3`], [`weth`] and [`usdt`]. [`Payable`] marks
 //!    the one that carries ether.
-//! 4. [`Filing`] — HOW ONE SLOT FILES ONE CALL: the response kind byte and
-//!    the deployed record's name for the attested return. Those are facts
-//!    about a DEPLOYMENT's protocol, not about the Solidity function (the
-//!    same `transfer` is a deposit under one kind and a withdrawal under
-//!    another), so they sit here rather than on the call.
-//!    [`Kinded<Call, KIND>`](Kinded) is the one-line impl.
+//! 4. [`Filing`] — HOW ONE SLOT FILES ONE CALL: the OUTPUT SCHEMA the MPC
+//!    decodes the return under, which carries the deployed record's name for
+//!    the attested value. That is a fact about a DEPLOYMENT's protocol, not
+//!    about the Solidity function (the same `transfer` is decoded for its
+//!    flag by a vault and not decoded at all by a protocol that only wants
+//!    the verdict), so it sits here rather than on the call.
+//!    [`Filed<Call, Schema>`](Filed) is the one-line impl.
 //!
 //! [`build_tx`] is where the three meet: it turns a callee, an argument
 //! tuple and a nonce into the [`EvmTx`] a request files, with the selector,
@@ -394,12 +395,14 @@ use core::marker::PhantomData;
 
 use minocrab::v3::{Circuit3, FieldT, Wire3};
 use minocrab::{Fr, Private};
-use minocrab_std::v3::{is_true, pow2_const, Bool as BoolWire, Bytes, Check, Uint, Vis3, B32};
+use minocrab_std::v3::{
+    is_true, pow2_const, Bool as BoolWire, Bytes, Bytes0, Check, CircuitArg, Uint, Vis3, B32,
+};
 use sha3::{Digest as _, Keccak256};
 
-use crate::erc20_vault::{FIXED_MAX_FEE, FIXED_PRIORITY_FEE};
 use crate::signet::{reverse_bytes32, EvmCalldata};
 use crate::signet_flow::EvmTx;
+use crate::signet_v1::{self, OutputSchema};
 
 pub mod aave_v3;
 pub mod erc20;
@@ -408,6 +411,13 @@ pub mod erc721;
 pub mod uniswap_v3;
 pub mod usdt;
 pub mod weth;
+
+/// The CONTRACT-FIXED fee envelope the typed-call lineage files under
+/// (`Envelope::Fixed`): the priority fee and fee cap the seventeen-circuit
+/// vault pinned in its source (1 gwei / 30 gwei). The flush-pattern vault
+/// (M44) keeps its envelope in ledger cells instead, so these live here now.
+pub const FIXED_PRIORITY_FEE: u64 = 1_000_000_000;
+pub const FIXED_MAX_FEE: u64 = 30_000_000_000;
 
 // ---- the encoders (moved from `signet`, unchanged) ---------------------------
 
@@ -711,6 +721,134 @@ impl AbiArg for U256 {
     }
 }
 
+// ---- the attested return -----------------------------------------------------
+
+/// WHAT THE MPC ATTESTS FOR A RETURN TYPE — `serializedOutput`: its byte
+/// width, its circuit shape, and how a circuit reads the ABI value back out
+/// of it (M44 rung D).
+///
+/// A V1 attestation signs the output as BYTES at a width the digest commits
+/// to ([`signet_v1::calculate_attestation_digest_v1`]), not as a decoded
+/// value: the MPC decodes the EVM return under the record's
+/// `outputDeserializationSchema`, re-serializes it with Borsh and signs
+/// `[tag, requestId, blockHeight, outputKind, LEN, output]`. So a settle
+/// circuit takes the BYTES and narrows them itself, which is where the
+/// `Bytes<32> as Uint<128>` hazard lives (bug report 4) — and why the
+/// narrowing is written ONCE, here, rather than per settle circuit:
+///
+/// - a `bool` is one byte, and "true" is `byte == 1` with NO canonicity
+///   check, exactly as compactc lowers `deserialize<_, 1>(output).success`;
+/// - a `uint256` is 32 little-endian bytes, narrowed by
+///   [`signet_v1::checked_truncation_u128`], whose byte-31 check is what
+///   stops a 32-byte string being read modulo the field;
+/// - nothing at all is [`Bytes0`] — no slot, no limb, and the verdict
+///   ([`signet_v1::output_kind`]) is the whole answer.
+///
+/// SEPARATE FROM [`AbiArg`] in both directions. An argument has a word and
+/// may have no attested form ([`Address`] is never a return in the
+/// library); a return has an attested form and may have no word
+/// ([`Unit`]). A return type with no impl here cannot be named by a slot at
+/// all — the missing impl is the rejection, so a call whose attested
+/// narrowing nobody has written down does not compile into a `Pending`.
+pub trait AbiReturn: AbiType {
+    /// `serializedOutput`'s byte width — the `LEN` the attestation digest
+    /// commits to.
+    const LEN: usize;
+
+    /// The serialized output as a circuit value. Private: it arrives on a
+    /// settle ticket.
+    type Serialized: CircuitArg + Copy;
+
+    /// Its FAB limbs, in slot order — the tail of the signed preimage.
+    fn limbs(out: &Self::Serialized) -> Vec<Wire3<FieldT, Private>>;
+
+    /// The decoded value an [`EvmCall::succeeded`] predicate reads, with
+    /// whatever range check the narrowing owes.
+    fn decode(c: &mut Circuit3, out: &Self::Serialized) -> Self::Wire<Private>;
+}
+
+/// Nothing attested: zero bytes, zero limbs, nothing to decode.
+impl AbiReturn for Unit {
+    const LEN: usize = 0;
+    type Serialized = Bytes0<Private>;
+
+    fn limbs(_out: &Bytes0<Private>) -> Vec<Wire3<FieldT, Private>> {
+        Vec::new()
+    }
+
+    fn decode(_c: &mut Circuit3, _out: &Bytes0<Private>) {}
+}
+
+/// A Borsh `bool`: one byte, true iff it is `1`.
+///
+/// NO CANONICITY CHECK, deliberately: `deserialize<VaultResponse, 1>(output)
+/// .success` in the deployed source is `byte == 1`, so a byte of 2 reads as
+/// FALSE rather than as a proof failure, and this lineage says the same
+/// thing. The byte is inside the signed digest either way, so the MPC chose
+/// it.
+impl AbiReturn for Bool {
+    const LEN: usize = 1;
+    type Serialized = Bytes<1, Private>;
+
+    fn limbs(out: &Bytes<1, Private>) -> Vec<Wire3<FieldT, Private>> {
+        vec![out.field()]
+    }
+
+    fn decode(c: &mut Circuit3, out: &Bytes<1, Private>) -> BoolWire<Private> {
+        let one = c.constant(1u64).private();
+        BoolWire::from_field_unchecked(c.test_eq(out.field(), one))
+    }
+}
+
+/// A Borsh `uint256` narrowed to a `Uint<64>` — the width a shielded mint
+/// takes, so the narrowing is TWO checks: byte 31 zero and the low 31 bytes
+/// under 2^128 ([`signet_v1::checked_truncation_u128`]), then the 64-bit
+/// range check the deployed source's `as Uint<64>` emits.
+impl AbiReturn for U64 {
+    const LEN: usize = 32;
+    type Serialized = B32<Private>;
+
+    fn limbs(out: &B32<Private>) -> Vec<Wire3<FieldT, Private>> {
+        vec![out.hi, out.lo]
+    }
+
+    fn decode(c: &mut Circuit3, out: &B32<Private>) -> Uint<64, Private> {
+        let narrowed = signet_v1::checked_truncation_u128(c, out);
+        Uint::<64, Private>::from_field_checked(c, narrowed.field())
+    }
+}
+
+/// A Borsh `uint256` narrowed to a `Uint<128>` — one
+/// [`signet_v1::checked_truncation_u128`] and no more.
+impl AbiReturn for U128 {
+    const LEN: usize = 32;
+    type Serialized = B32<Private>;
+
+    fn limbs(out: &B32<Private>) -> Vec<Wire3<FieldT, Private>> {
+        vec![out.hi, out.lo]
+    }
+
+    fn decode(c: &mut Circuit3, out: &B32<Private>) -> Uint<128, Private> {
+        signet_v1::checked_truncation_u128(c, out)
+    }
+}
+
+/// A Borsh `uint256` AT ITS FULL WIDTH — the 32 bytes unnarrowed, for a
+/// settle that compares them rather than counting with them. No check is
+/// owed because nothing is cast.
+impl AbiReturn for U256 {
+    const LEN: usize = 32;
+    type Serialized = B32<Private>;
+
+    fn limbs(out: &B32<Private>) -> Vec<Wire3<FieldT, Private>> {
+        vec![out.hi, out.lo]
+    }
+
+    fn decode(_c: &mut Circuit3, out: &B32<Private>) -> B32<Private> {
+        *out
+    }
+}
+
 // ---- the argument list -------------------------------------------------------
 
 /// An [`EvmCall`]'s argument list: `()` or a 1- to 8-tuple of [`AbiArg`]s.
@@ -898,60 +1036,67 @@ impl<I: Interface> Extends<I> for I {}
 
 // ---- the filing ---------------------------------------------------------------
 
-/// HOW ONE SLOT FILES ITS CALL — the call plus the two facts that are about
-/// a DEPLOYMENT's protocol rather than about the Solidity function
+/// HOW ONE SLOT FILES ITS CALL — the call plus the facts that are about a
+/// DEPLOYMENT's protocol rather than about the Solidity function
 /// (notes/evm-interfaces.org §1).
 ///
-/// [`EvmCall`] carries what `transfer` IS. What it cannot carry is which
-/// response kind byte a particular protocol files a `transfer` under, or
-/// what a particular deployed record calls the flag that comes back: the
-/// vault files one `transfer` under CLAIM and another under WITHDRAW, and
-/// the treasury files its own under WITHDRAW's byte again. Those are facts
-/// about the SLOT, and this is where a slot states them.
+/// [`EvmCall`] carries what `transfer` IS. What it cannot carry is what the
+/// MPC is asked to DECODE out of the return (`[{"name":"success","type":
+/// "bool"}]` for a vault, `[]` for a protocol that only wants the verdict),
+/// or what a particular deployed record calls the value that comes back.
+/// Those are facts about the SLOT, and this is where a slot states them.
 ///
-/// [`Kinded`] is the off-the-shelf impl for the common case (a kind, an
-/// anonymous return). A deployment whose record NAMES the attested value
-/// writes three lines instead:
+/// WHAT WENT, IN M44 RUNG D: the response KIND byte. The V1 record carries
+/// none — a request is identified by its id alone, and an attestation is
+/// bound to a slot by the slot's own record map (the entry is there or it is
+/// not) and by the ticket's TYPE. So two slots of one block may file the
+/// same call with the same schema and still not swap tickets, and there is
+/// no byte left to allocate by hand.
+///
+/// [`Filed`] is the off-the-shelf impl, and for most slots it is the whole
+/// declaration. A deployment writes the impl out by hand when it needs TWO
+/// slots that file the same call under the same schema — the tickets are
+/// typed by the filing, so two distinct types are what keep a deposit's
+/// `Succeeded` from settling a withdrawal:
 ///
 /// ```
 /// use minocrab_contracts::evm::{erc20, Filing};
+/// use minocrab_contracts::signet_v1::schema;
 ///
 /// /// `transfer` as this protocol's withdrawal.
 /// pub struct Withdrawal;
 /// impl Filing for Withdrawal {
 ///     type Call = erc20::Transfer;
-///     const KIND: u8 = 1;
-///     const RETURN_FIELD: Option<&'static str> = Some("success");
+///     type Schema = schema::Success;
 /// }
 /// ```
 pub trait Filing: 'static {
     /// The call this slot files.
     type Call: EvmCall;
 
-    /// THE RESPONSE KIND BYTE this slot's records carry.
+    /// THE OUTPUT SCHEMA this slot's records carry — what the MPC decodes
+    /// the EVM return under before it attests it
+    /// ([`signet_v1::OutputSchema`], the library's five in
+    /// [`signet_v1::schema`]).
     ///
-    /// A wire commitment — the MPC echoes it, and it is inside the signed
-    /// preimage, so two settle circuits' digests differ for the same request
-    /// id and outcome. Distinct across a ledger block: the Ledger derive's
-    /// `assert_distinct_kinds` reads it from here (through
-    /// `LedgerWidth::KINDS`) and a duplicate is `error[E0080]`.
-    const KIND: u8;
-
-    /// WHAT THE ATTESTED RETURN VALUE IS CALLED inside the response record,
-    /// if the record names it at all.
+    /// It is a wire commitment in the strongest sense: the schema string is
+    /// inside the record, so it is inside the request id, so a slot that
+    /// files the wrong schema files a DIFFERENT request — and the attested
+    /// width it implies is inside the signed digest, so an output of the
+    /// wrong width cannot verify.
     ///
-    /// `None` (the default) is the ANONYMOUS return a Solidity signature
-    /// actually declares — `transfer(address,uint256) returns (bool)` names
-    /// nothing — and a settle circuit's argument slot is then
-    /// `serializedOutput.output`. `Some("success")` is a record that wraps
-    /// the value in a named field, as the deployed vault's own responses do
-    /// (`{ kind, success }`, `{ kind, amountIn }`, `{ kind, shares }`,
-    /// `{ kind, assets }`), and the slot is `serializedOutput.output.success`.
+    /// The schema and the call's [`AbiReturn`] narrowing have to agree, and
+    /// nothing here checks that they do: a `[]` schema with a `Bool` return
+    /// asks the MPC for no output and then looks for a byte, which fails at
+    /// the digest. Pair them the way [`Filed`]'s doc table does.
     ///
-    /// It is a WIRE fact, not a cosmetic one: the name is part of the
-    /// circuit's argument schema, so a caller built against the deployed
-    /// record keeps working.
-    const RETURN_FIELD: Option<&'static str> = None;
+    /// IT CARRIES THE RETURN'S NAME, which is why `RETURN_FIELD` went with
+    /// the kind byte in M44 rung D: a V1 attestation's `serializedOutput` is
+    /// a flat `Bytes<LEN>` argument, so there is no named field inside it for
+    /// a filing to spell — the name the deployed records use (`success`,
+    /// `amountIn`, `shares`, `assets`) is inside this schema string, where
+    /// the MPC reads it.
+    type Schema: OutputSchema;
 
     /// THE GAS LIMIT THIS SLOT FILES WITH, if it differs from the call's own
     /// default ([`EvmCall::GAS_LIMIT`]).
@@ -967,25 +1112,38 @@ pub trait Filing: 'static {
     const GAS_LIMIT: u64 = <Self::Call as EvmCall>::GAS_LIMIT;
 }
 
-/// THE ONE-LINE FILING: this call, at this kind, with the anonymous return.
+/// THE ONE-LINE FILING: this call, decoded under this schema.
 ///
-/// `type Transfer = Kinded<erc20::Transfer, 1>;` and the slot, both tickets
-/// and both settle signatures are that one name
+/// `type Transfer = Filed<erc20::Transfer, schema::Success>;` and the slot,
+/// both tickets and both settle signatures are that one name
 /// (notes/evm-interfaces.org §2.2).
 ///
-/// WHY A WRAPPER RATHER THAN A `KIND` PARAMETER ON THE SLOT: the kind is
-/// consumed by the TICKETS too (`complete` asserts it, `refund` selects the
-/// signed preimage by it), so a slot-parameter kind would put
-/// `Succeeded<Call, KIND>` on every settle signature.
+/// THE PAIRS THAT MAKE SENSE — the schema says what the MPC decodes, the
+/// call's [`EvmCall::Return`] says what this contract then narrows, and they
+/// have to be the same thing:
 ///
-/// [`Filing::RETURN_FIELD`] cannot ride here — a `&'static str` is not a
-/// const-generic type on stable Rust — so a deployment whose record names
-/// its attested value writes its own [`Filing`] impl.
-pub struct Kinded<Call, const KIND: u8>(PhantomData<fn() -> Call>);
+/// | `Return`             | `Schema`                                 | attested |
+/// |----------------------|------------------------------------------|----------|
+/// | [`Bool`]             | [`schema::Success`](signet_v1::schema::Success) | 1 byte |
+/// | [`U64`] / [`U128`] / [`U256`] | [`schema::AmountIn`](signet_v1::schema::AmountIn), `Shares`, `Assets` | 32 bytes |
+/// | [`Unit`]             | [`schema::NoReturn`](signet_v1::schema::NoReturn) | nothing |
+///
+/// WHY A WRAPPER RATHER THAN A PARAMETER ON THE SLOT: the schema is consumed
+/// by the TICKETS too (the attested width is the call's, and `refund`
+/// selects between that width and zero), so a slot parameter would put
+/// `Succeeded<Call, Schema>` on every settle signature.
+///
+/// WHAT WENT WITH THE KIND BYTE: the second parameter used to be the
+/// protocol's response kind (`Kinded<erc20::Transfer, 1>`), a byte a
+/// deployment had to allocate by hand and the Ledger derive had to check was
+/// unique per block. V1 records carry no kind, so the parameter is the
+/// schema instead — a fact a deployment reads off its own ABI rather than
+/// one it invents.
+pub struct Filed<Call, Schema>(PhantomData<fn() -> (Call, Schema)>);
 
-impl<Call: EvmCall + 'static, const KIND: u8> Filing for Kinded<Call, KIND> {
+impl<Call: EvmCall + 'static, Schema: OutputSchema> Filing for Filed<Call, Schema> {
     type Call = Call;
-    const KIND: u8 = KIND;
+    type Schema = Schema;
 }
 
 // ---- the call ----------------------------------------------------------------
@@ -997,10 +1155,11 @@ impl<Call: EvmCall + 'static, const KIND: u8> Filing for Kinded<Call, KIND> {
 /// schema spellings — is DERIVED from these, which is the whole point
 /// (notes/evm-calls.org §2).
 ///
-/// WHAT IS NOT HERE, since M38 rung A: the response kind byte and the
-/// deployed record's name for the attested return. Neither is a fact about
-/// the Solidity function — the same `transfer` is a deposit under one
-/// protocol byte and a withdrawal under another — so both live on the SLOT's
+/// WHAT IS NOT HERE, since M38 rung A: the OUTPUT SCHEMA the MPC decodes the
+/// return under, and with it the deployed record's name for the attested
+/// value. Neither is a fact about the Solidity function — the same
+/// `transfer` is decoded for its flag by a vault and left undecoded by a
+/// protocol that wants only the verdict — so both live on the SLOT's
 /// [`Filing`] (notes/evm-interfaces.org §1).
 pub trait EvmCall {
     /// THE INTERFACE THAT EXPOSES THIS FUNCTION.
@@ -1018,8 +1177,9 @@ pub trait EvmCall {
     /// The argument list.
     type Args: AbiTuple;
 
-    /// The attested return value. `Attested<Return::Wire>` at the slot's
-    /// [`Filing::KIND`] is the response a settle circuit consumes.
+    /// The attested return value. `Attested<Return::Wire>`, decoded under
+    /// the slot's [`Filing::Schema`], is the response a settle circuit
+    /// consumes.
     type Return: AbiType;
 
     /// The gas LIMIT (not a price; the fee envelope is [`build_tx`]'s).
@@ -1682,7 +1842,7 @@ mod tests {
     /// aliases of them, so no request circuit's gas immediate can move.
     #[test]
     fn the_gas_defaults_are_the_vaults() {
-        use crate::erc20_vault::{ERC20_CALL_GAS, LENDING_GAS, SWAP_GAS};
+        use crate::evm::{erc20::CALL_GAS as ERC20_CALL_GAS, erc4626::CALL_GAS as LENDING_GAS, uniswap_v3::SWAP_GAS};
 
         assert_eq!(erc20::Transfer::GAS_LIMIT, ERC20_CALL_GAS);
         assert_eq!(erc20::Approve::GAS_LIMIT, ERC20_CALL_GAS);
@@ -1691,18 +1851,56 @@ mod tests {
         assert_eq!(erc4626::Redeem::GAS_LIMIT, LENDING_GAS);
     }
 
-    /// A `Kinded` filing IS its call at its byte, and the return field is
-    /// the anonymous default.
+    /// A `Filed` filing IS its call under its schema, and the gas limit is
+    /// the call's own default.
     #[test]
-    fn kinded_files_the_call_at_the_named_byte() {
-        type Transfer = Kinded<erc20::Transfer, 1>;
+    fn filed_files_the_call_under_the_named_schema() {
+        use crate::signet_v1::{schema, OutputSchema};
+        type Transfer = Filed<erc20::Transfer, schema::Success>;
 
-        assert_eq!(<Transfer as Filing>::KIND, 1);
-        assert_eq!(<Transfer as Filing>::RETURN_FIELD, None);
+        assert_eq!(
+            <<Transfer as Filing>::Schema as OutputSchema>::BYTES,
+            br#"[{"name":"success","type":"bool"}]"#
+        );
+        assert_eq!(<Transfer as Filing>::GAS_LIMIT, erc20::CALL_GAS);
         assert_eq!(
             <<Transfer as Filing>::Call as EvmCall>::signature(),
             "transfer(address,uint256)"
         );
+    }
+
+    /// THE FIVE OUTPUT SCHEMAS ARE THE DEPLOYED STRINGS, byte for byte, at
+    /// the widths `notes/vault-flush.org` §2 names (2, 34, 36, 38) — the
+    /// record's limbing depends on the length, and the length is in the
+    /// signed request id.
+    #[test]
+    fn the_output_schemas_are_the_deployed_strings() {
+        use crate::erc20_vault as v;
+        use crate::signet_v1::{schema, OutputSchema};
+
+        assert_eq!(schema::NoReturn::BYTES, v::REPLACE_NONCE_OUTPUT_SCHEMA);
+        assert_eq!(schema::Success::BYTES, v::VAULT_OUTPUT_SCHEMA);
+        assert_eq!(schema::AmountIn::BYTES, v::SWAP_OUTPUT_SCHEMA);
+        assert_eq!(schema::Shares::BYTES, v::SUPPLY_OUTPUT_SCHEMA);
+        assert_eq!(schema::Assets::BYTES, v::REDEEM_OUTPUT_SCHEMA);
+
+        assert_eq!(schema::NoReturn::BYTES.len(), 2);
+        assert_eq!(schema::Success::BYTES.len(), 34);
+        assert_eq!(schema::AmountIn::BYTES.len(), 38);
+        assert_eq!(schema::Shares::BYTES.len(), 36);
+        assert_eq!(schema::Assets::BYTES.len(), 36);
+    }
+
+    /// THE ATTESTED WIDTHS: what the MPC's Borsh of each return type takes,
+    /// which is the `LEN` inside the attestation digest and therefore the
+    /// width a settle circuit must verify at.
+    #[test]
+    fn the_attested_widths_are_the_borsh_widths() {
+        assert_eq!(<Unit as AbiReturn>::LEN, 0);
+        assert_eq!(<Bool as AbiReturn>::LEN, 1);
+        assert_eq!(<U64 as AbiReturn>::LEN, 32);
+        assert_eq!(<U128 as AbiReturn>::LEN, 32);
+        assert_eq!(<U256 as AbiReturn>::LEN, 32);
     }
 
     /// The narrowing the MPC applies, as the schema literals spell it.

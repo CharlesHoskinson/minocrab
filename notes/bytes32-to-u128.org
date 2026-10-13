@@ -1,0 +1,82 @@
+#+title: Bytes<32> (LE) → Uint<128> in Compact: the row floor, measured
+
+dmd, 2026-10-02: "I need to benchmark something in compact: take an LE-encoded 256-bit number as 32 bytes, check it fits in u128, return it as Uint<128>. Minimum rows and the code; later we bench it in minocrab." Probes compiled with compactc 0.34.0 (language 0.26.0) under =--feature-zkir-v3 --skip-zk=, rows from Midnight's own cost model via =cargo run -p minocrab-sim --bin minocrab -- rows=. Probe sources and artifacts in =/tmp/u128-bench/= (not committed; every source is reproduced below).
+
+* The answer
+
+#+begin_src compact
+export circuit toU128(x: Bytes<32>): Uint<128> {
+  // Byte 31 is the most significant (little-endian). Asserting it zero costs 3 rows and
+  // closes the field-wraparound gap in the cast below (see "Why the guard").
+  const v = x as Vector<32, Uint<8>>;
+  assert(v[31] == 0, "high byte must be zero");
+  return x as Uint<128>;
+}
+#+end_src
+
+Marginal cost of the conversion (beyond holding a =Bytes<32>= input, which costs =constrain_bits 8= + =constrain_bits 248= = 64 rows regardless): =reconstitute_field= 8 rows + =constrain_bits 128= 32 rows + the guard's =test_eq= + =assert= 3 rows = 43 rows. Without the guard, 40 rows. The 31 =div_mod_power_of_two= that =x as Vector<32, Uint<8>>= implies are dead-code-eliminated by compactc when only =v[31]= is used (it is a =copy= of the high limb), so the guard really is 3 rows.
+
+* The measurements
+
+Every probe writes its result to a =disclose=d ledger cell, because an exported circuit that touches neither ledger nor witness is "pure" and compactc emits no ZKIR for it. The sink is the same in every row of a comparison, so differences isolate the conversion.
+
+| probe | body | k | rows | instrs | what it isolates |
+|---|---|---|---|---|---|
+| base | =sink: Uint<128> = y= (y: Uint<128>) | 7 | 68 | 4 | constrain_bits 128 (32) + the Impact write (36) |
+| bytesink | =bsink: Bytes<32> = x= | 8 | 123 | 5 | the Bytes<32> input's two range checks |
+| fieldsink | =fsink: Field = x as Field= | 9 | 132 | 6 | adds reconstitute_field |
+| twoA / twoB | =bsink = x; fsink = f= vs =bsink = x; fsink = x as Field= | 8 / 9 | 136 / 144 | 8 / 9 | reconstitute_field alone = 8 rows |
+| direct | =sink = x as Uint<128>= | 9 | 164 | 8 | fieldsink + constrain_bits 128 = 132 + 32 |
+| viafield | =sink = (x as Field) as Uint<128>= | 9 | 164 | 8 | identical IR to direct |
+| hibyte | direct + =assert(v[31] == 0)= | 9 | 167 | 11 | the recommended form, +3 rows |
+| helper | the same guard behind a named =highByte(x)= circuit | 9 | 167 | 11 | identical IR after inlining — the readable spelling |
+| roundtrip | =n = x as Uint<128>; assert(n as Bytes<32> == x)= | 9 | 317 | 13 | sound and self-explanatory, but the 248-bit div_mod costs ~150 rows |
+| vector | =x as Vector<32,Uint<8>>=, assert v[16..32] == 0, =Bytes[v[0..16]] as Uint<128>= | 13 | 4642 | 86 | the "cut the array in half" intuition |
+
+The intuitive approach is 28× the rows and four k levels up: in ZKIR v3 a =Bytes<32>= is two field elements (31-byte low limb, 1-byte high limb), so getting at individual bytes means 30 chained =div_mod_power_of_two(8)= (roughly 145 rows each by subtraction in Midnight's model), and rebuilding =Bytes<16>= from them is 15 chained 8-bit =reconstitute_field=s. The limb split is the only free "cut", and it sits at byte 31, not byte 16.
+
+What =x as Uint<128>= lowers to (direct.zkir):
+#+begin_example
+0  ConstrainBits x.0 bits 8          ; high limb (byte 31)
+1  ConstrainBits x.1 bits 248        ; low limb (bytes 0..31)
+2  ReconstituteField divisor=x.0 modulus=x.1 bits=248 → t   ; t = x.0·2^248 + x.1  (mod p)
+3  Copy t → tmp
+4  ConstrainBits tmp bits 128
+#+end_example
+
+=Bytes<16>(x, 0)= slice syntax exists in the compact source at corpus pin 56c3b77 but not in compactc 0.34.0's parser ("found '<' looking for '['"), so it was not measured; it would go through the same bytes->vector lowering anyway.
+
+* Why the guard
+
+In-circuit, =reconstitute_field= (zkir-v3 =ir_vm.rs:1025=) asserts =divisor < 2^(255−bits)= and =modulus < 2^bits= and then emits the linear combination mod p. The composite is therefore < 2^255 but p ≈ 0.906·2^255 (top byte 0x73), so a 32-byte string in [p, 2^255) — high byte 0x73 with a large low limb, or 0x74..0x7f — reconstitutes to its value mod p. The off-circuit VM (=ir_vm.rs:412=) rejects such inputs with an error, so an honest prover never produces them, but the constraint system accepts them: a prover with its own witness generator can present bytes ≥ 2^128 and have the circuit return a small Uint<128>. This is the "ReconstituteField overflow" unenforced premise already listed in notes/zkir-semantics.org (I4 row, upstream §6.6(d)); recorded as finding 10 in notes/compact-findings.org. With the high byte asserted zero the composite is < 2^248 < p and the cast is exact.
+
+* For the MinoCrab bench
+
+The MinoCrab floor is lower: the limbs are already separate wires, so =constrain_eq hi 0= (1 row) + =constrain_bits lo 128= (32 rows) and return =lo= — ~33 rows, no reconstitute. Compare against 43 (guarded) / 40 (unguarded) here.
+
+* Boundary run (2026-10-02, dmd: "test it on 2^128 + 1 for my peace of mind")
+
+The compiled =hibyte.zkir= and =direct.zkir= were executed on six inputs through both our simulator and upstream =IrSource::check= (agreeing in every case); the harness is =/tmp/u128-bench/scratch_u128.rs= (drop it into =crates/minocrab-sim/tests/= to re-run; it builds the two limbs, the Impact transcript and the communications commitment over the inputs). Results for the guarded circuit:
+
+| x | result | failing instruction |
+|---|---|---|
+| 2^128 − 1 | ACCEPT | — |
+| 2^128 | REJECT | constrain_bits 128 |
+| 2^128 + 1 | REJECT | constrain_bits 128 |
+| 2^248 | REJECT | assert (high byte) |
+| p + 5 | REJECT | assert (high byte) |
+| 2^256 − 1 | REJECT | assert (high byte) |
+
+The unguarded =direct= circuit also rejects all five, but p + 5 fails only at =reconstitute_field='s off-circuit "reconstituted element overflows field" check, which is the VM, not a constraint — the in-circuit gap described under "Why the guard".
+
+* The round-trip form, standalone
+
+#+begin_src compact
+export circuit toU128(x: Bytes<32>): Uint<128> {
+  const n = x as Uint<128>;
+  assert(n as Bytes<32> == x, "value exceeds 2^128");
+  return n;
+}
+#+end_src
+
+Lowering: input range checks, reconstitute_field, constrain_bits 128, then =div_mod_power_of_two= at 248 bits (the ~150-row instruction), two =test_eq= against the original limbs, =cond_select= for the conjunction, =assert=. Sound because the split is exact in-circuit and both limbs must equal the originals. 317 rows in the harness against 167 for the high-byte guard. Where the gap is and is not documented: finding 10 in notes/compact-findings.org, "Documentation status".

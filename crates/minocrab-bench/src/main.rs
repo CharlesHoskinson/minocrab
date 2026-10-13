@@ -1,5 +1,5 @@
-//! M6 baseline benchmark harness: the erc20-vault contract (seventeen
-//! circuits since M28) and its Signet singleton dependency, proved under
+//! M6 baseline benchmark harness: the erc20-vault contract (twenty-nine
+//! circuits since M44) and its Signet singleton dependency, proved under
 //! each toolchain at the same pinned versions.
 //!
 //! A run is a matrix of circuits ([`Target`]) × [`Side`]s, and sides are
@@ -149,7 +149,7 @@ impl Side {
 const VAULT: &str =
     "corpus/zkir/signet-midnight-examples/examples/erc20-vault/contract/src/erc20-vault/zkir";
 const SIGNET: &str =
-    "corpus/zkir/signet-midnight-integration/packages/signet-contract/src/signet-contract/zkir";
+    "corpus/zkir/signet-midnight-integration-pr127/packages/signet-contract/src/signet-contract/zkir";
 
 fn targets() -> Vec<Target> {
     macro_rules! t {
@@ -166,22 +166,34 @@ fn targets() -> Vec<Target> {
     }
     vec![
         t!(VAULT, "initialise", || erc20_vault::Vault::initialise()),
-        t!(VAULT, "approveStata", || erc20_vault::Vault::approve_stata()),
-        t!(VAULT, "approveRouter", || erc20_vault::Vault::approve_router()),
+        t!(VAULT, "setGasParams", || erc20_vault::Vault::set_gas_params()),
+        t!(VAULT, "addAllowedToken", || erc20_vault::Vault::add_allowed_token()),
+        t!(VAULT, "flushQueue", || erc20_vault::Vault::flush_queue()),
+        t!(VAULT, "queueAttestation0", || erc20_vault::Vault::queue_attestation0()),
+        t!(VAULT, "queueAttestation1", || erc20_vault::Vault::queue_attestation1()),
+        t!(VAULT, "queueAttestation32", || erc20_vault::Vault::queue_attestation32()),
+        t!(VAULT, "startReplaceNonce", || erc20_vault::Vault::start_replace_nonce()),
+        t!(VAULT, "sendReplaceNonce", || erc20_vault::Vault::send_replace_nonce()),
+        t!(VAULT, "completeReplaceNonce", || erc20_vault::Vault::complete_replace_nonce()),
+        t!(VAULT, "startApproveRouter", || erc20_vault::Vault::start_approve_router()),
+        t!(VAULT, "startApproveStata", || erc20_vault::Vault::start_approve_stata()),
+        t!(VAULT, "sendApprove", || erc20_vault::Vault::send_approve()),
+        t!(VAULT, "completeApprove", || erc20_vault::Vault::complete_approve()),
         t!(VAULT, "startDeposit", || erc20_vault::Vault::start_deposit()),
+        t!(VAULT, "sendDeposit", || erc20_vault::Vault::send_deposit()),
         t!(VAULT, "completeDeposit", || erc20_vault::Vault::complete_deposit()),
         t!(VAULT, "startWithdraw", || erc20_vault::Vault::start_withdraw()),
+        t!(VAULT, "sendWithdraw", || erc20_vault::Vault::send_withdraw()),
         t!(VAULT, "completeWithdraw", || erc20_vault::Vault::complete_withdraw()),
-        t!(VAULT, "refundWithdraw", || erc20_vault::Vault::refund_withdraw()),
         t!(VAULT, "startSwap", || erc20_vault::Vault::start_swap()),
+        t!(VAULT, "sendSwap", || erc20_vault::Vault::send_swap()),
         t!(VAULT, "completeSwap", || erc20_vault::Vault::complete_swap()),
-        t!(VAULT, "refundSwap", || erc20_vault::Vault::refund_swap()),
         t!(VAULT, "startSupply", || erc20_vault::Vault::start_supply()),
+        t!(VAULT, "sendSupply", || erc20_vault::Vault::send_supply()),
         t!(VAULT, "completeSupply", || erc20_vault::Vault::complete_supply()),
-        t!(VAULT, "refundSupply", || erc20_vault::Vault::refund_supply()),
         t!(VAULT, "startRedeem", || erc20_vault::Vault::start_redeem()),
+        t!(VAULT, "sendRedeem", || erc20_vault::Vault::send_redeem()),
         t!(VAULT, "completeRedeem", || erc20_vault::Vault::complete_redeem()),
-        t!(VAULT, "refundRedeem", || erc20_vault::Vault::refund_redeem()),
         t!(SIGNET, "signBidirectional", || signet_contract::SignetContract::sign_bidirectional()),
         t!(SIGNET, "respond", || signet_contract::SignetContract::respond()),
         t!(SIGNET, "respondBidirectional", || signet_contract::SignetContract::respond_bidirectional()),
@@ -611,7 +623,11 @@ mod tests {
     /// panic.
     #[test]
     fn every_target_is_two_sided() {
-        assert_eq!(targets().len(), 20, "seventeen vault circuits and the singleton's three");
+        assert_eq!(
+            targets().len(),
+            32,
+            "twenty-nine vault circuits and the singleton's three"
+        );
         assert_eq!(cells().len(), targets().len() * 2);
         let signet = targets().into_iter().find(|t| t.name == "respond").unwrap();
         assert!(load_ir(&signet, &side("compactc").unwrap()).is_ok());

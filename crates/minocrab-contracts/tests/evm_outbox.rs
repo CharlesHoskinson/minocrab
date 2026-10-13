@@ -4,10 +4,10 @@
 //!
 //! What this file is the witness for:
 //!
-//! 1. A request that CHOOSES NO NONCE AND NO FEE, and READS NO SHARED
-//!    STATE. `call` takes the callee, the arguments and the key version; the
-//!    nonce is assigned by a blind `add` on the accumulator and snapshotted
-//!    into the handle's entry, never read by the circuit.
+//! 1. A request that CHOOSES NO NONCE, NO FEE AND NO KEY VERSION, and READS
+//!    NO SHARED STATE. `call` takes the callee and the arguments; the nonce
+//!    is assigned by a blind `add` on the accumulator and snapshotted into
+//!    the handle's entry, never read by the circuit.
 //! 2. `emit`, one request per transaction, permissionless: two stable reads
 //!    of the handle's entries, then exactly what `Pending::request` files —
 //!    one record, one id, one notification.
@@ -15,54 +15,44 @@
 //!    blind max on last seen.
 //! 4. THE CONTENTION AUDIT (the milestone's gate): across the three
 //!    circuits, no `popeq` reads either accumulator cell — checked on the
-//!    emitted Impact stream, not on prose. The one shared read that remains
-//!    is the Signet REQUEST nonce inside `file_request`, the protocol
-//!    record's counter (notes/nonce-admin.org §10.1), counted here so its
-//!    presence is a number and not a surprise.
+//!    emitted Impact stream, not on prose. Since M44 rung D there is no
+//!    shared COUNTER left to admit either: the Signet request nonce
+//!    (notes/nonce-admin.org §10.1) went with the V1 vocabulary, and what
+//!    `file_request` reads of the block is two write-once config cells,
+//!    counted here so their presence is a number and not a surprise.
 //!
 //! IT IS A TEST-ONLY CONTRACT, like `tests/evm_no_return.rs`'s: it exercises
 //! the API without adding circuits to the crate's frozen snapshots.
 
 use minocrab::v3::Circuit3;
-use minocrab::{Fr, Private, Public};
-use minocrab_contracts::evm::{erc20, Address, EvmCall, Kinded, U128, U64};
+use minocrab::{Fr, Public};
+use minocrab_contracts::evm::{erc20, Filed};
 use minocrab_contracts::evm_flow::{
     Contract, Emitted, Failed, Handle, HandleOwned, Inserted, Outbox, Succeeded,
 };
 use minocrab_contracts::signet_flow::{Settled, Signet};
+use minocrab_contracts::signet_v1::schema;
 use minocrab_ledger::{idx_path, ImpactElem, LedgerKey};
 use minocrab_sim::v3::cost;
 use minocrab_std::v3::{
-    circuit, is_true, label, Bool, Bytes, Check, Disclose, Discloses, Ledger, LedgerRepr,
-    LedgerWidth, Uint,
+    circuit, label, Bytes, Disclose, Discloses, Ledger, LedgerRepr, LedgerWidth, Uint,
 };
 use minocrab_zkir::v3::{Instruction as I, Operand};
 
 mod leakage;
 
-/// A transfer whose ATTESTED RETURN is the height the MPC observed it at —
-/// the spec's M2 field, carried as the call's return word until the
-/// attestation format grows one. Same selector and calldata as
-/// `erc20::Transfer`; only the return decoding differs.
-struct HeightedTransfer;
-
-impl EvmCall for HeightedTransfer {
-    type Callee = erc20::Erc20;
-    const NAME: &'static str = "transfer";
-    type Args = (Address, U128);
-    type Return = U64;
-    type Success = Uint<64, Private>;
-    const GAS_LIMIT: u64 = erc20::CALL_GAS;
-
-    fn succeeded(c: &mut Circuit3, _height: &Uint<64, Private>) -> Check<Private> {
-        // A height is a height: the attestation KIND says whether the call
-        // executed, and `Pending::complete` checks that before this runs.
-        is_true(Bool::from_field_unchecked(c.constant(1u64).private()))
-    }
-}
-
-/// The transfer, filed under kind 1.
-type Filed = Kinded<HeightedTransfer, 1>;
+/// The outbox's one filing: a plain `erc20::Transfer` under the `success`
+/// schema.
+///
+/// IT USED TO BE A CONTRIVANCE. Before the V1 vocabulary the attested
+/// payload carried no block height, so this file declared a
+/// `HeightedTransfer` — the same selector and calldata as `erc20::Transfer`,
+/// but decoding the return word as the height the MPC observed — purely so
+/// that C3's last-seen check had a height to raise against. V1 attests the
+/// height itself (spec M2), [`Outcome::block_height`] carries it, and
+/// [`Outbox::raise_seen`] reads it off the outcome: the contrivance is gone
+/// and the slot files the real library call.
+type Heighted = Filed<erc20::Transfer, schema::Success>;
 
 /// What a settle needs back.
 #[derive(LedgerRepr)]
@@ -70,27 +60,31 @@ struct Amount {
     amount: Uint<64, Public>,
 }
 
-/// Twelve fields: the five of `Signet`, then the outbox's seven — records,
+/// Eleven fields: the four of `Signet`, then the outbox's seven — records,
 /// outstanding, bodies, the nonce cell, the last-seen cell, and the two
 /// snapshot maps.
 #[derive(Ledger)]
 struct Block {
     signet: Signet,
-    calls: Outbox<Filed, HandleOwned<Amount>, 2>,
+    calls: Outbox<Heighted, HandleOwned<Amount>, 2>,
 }
 
 const BLOCK: Block = Block::new();
 
-/// Field indices, by the layout above.
-const NONCE_CELL: u8 = 8;
-const SEEN_CELL: u8 = 9;
-const REQUEST_NONCE: u8 = 2;
+/// Field indices, by the layout above. There is no third accumulator any
+/// more: the Signet request-nonce counter went with the V1 vocabulary (M44
+/// rung D), so the outbox's own two cells are the whole audit.
+const NONCE_CELL: u8 = 7;
+const SEEN_CELL: u8 = 8;
+/// The two Signet CONFIG cells `file_request` reads — written once by
+/// `initialize`, never again.
+const KEY_VERSION: u8 = 2;
+const CHAIN_ID: u8 = 3;
 
 label! {
     Sent = "the amount sent";
     Owner = "the requester's refund commitment";
     Recipient = "own public key as refund recipient";
-    Height = "the attested height";
 }
 
 // ---- the circuits -------------------------------------------------------------
@@ -100,7 +94,6 @@ label! {
 #[circuit]
 fn call(
     c: &mut Circuit3,
-    key_version: Uint<8>,
     token: Contract<erc20::Erc20>,
     to: Bytes<20>,
     amount: Uint<64>,
@@ -110,7 +103,6 @@ fn call(
         c,
         token,
         (to, amount.widen::<128>()),
-        key_version,
         |_, _| Amount {
             amount: Uint::from_field_unchecked(sent),
         },
@@ -126,21 +118,25 @@ fn emit(c: &mut Circuit3, handle: Handle) -> Discloses<Emitted> {
 }
 
 /// SETTLE A SUCCESS, then C3 and the blind max on last seen.
+///
+/// The height `raise_seen` consumes is the ATTESTATION'S, disclosed by the
+/// settle itself (`Settled` carries `BlockHeightSettled`), which is why
+/// neither circuit here declares a height label of its own any more.
 #[circuit]
-fn complete(c: &mut Circuit3, ticket: Succeeded<Filed>) -> Discloses<(Settled, Height)> {
+fn complete(c: &mut Circuit3, ticket: Succeeded<Heighted>) -> Discloses<Settled> {
     let outcome = BLOCK.calls.complete(c, ticket);
     let _amount = outcome.env.env.inner.amount;
-    BLOCK.calls.raise_seen::<Height>(c, &outcome.env, outcome.output);
+    BLOCK.calls.raise_seen(c, &outcome);
     Discloses::of(())
 }
 
 /// REFUND TO THE REQUESTER — the commitment opens against the HANDLE the
 /// requester kept, not against the request id the emit minted — then C3.
 #[circuit]
-fn refund(c: &mut Circuit3, ticket: Failed<Filed>) -> Discloses<(Settled, Recipient, Height)> {
-    let (_owner, outstanding, height) = BLOCK.calls.refund_to_owner::<Recipient>(c, ticket);
-    let Amount { amount: _amount } = outstanding.env.inner;
-    BLOCK.calls.raise_seen::<Height>(c, &outstanding, height);
+fn refund(c: &mut Circuit3, ticket: Failed<Heighted>) -> Discloses<(Settled, Recipient)> {
+    let (_owner, outcome) = BLOCK.calls.refund_to_owner::<Recipient>(c, ticket);
+    let Amount { amount: _amount } = outcome.env.env.inner;
+    BLOCK.calls.raise_seen(c, &outcome);
     Discloses::of(())
 }
 
@@ -214,13 +210,12 @@ fn disclosures_labelled(compiled: &minocrab::v3::Compiled3, label: &str) -> usiz
         .count()
 }
 
-/// The block's layout: five Signet fields, then the slot's seven.
+/// The block's layout: four Signet fields, then the slot's seven.
 #[test]
 fn the_block_is_laid_out_by_slot_width() {
     assert_eq!(BLOCK.signet.signer.index(), 0);
-    assert_eq!(BLOCK.signet.request_nonce.index(), usize::from(REQUEST_NONCE) as u8);
-    assert_eq!(BLOCK.calls.record_path().as_slice(), &[5]);
-    assert_eq!(<Outbox<Filed, HandleOwned<Amount>, 2> as LedgerWidth>::WIDTH, 7);
+    assert_eq!(BLOCK.calls.record_path().as_slice(), &[4]);
+    assert_eq!(<Outbox<Heighted, HandleOwned<Amount>, 2> as LedgerWidth>::WIDTH, 7);
 }
 
 /// THE CONTENTION AUDIT. Neither accumulator cell is ever CHECKED-read by
@@ -241,29 +236,39 @@ fn no_circuit_reads_the_accumulator() {
 }
 
 /// WHAT IS READ, counted: call = one per-key member check; emit = the two
-/// stream reads plus `file_request`'s (the Signet request nonce, the two
-/// chain ids, the record's not-member check) plus the member check on the
-/// body; the settles are `Pending`'s. The Signet request nonce is the ONE
-/// shared read in the lineage, and it is emit's, once.
+/// stream reads plus `file_request`'s plus the member check on the body; the
+/// settles are `Pending`'s.
+///
+/// SINCE M44 RUNG D THERE IS NO SHARED COUNTER LEFT in the lineage. The
+/// Signet request nonce — the one read every request used to make, and the
+/// one number this audit had to admit as contention
+/// (notes/nonce-admin.org §10.1) — went with the V1 vocabulary. What
+/// `file_request` still reads of the block are two CONFIG cells,
+/// `mpcKeyVersion` and `evmChainId`, which nothing writes after
+/// `initialize`: two emits in one transaction read the same value and do not
+/// contend. That is the stronger claim, so it is the one asserted here.
 #[test]
-fn the_reads_are_per_key_except_the_protocol_counter() {
+fn the_reads_are_per_key_and_the_config_cells() {
     let call = call();
     assert_eq!(popeqs(&call.ir), 1, "call: the handle's not-member check");
-    assert_eq!(reads_of(&call.ir, REQUEST_NONCE), 0, "call never touches the request nonce");
+    assert_eq!(reads_of(&call.ir, KEY_VERSION), 0, "a call files nothing, so reads no config");
+    assert_eq!(reads_of(&call.ir, CHAIN_ID), 0);
     assert_eq!(asserts_saying(&call, "Stream key already present"), 1);
 
     let emit = emit();
-    assert_eq!(reads_of(&emit.ir, REQUEST_NONCE), 1, "emit files one record");
+    assert_eq!(reads_of(&emit.ir, KEY_VERSION), 1, "emit files one record");
+    assert_eq!(reads_of(&emit.ir, CHAIN_ID), 1);
     // The stream's four (member and lookup of the body, the two snapshot
-    // lookups — all under the handle) plus `file_request`'s six (the
-    // contract's own address, the request nonce, caip2, chain id, the
-    // record's not-member check, the signer address for the notification).
-    assert_eq!(popeqs(&emit.ir), 4 + 6);
+    // lookups — all under the handle) plus `file_request`'s five (the
+    // contract's own address, the chain id, the key version, the record's
+    // not-member check, the signer address for the notification).
+    assert_eq!(popeqs(&emit.ir), 4 + 5);
     assert_eq!(asserts_saying(&emit, "Stream key not present"), 1);
     assert_eq!(asserts_saying(&emit, "Request already exists"), 1);
 
     for compiled in [complete(), refund()] {
-        assert_eq!(reads_of(&compiled.ir, REQUEST_NONCE), 0);
+        assert_eq!(reads_of(&compiled.ir, KEY_VERSION), 0);
+        assert_eq!(reads_of(&compiled.ir, CHAIN_ID), 0);
         assert_eq!(asserts_saying(&compiled, "Request not found"), 1);
         assert_eq!(asserts_saying(&compiled, "Response not after the call"), 1);
     }

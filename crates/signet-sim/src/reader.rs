@@ -15,7 +15,7 @@ use midnight_storage::DefaultDB;
 
 use crate::records::{
     CompactMaybe, EvmAccessListEntry, EvmCalldata, EvmType2TxParams, SignBidirectionalEventNotification,
-    SignBidirectionalRecord, SignBidirectionalRecordV2, RECORD_FORMAT_VERSION,
+    SignBidirectionalRecord, SignBidirectionalRecordV1, SignBidirectionalRecordV2, RECORD_FORMAT_VERSION,
 };
 use crate::hashing::{compute_request_id, legacy_request_id};
 use crate::request_id::binary_repr;
@@ -36,6 +36,17 @@ const TX_PARAM_TYPE_ATOM: usize = 7;
 /// the kind.
 const V2_HEAD_SHIFT: usize = 1;
 const V2_TAIL_ATOMS: usize = 2;
+
+/// V1's head: `keyVersion, sender, path, algo, txParamType`, then the ten
+/// scalar `txParams` atoms — so the calldata words begin at atom 15, three
+/// in from the deployed record's 18. The V1 head is SHORTER because the
+/// request nonce is gone and `params` moved to the tail.
+const V1_HEAD_ATOMS: usize = 15;
+/// V1's tail after the access-list region: `executionDest, signatureDest,
+/// params, outputDeserializationSchema, respondSerializationSchema`.
+const V1_TAIL_ATOMS: usize = 5;
+/// `txParamType`'s position in a V1 record: the fifth field.
+const V1_TX_PARAM_TYPE_ATOM: usize = 4;
 
 pub type Node = StateValue<DefaultDB>;
 
@@ -225,6 +236,68 @@ pub fn decode_record_v2(node: &Node) -> anyhow::Result<SignBidirectionalRecordV2
     };
     anyhow::ensure!(cursor.pos == cell.value.0.len(), "request record decoded {} of {} atoms", cursor.pos, cell.value.0.len());
     Ok(record)
+}
+
+/// Decode a stored V1 request record in one pass (M44 rung D).
+///
+/// NO FORMAT-VERSION BYTE to check by name: V1 leads with `keyVersion`, and
+/// what distinguishes it from the stage-7 record is the SHAPE — a one-byte
+/// head whose `txParamType` sits at atom 4 rather than 8, and a five-atom
+/// tail. A stage-7 record offered here fails `tx_param_type` (it reads the
+/// 64-byte `params` atom where V1 expects one byte), which is the drop this
+/// decoder owes.
+pub fn decode_record_v1(node: &Node) -> anyhow::Result<SignBidirectionalRecordV1> {
+    let cell = cell_of(node, "request record")?;
+    ensure_evm_type2_param_type(cell, V1_TX_PARAM_TYPE_ATOM)?;
+    let widths = declared_widths(cell, "request record")?;
+    let caps = evm_type2_capacities(&widths, V1_HEAD_ATOMS, V1_TAIL_ATOMS)?;
+    let cursor = &mut AtomCursor { atoms: &cell.value.0, widths: &widths, pos: 0 };
+    let record = SignBidirectionalRecordV1 {
+        key_version: uint::<u8>(cursor, 1, "key_version")?,
+        sender: bytes_n::<32>(cursor, "sender")?,
+        path: bytes_n::<32>(cursor, "path")?,
+        algo: bounded_enum(cursor, "algo")?,
+        tx_param_type: uint::<u8>(cursor, 1, "tx_param_type")?,
+        tx_params: decode_tx_params(cursor, &caps)?,
+        execution_dest: bytes_n::<32>(cursor, "execution_dest")?,
+        signature_dest: bounded_enum(cursor, "signature_dest")?,
+        params: bytes_n::<64>(cursor, "params")?,
+        output_deserialization_schema: bytes_dyn(cursor, "output_deserialization_schema")?,
+    };
+    // `respondSerializationSchema` is a `Bytes<0>`: it is in the alignment
+    // and contributes no limb, so the cursor still owes it one atom.
+    let _ = bytes_dyn(cursor, "respond_serialization_schema")?;
+    anyhow::ensure!(
+        record.key_version >= 1,
+        "key_version 0 is not a signing key generation"
+    );
+    anyhow::ensure!(cursor.pos == cell.value.0.len(), "request record decoded {} of {} atoms", cursor.pos, cell.value.0.len());
+    Ok(record)
+}
+
+/// The V1 lookup. The id is NOT a hash of the cell any more: it is
+/// `calculateRequestIdV1` over `RequestIdPreimageV1`, whose transaction
+/// enters as a digest over the USED calldata words — so the record has to be
+/// DECODED before its id can be recomputed, and two records differing only
+/// in an unused word slot resolve to the same id.
+pub fn resolve_verified_record_v1(map: &Node, request_id: [u8; 32]) -> Resolved<SignBidirectionalRecordV1> {
+    let entry = match map_entry(map, request_id) {
+        Err(d) => return relabel(d),
+        Ok(None) => return Resolved::Absent,
+        Ok(Some(entry)) => entry,
+    };
+    let record = match decode_record_v1(&entry) {
+        Ok(record) => record,
+        Err(err) => return Resolved::Dropped { reason: "record-undecodable", detail: format!("{err:#}") },
+    };
+    let recomputed = crate::hashing::v1::record_request_id(&record);
+    if recomputed != request_id {
+        return Resolved::Dropped {
+            reason: "rid-mismatch",
+            detail: format!("recomputed {}, so this is a spoofed or wrongly filed record", hex::encode(recomputed)),
+        };
+    }
+    Resolved::Found(Box::new(record))
 }
 
 /// The outcome of looking a request id up in a caller's request map.

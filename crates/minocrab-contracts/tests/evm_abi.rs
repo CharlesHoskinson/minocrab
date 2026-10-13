@@ -30,17 +30,20 @@ use midnight_transient_crypto::proofs::{KeyLocation, ProofPreimage};
 use minocrab::v3::{Circuit3, FieldT, Wire3};
 use minocrab::{Fr, Private};
 use minocrab_contracts::erc20_vault::{
-    APPROVE_SELECTOR, DEPOSIT_SELECTOR, ERC20_CALL_GAS, EXACT_OUTPUT_SINGLE_SELECTOR,
-    FIXED_MAX_FEE, FIXED_PRIORITY_FEE, REDEEM_SELECTOR, TRANSFER_SELECTOR,
+    APPROVE_SELECTOR, DEPOSIT_SELECTOR, EXACT_OUTPUT_SINGLE_SELECTOR, REDEEM_SELECTOR,
+    TRANSFER_SELECTOR,
 };
+use minocrab_contracts::evm::erc20::CALL_GAS as ERC20_CALL_GAS;
+use minocrab_contracts::evm::{FIXED_MAX_FEE, FIXED_PRIORITY_FEE};
 use minocrab_contracts::evm::{
     always, build_tx, build_tx_filed, build_tx_payable, erc20, erc4626, uniswap_v3, usdt, weth,
-    AbiArg, AbiTuple, AbiType, Address, Bool, Bytes32, EvmCall, Extends, Filing, Interface,
-    Kinded, U128, U24, U256, U64, U8,
+    AbiArg, AbiTuple, AbiType, Address, Bool, Bytes32, EvmCall, Extends, Filed, Filing, Interface,
+    U128, U24, U256, U64, U8,
 };
 use minocrab_contracts::evm_flow::Contract;
 use minocrab_contracts::signet::{self, EvmCalldata};
 use minocrab_contracts::signet_flow::EvmTx;
+use minocrab_contracts::signet_v1::schema;
 use minocrab_sim::v3::simulate;
 use minocrab_std::v3::{Bool as BoolWire, Bytes, Check, Uint, B32};
 use minocrab_zkir::v3::IrValue;
@@ -519,7 +522,7 @@ fn build_tx_filed_reads_the_filings_gas_limit_override() {
     struct OverriddenTransfer;
     impl Filing for OverriddenTransfer {
         type Call = erc20::Transfer;
-        const KIND: u8 = 1;
+        type Schema = schema::Success;
         const GAS_LIMIT: u64 = 250_000;
     }
     assert_ne!(
@@ -784,14 +787,21 @@ fn the_interface_marker_costs_no_instruction() {
     );
 }
 
-/// THE FILING CARRIES THE DEPLOYMENT'S TWO FACTS, and the CALL carries none
-/// of them: the same `erc20::Transfer` is filed at two kinds by the vault
-/// (a claim and a withdrawal) and at a third choice by the treasury.
+/// THE FILING CARRIES THE DEPLOYMENT'S OUTPUT SCHEMA, and the CALL carries
+/// none of it: the same `erc20::Transfer` is filed by the vault twice (a
+/// claim and a withdrawal) and by the treasury a third time, and what each
+/// filing says is the schema the MPC decodes the return under.
+///
+/// WHAT WENT IN M44 RUNG D: the response KIND byte and `RETURN_FIELD`. The
+/// V1 record has no kind, and the return's NAME is INSIDE the schema string
+/// — so `Deposit`'s `success` is these thirty-four bytes, which ride into
+/// the request id, rather than a `&'static str` sitting beside them that
+/// nothing hashed.
 #[test]
-fn one_call_files_under_many_kinds() {
-    use minocrab_contracts::erc20_vault_pending::{Deposit, Withdrawal};
-    use minocrab_contracts::erc20_vault_pending::{RESPONSE_KIND_CLAIM, RESPONSE_KIND_WITHDRAW};
+fn one_call_files_under_many_schemas() {
+    use minocrab_contracts::erc20_vault_pending::{Deposit, Redeem, Supply, Swap, Withdrawal};
     use minocrab_contracts::evm::Filing;
+    use minocrab_contracts::signet_v1::OutputSchema;
 
     fn files<F: Filing<Call = C>, C: EvmCall>() {}
 
@@ -799,14 +809,28 @@ fn one_call_files_under_many_kinds() {
     files::<Withdrawal, erc20::Transfer>();
     files::<minocrab_contracts::treasury::Transfer, erc20::Transfer>();
 
-    assert_eq!(u32::from(Deposit::KIND), RESPONSE_KIND_CLAIM);
-    assert_eq!(Deposit::RETURN_FIELD, Some("success"));
-    assert_eq!(u32::from(Withdrawal::KIND), RESPONSE_KIND_WITHDRAW);
-    assert_eq!(Withdrawal::RETURN_FIELD, Some("success"));
+    fn schema_of<F: Filing>() -> &'static [u8] {
+        <F::Schema as OutputSchema>::BYTES
+    }
 
-    // The off-the-shelf filing: a kind, and the anonymous Solidity return.
-    assert_eq!(<Kinded<erc20::Transfer, 7> as Filing>::KIND, 7);
-    assert_eq!(<Kinded<erc20::Transfer, 7> as Filing>::RETURN_FIELD, None);
+    // The three filings of ONE call all name the ERC-20 flag, by the name
+    // the deployed records use.
+    for bytes in [
+        schema_of::<Deposit>(),
+        schema_of::<Withdrawal>(),
+        schema_of::<minocrab_contracts::treasury::Transfer>(),
+    ] {
+        assert_eq!(bytes, br#"[{"name":"success","type":"bool"}]"#);
+    }
+
+    // And the vault's other three filings name three DIFFERENT returns,
+    // which is the half a kind byte never carried.
+    assert_eq!(schema_of::<Swap>(), br#"[{"name":"amountIn","type":"uint256"}]"#);
+    assert_eq!(schema_of::<Supply>(), br#"[{"name":"shares","type":"uint256"}]"#);
+    assert_eq!(schema_of::<Redeem>(), br#"[{"name":"assets","type":"uint256"}]"#);
+
+    // The off-the-shelf filing: a call and a schema, in one name.
+    assert_eq!(schema_of::<Filed<erc20::Transfer, schema::NoReturn>>(), b"[]");
 }
 
 // ---- 6. the rest of ERC-20, WETH and the non-conforming tokens (M38 B) --------

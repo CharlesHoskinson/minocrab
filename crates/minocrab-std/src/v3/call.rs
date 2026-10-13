@@ -22,7 +22,7 @@ use minocrab::v3::{CallArg, CallResult, FieldT, Wire3};
 use minocrab::Public;
 
 use super::{
-    Bool, BoundedUint, Bytes, BytesN, CoinColor, CoinNonce, ContractAddress, Either, Maybe,
+    Bool, BoundedUint, Bytes, Bytes0, BytesN, CoinColor, CoinNonce, ContractAddress, Either, Maybe,
     MerkleTreeDigest, Opaque, QualifiedShieldedCoinInfo3, ShieldedCoinInfo3, TsType, Uint,
     UserAddress, B32,
 };
@@ -97,6 +97,16 @@ impl CallArg for Bool<Public> {
 impl CallResult for Bool<Public> {
     fn from_call_slots(slots: &[Wire3<FieldT, Public>]) -> Self {
         Bool::from_field_unchecked(slots[0])
+    }
+}
+
+impl CallArg for Bytes0<Public> {
+    fn push_call_slots(&self, _slots: &mut Vec<Wire3<FieldT, Public>>) {}
+}
+
+impl CallResult for Bytes0<Public> {
+    fn from_call_slots(_slots: &[Wire3<FieldT, Public>]) -> Self {
+        Bytes0::new()
     }
 }
 

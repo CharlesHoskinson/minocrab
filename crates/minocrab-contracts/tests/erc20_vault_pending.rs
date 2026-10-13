@@ -123,23 +123,48 @@ fn no_pair_costs_more_than_the_modern_lineage() {
         eprintln!("{name:>18}: pending {ours:>6}   modern {theirs:>6}");
         assert!(ours <= theirs, "{name}: {ours} > {theirs}");
     }
-    // The two settle-less circuits: the segmentation allowance only.
-    const SEGMENTATION_ALLOWANCE: usize = 64;
-    assert!(p_init.1 <= m_init.1 + SEGMENTATION_ALLOWANCE, "initialize: {} vs {}", p_init.1, m_init.1);
-    assert!(p_appr.1 <= m_appr.1 + SEGMENTATION_ALLOWANCE, "approve_router: {} vs {}", p_appr.1, m_appr.1);
+    // THE TWO SETTLE-LESS CIRCUITS have no settle to amortise against, so
+    // they are held to an allowance rather than to a pair.
+    //
+    // IT GREW AT M44 RUNG D, from 64 rows to 256. `modern` is the retired V2
+    // lineage, and the V1 record this one now files is not the same object:
+    // its tail carries a 34-byte output-SCHEMA literal where V2 carried a
+    // one-byte response kind, and its id is `calculateRequestIdV1` — two
+    // chained Poseidons (the transaction digest, then the preimage) where V2
+    // hashed the whole record once. `approve_router` pays both and nothing
+    // back: 1,126 → 1,282 rows, +156. The split between the two causes is
+    // NOT measured here; what the allowance pins is that the V1 vocabulary
+    // costs a request a couple of hundred rows and not thousands.
+    //
+    // The pairs above are the claim that matters, and every one of them is
+    // still under modern's.
+    const V1_RECORD_ALLOWANCE: usize = 256;
+    assert!(p_init.1 <= m_init.1 + V1_RECORD_ALLOWANCE, "initialize: {} vs {}", p_init.1, m_init.1);
+    assert!(p_appr.1 <= m_appr.1 + V1_RECORD_ALLOWANCE, "approve_router: {} vs {}", p_appr.1, m_appr.1);
 }
 
 /// The lending flows (M35 rung C extension), against their COMPAT PORT
 /// twins (`erc20_vault`, PI-equal to compactc) rather than the retired
 /// modern lineage, which never had them: each `Pending`-based circuit must
 /// cost no more `k` than the circuit it replaces.
+///
+/// IGNORED since M44 B: the twins are no longer the same circuits. The
+/// compat port was re-ported to upstream's FLUSH pattern (`375071b`), where
+/// `start_approve_stata` is a bare ownership proof that files nothing
+/// (k=10) against the `Pending` lineage's `approve_stata`, which files the
+/// request in the same call (k=11) — a comparison of two different jobs,
+/// not a regression. The like-for-like claim returns when the `Pending`
+/// lineage is itself re-based on the flush pattern (M44 rung D); until then
+/// the run still PRINTS both columns, so the numbers stay visible under
+/// `--ignored`, and the bound is left exactly as it was.
 #[test]
+#[ignore = "the compat twins moved to the flush pattern in M44; the like-for-like claim returns at M44 rung D"]
 fn the_lending_flows_cost_no_more_than_the_compat_port() {
     let rows: Vec<(&str, (u8, usize), (u8, usize))> = vec![
         (
             "approve_stata",
             cost(&pending::Vault::approve_stata().ir),
-            cost(&erc20_vault::Vault::approve_stata().ir),
+            cost(&erc20_vault::Vault::start_approve_stata().ir),
         ),
         (
             "supply / start_supply",
@@ -152,9 +177,9 @@ fn the_lending_flows_cost_no_more_than_the_compat_port() {
             cost(&erc20_vault::Vault::complete_supply().ir),
         ),
         (
-            "refund_supply",
+            "refund_supply / complete_supply",
             cost(&pending::Vault::refund_supply().ir),
-            cost(&erc20_vault::Vault::refund_supply().ir),
+            cost(&erc20_vault::Vault::complete_supply().ir),
         ),
         (
             "redeem / start_redeem",
@@ -167,9 +192,9 @@ fn the_lending_flows_cost_no_more_than_the_compat_port() {
             cost(&erc20_vault::Vault::complete_redeem().ir),
         ),
         (
-            "refund_redeem",
+            "refund_redeem / complete_redeem",
             cost(&pending::Vault::refund_redeem().ir),
-            cost(&erc20_vault::Vault::refund_redeem().ir),
+            cost(&erc20_vault::Vault::complete_redeem().ir),
         ),
     ];
     for (name, (k, r), (k_c, r_c)) in &rows {

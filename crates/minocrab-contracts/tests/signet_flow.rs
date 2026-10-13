@@ -22,7 +22,8 @@ use minocrab_contracts::common::{witness_sk, SecretKey, SigningPath};
 use minocrab_contracts::evm::erc20::{self, Erc20};
 use minocrab_contracts::evm::{Envelope, Filing};
 use minocrab_contracts::evm_flow::{Commit, CommitTag, Contract, Failed, Pending, Succeeded};
-use minocrab_contracts::signet_flow::{Requested, Settled, Signet};
+use minocrab_contracts::signet_flow::{Requested, Settled, Signet, Signing};
+use minocrab_contracts::signet_v1::schema;
 use minocrab_sim::v3::cost;
 use minocrab_std::v3::{
     circuit, label, Bytes, Disclose, Discloses, Ledger, LedgerCounter, LedgerRepr, Uint, B32,
@@ -57,18 +58,19 @@ impl CommitTag for ToyWithdrawer {
 }
 
 /// The toy's two FILINGS of ONE library call (M38 rung A): `erc20::Transfer`
-/// as a deposit (kind 0) and as a withdrawal (kind 1), both with the
-/// deployed record's `success` field name.
+/// as a deposit and as a withdrawal, both decoded under the `success` schema
+/// the deployed records carry.
 ///
-/// Written as `Filing` impls rather than as `Kinded` because the record
-/// NAMES the attested flag, which a `&'static str` cannot ride a const
-/// generic to carry.
+/// Written as two `Filing` impls rather than as one `Filed` alias used twice
+/// because the two slots have to be DISTINCT TYPES: the tickets are typed by
+/// the filing, so one alias in both slots would let a deposit's `Succeeded`
+/// settle a withdrawal. Since M44 rung D the two carry the same schema —
+/// what separates them is the slot, not a kind byte.
 struct ToyDeposit;
 
 impl Filing for ToyDeposit {
     type Call = erc20::Transfer;
-    const KIND: u8 = 0;
-    const RETURN_FIELD: Option<&'static str> = Some("success");
+    type Schema = schema::Success;
 }
 
 /// See [`ToyDeposit`].
@@ -76,15 +78,15 @@ struct ToyWithdrawal;
 
 impl Filing for ToyWithdrawal {
     type Call = erc20::Transfer;
-    const KIND: u8 = 1;
-    const RETURN_FIELD: Option<&'static str> = Some("success");
+    type Schema = schema::Success;
 }
 
 /// The ledger block: ten fields from four declarations.
 ///
-/// The two slots file the SAME Solidity call and differ only in their kind
-/// byte, which is the finding this block is also a witness for: two slots of
-/// one block cannot share a kind, and these do not.
+/// The two slots file the SAME Solidity call under the SAME schema, and
+/// differ only in the filing TYPE — which is the finding this block is also
+/// a witness for: what keeps two filings of one call apart is the slot they
+/// sit in, not anything inside the record.
 #[derive(Ledger)]
 struct Toy {
     initialized: LedgerCounter,
@@ -110,7 +112,6 @@ fn toy_address(c: &mut Circuit3, byte: u64) -> Bytes<20, Private> {
 #[circuit]
 fn deposit(
     c: &mut Circuit3,
-    key_version: Uint<8>,
     evm_nonce: Uint<64>,
     amount: Uint<64>,
 ) -> Discloses<(Amount, Requested)> {
@@ -126,7 +127,6 @@ fn deposit(
             |_c: &mut Circuit3| amount.widen::<128>(),
         ),
         Envelope::fixed(),
-        key_version,
         evm_nonce,
         // A path of the contract's own choosing — the shape `deposit` in the
         // vault has, where the depositor's own commitment signs.
@@ -135,7 +135,7 @@ fn deposit(
                 hi: c.constant(7u64).private(),
                 lo: c.constant(9u64).private(),
             });
-            (path, ())
+            (Signing::derived(path), ())
         },
         |_c, _id, ()| DepositEnv {
             amount: Uint::from_field_unchecked(amount_pub),
@@ -147,7 +147,6 @@ fn deposit(
 #[circuit]
 fn withdraw(
     c: &mut Circuit3,
-    key_version: Uint<8>,
     evm_nonce: Uint<64>,
     amount: Uint<64>,
 ) -> Discloses<(Amount, WithdrawerCommitment, Requested)> {
@@ -163,11 +162,10 @@ fn withdraw(
             |_c: &mut Circuit3| amount.widen::<128>(),
         ),
         Envelope::fixed(),
-        key_version,
         evm_nonce,
         |c| {
             let sk = witness_sk(c);
-            (SigningPath::contract_path(c).private(), sk)
+            (Signing::contract(c), sk)
         },
         |c, id, sk| WithdrawEnv {
             amount: Uint::from_field_unchecked(amount_pub),
@@ -207,15 +205,17 @@ fn refund_withdrawal(
 // ---- the tests ----------------------------------------------------------------------
 
 
-/// `initialized` is field 0, `signet` fields 1..6, `deposits` 6 and 7,
-/// `withdrawals` 8 and 9 — a block of ten, so still one-element paths.
+/// `initialized` is field 0, `signet` fields 1..5 (FOUR since M44 rung D —
+/// the request nonce and the caip2 cell went with the V1 vocabulary),
+/// `deposits` 5 and 6, `withdrawals` 7 and 8 — a block of nine, so still
+/// one-element paths.
 #[test]
 fn the_block_is_laid_out_by_slot_width() {
     assert_eq!(TOY.initialized.index(), 0);
     assert_eq!(TOY.signet.signer.index(), 1);
-    assert_eq!(TOY.signet.evm_chain_id.index(), 5);
-    assert_eq!(TOY.deposits.record_path().as_slice(), &[6]);
-    assert_eq!(TOY.withdrawals.record_path().as_slice(), &[8]);
+    assert_eq!(TOY.signet.evm_chain_id.index(), 4);
+    assert_eq!(TOY.deposits.record_path().as_slice(), &[5]);
+    assert_eq!(TOY.withdrawals.record_path().as_slice(), &[7]);
     assert_eq!(TOY.withdrawals.record_path().depth(), 1);
 }
 

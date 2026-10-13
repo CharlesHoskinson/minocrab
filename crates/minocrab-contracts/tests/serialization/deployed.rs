@@ -5,10 +5,12 @@
 //! the bytes the deployed protocol produces:
 //!
 //! - [`fab_bytes`] is `parse_field_repr` + `binary_repr`, the two calls the
-//!   off-circuit `persistentHash`/`keccak256` make on a FAB value — the
-//!   preimage `signet::calculate_request_id` and
-//!   `signet::calculate_attestation_digest` hash IN-circuit, since the ZKIR
-//!   hash chips do that packing in-chip;
+//!   off-circuit `persistentHash` makes on a FAB value — the byte string the
+//!   ledger holds a record as, and the one the hash chips would consume. Since
+//!   the V1 move (M44) neither the request id nor the attestation digest is a
+//!   hash of these bytes: both are Poseidon over the FIELD limbs
+//!   (`vault::prims::{request_id_v1, attestation_digest}`). The byte claims
+//!   stand; the hash claims live in the vault model;
 //! - [`misc_envelope`] is `serialize<Misc, 288>`: the event name, the
 //!   circuit's `Serializer` segments, zero-padded;
 //! - [`misc_preimage`] builds the singleton's public transcript so the
@@ -26,7 +28,6 @@ use minocrab_contracts::events::MISC_SIZE;
 use minocrab_zkir::v3::IrSource;
 
 use crate::support::signet_call::{call_preimage, scalar_input};
-use crate::vault::prims::b32_slots;
 
 /// The value-only FAB binary of `limbs` laid out against `atoms` — the byte
 /// string the deployed hash constructions consume.
@@ -52,24 +53,18 @@ pub fn fab_len(atoms: &[AlignmentAtom]) -> usize {
     Alignment(atoms.iter().cloned().map(AlignmentSegment::Atom).collect()).bin_len()
 }
 
-/// The attestation digest's preimage as the settle circuits build it:
-/// `calculateSignetAttestationDigest`'s alignment is `[Bytes<32>,
-/// Bytes<LEN_OUTPUT>]` over `[requestId.hi, requestId.lo, ..output limbs]`.
-pub fn attestation_preimage_bytes(
-    request_id: &[u8; 32],
-    output_len: u32,
-    output_limbs: &[Fr],
-) -> Vec<u8> {
-    let (hi, lo) = b32_slots(request_id);
-    let mut limbs = vec![hi, lo];
-    limbs.extend_from_slice(output_limbs);
-    fab_bytes(
-        &[
-            AlignmentAtom::Bytes { length: 32 },
-            AlignmentAtom::Bytes { length: output_len },
-        ],
-        &limbs,
-    )
+/// The attested OUTPUT's bytes: `Bytes<LEN>`'s FAB binary over the limbs the
+/// settle circuit discloses.
+///
+/// This replaced the old `attestation_preimage_bytes` at the V1 move (M44).
+/// `calculateSignetAttestationDigestV1` has no byte preimage to build —
+/// it is Poseidon over `[tag, requestId, blockHeight, outputKind, LEN,
+/// ..output]` as FIELD elements — so the output is the only part of a V1
+/// attestation that is a byte string, and it is the part a spec type can be
+/// true of. At LEN 0 (the empty output every failed or unviable verdict
+/// carries) there are no limbs and no bytes.
+pub fn output_bytes(output_len: u32, output_limbs: &[Fr]) -> Vec<u8> {
+    fab_bytes(&[AlignmentAtom::Bytes { length: output_len }], output_limbs)
 }
 
 // ---- the Signet singleton's Misc event ---------------------------------------
@@ -134,7 +129,7 @@ pub fn misc_preimage(inputs: Vec<Fr>, misc_bytes: &[u8]) -> ProofPreimage {
 /// deployed singleton).
 pub fn corpus_signet_zkir(name: &str) -> IrSource {
     let path = format!(
-        "{}/../../corpus/zkir/signet-midnight-integration/packages/signet-contract/src/signet-contract/zkir/{name}.zkir",
+        "{}/../../corpus/zkir/signet-midnight-integration-pr127/packages/signet-contract/src/signet-contract/zkir/{name}.zkir",
         env!("CARGO_MANIFEST_DIR")
     );
     minocrab_zkir::v3::read_zkir(&path).expect("corpus golden parses")

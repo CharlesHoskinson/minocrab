@@ -112,21 +112,17 @@ as the decoder.
 | `[u8; 32]` | `readBytes32` / `writeBytes32` | 32 |
 | `[u8; 64]` | `readBytes64` / `writeBytes64` | 64 |
 | `Flagged<u32>` | `readFlaggedU32` / `writeFlaggedU32` | 5 |
-| `VaultEvent` | `readVaultEvent` / `writeVaultEvent` | 404 |
-| `SwapEvent` | `readSwapEvent` / `writeSwapEvent` | 571 |
-| `SupplyEvent` | `readSupplyEvent` / `writeSupplyEvent` | 407 |
-| `RedeemEvent` | `readRedeemEvent` / `writeRedeemEvent` | 439 |
+| `VaultEventV1` | `readVaultEventV1` / `writeVaultEventV1` | 362 |
+| `ReplaceNonceEventV1` | `readReplaceNonceEventV1` / `writeReplaceNonceEventV1` | 330 |
+| `SwapEventV1` | `readSwapEventV1` / `writeSwapEventV1` | 526 |
+| `SupplyEventV1` | `readSupplyEventV1` / `writeSupplyEventV1` | 364 |
+| `RedeemEventV1` | `readRedeemEventV1` / `writeRedeemEventV1` | 396 |
+| `EmptyOutput` | `readEmptyOutput` / `writeEmptyOutput` | 0 |
+| `BoolOutput` | `readBoolOutput` / `writeBoolOutput` | 1 |
+| `WordOutput` | `readWordOutput` / `writeWordOutput` | 32 |
 | `VaultEventV2` | `readVaultEventV2` / `writeVaultEventV2` | 338 |
 | `SwapEventV2` | `readSwapEventV2` / `writeSwapEventV2` | 498 |
 | `RedeemEventV2` | `readRedeemEventV2` / `writeRedeemEventV2` | 370 |
-| `ClaimOutput` | `readClaimOutput` / `writeClaimOutput` | 1 |
-| `CompleteWithdrawOutput` | `readCompleteWithdrawOutput` / `writeCompleteWithdrawOutput` | 1 |
-| `RefundOutput` | `readRefundOutput` / `writeRefundOutput` | 5 |
-| `CompleteSwapOutput` | `readCompleteSwapOutput` / `writeCompleteSwapOutput` | 8 |
-| `AttestationPreimage<ClaimOutput>` | `readAttestationPreimageClaimOutput` / `writeAttestationPreimageClaimOutput` | 33 |
-| `AttestationPreimage<CompleteWithdrawOutput>` | `readAttestationPreimageCompleteWithdrawOutput` / `writeAttestationPreimageCompleteWithdrawOutput` | 33 |
-| `AttestationPreimage<RefundOutput>` | `readAttestationPreimageRefundOutput` / `writeAttestationPreimageRefundOutput` | 37 |
-| `AttestationPreimage<CompleteSwapOutput>` | `readAttestationPreimageCompleteSwapOutput` / `writeAttestationPreimageCompleteSwapOutput` | 40 |
 | `VaultResponse` | `readVaultResponse` / `writeVaultResponse` | 2 |
 | `SwapResponse` | `readSwapResponse` / `writeSwapResponse` | 9 |
 | `FailureResponse` | `readFailureResponse` / `writeFailureResponse` | 1 |

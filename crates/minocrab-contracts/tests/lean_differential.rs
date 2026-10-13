@@ -26,7 +26,7 @@
 //! MINOCRAB_DUMP_PREIMAGES=$PWD/target/lean-differential/preimages \
 //!   cargo test -p minocrab-contracts \
 //!     --test erc20_vault_differential \
-//!     --test signet_contract_differential \
+//!     --test signet_construction \
 //!     --test manager_differential
 //! MINOCRAB_PREIMAGES=$PWD/target/lean-differential/preimages \
 //!   cargo test -p minocrab-contracts --test lean_differential -- --ignored
@@ -63,7 +63,7 @@ const CHUNK: usize = 8;
 const VAULT_DIR: &str =
     "corpus/zkir/signet-midnight-examples/examples/erc20-vault/contract/src/erc20-vault/zkir";
 const SIGNET_DIR: &str =
-    "corpus/zkir/signet-midnight-integration/packages/signet-contract/src/signet-contract/zkir";
+    "corpus/zkir/signet-midnight-integration-pr127/packages/signet-contract/src/signet-contract/zkir";
 const MANAGER_DIR: &str = "corpus/zkir/aa-midnight-evm-experiment/contracts/manager/zkir";
 
 /// `(<preimage stem>, <repo-relative artifact path>)` for every dumped
@@ -72,26 +72,39 @@ const MANAGER_DIR: &str = "corpus/zkir/aa-midnight-evm-experiment/contracts/mana
 /// differential suites already prove PI-equal on these preimages.
 fn corpus_table() -> Vec<(&'static str, String)> {
     let mut t: Vec<(&'static str, String)> = Vec::new();
-    // The seventeen vault circuits (the M28 shape). The preimage stem is
-    // `Circuit::zkir_name`, which is also compactc's file stem.
+    // The twenty-nine vault circuits (the M44 flush-pattern shape). The
+    // preimage stem is `Circuit::zkir_name`, which is also compactc's file
+    // stem.
     for name in [
         "initialise",
-        "approveStata",
-        "approveRouter",
+        "setGasParams",
+        "addAllowedToken",
+        "flushQueue",
+        "queueAttestation0",
+        "queueAttestation1",
+        "queueAttestation32",
+        "startReplaceNonce",
+        "sendReplaceNonce",
+        "completeReplaceNonce",
+        "startApproveRouter",
+        "startApproveStata",
+        "sendApprove",
+        "completeApprove",
         "startDeposit",
+        "sendDeposit",
         "completeDeposit",
         "startWithdraw",
+        "sendWithdraw",
         "completeWithdraw",
-        "refundWithdraw",
         "startSwap",
+        "sendSwap",
         "completeSwap",
-        "refundSwap",
         "startSupply",
+        "sendSupply",
         "completeSupply",
-        "refundSupply",
         "startRedeem",
+        "sendRedeem",
         "completeRedeem",
-        "refundRedeem",
     ] {
         t.push((name, format!("{VAULT_DIR}/{name}.zkir")));
     }

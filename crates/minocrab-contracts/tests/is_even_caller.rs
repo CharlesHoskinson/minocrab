@@ -35,10 +35,10 @@
 
 use minocrab::v3::Circuit3;
 use minocrab::{Private, Public};
-use minocrab_contracts::common::{Caip2Id, SigningPath};
+use minocrab_contracts::common::SigningPath;
 use minocrab_contracts::evm::{Envelope, EvmCall, Filing, Interface, U256};
 use minocrab_contracts::evm_flow::{Contract, Pending, Succeeded};
-use minocrab_contracts::signet_flow::{Requested, Settled, Signet};
+use minocrab_contracts::signet_flow::{Requested, Settled, Signet, Signing};
 use minocrab_sim::v3::cost;
 use minocrab_std::v3::{
     circuit, is_true, label, Bool, Bytes, Check, Disclose, Discloses, Ledger, LedgerCounter,
@@ -73,17 +73,24 @@ impl EvmCall for IsEven {
     }
 }
 
-/// HOW THIS CALLER FILES IT: kind 0, and the response record names the flag
-/// `result`, so a settle circuit's argument slot is
-/// `serializedOutput.output.result`. Both are facts about THIS deployment's
-/// protocol, which is why they are here and not on [`IsEven`] (M38 rung A,
-/// notes/evm-interfaces.org §1).
+minocrab_contracts::output_schema! {
+    /// `[{"name":"result","type":"bool"}]` — the flag THIS deployment's
+    /// records name `result`, not the library's `success`. The name is a
+    /// fact about the protocol, and since M44 rung D it lives in the schema
+    /// string the MPC decodes under, so declaring one here is the whole of
+    /// what `RETURN_FIELD` used to say.
+    pub struct Result = b"[{\"name\":\"result\",\"type\":\"bool\"}]";
+}
+
+/// HOW THIS CALLER FILES IT: under its own [`Result`] schema, because the
+/// response record names the flag `result` rather than `success`. That is a
+/// fact about THIS deployment's protocol, which is why it is here and not on
+/// [`IsEven`] (M38 rung A, notes/evm-interfaces.org §1).
 struct IsEvenResult;
 
 impl Filing for IsEvenResult {
     type Call = IsEven;
-    const KIND: u8 = 0;
-    const RETURN_FIELD: Option<&'static str> = Some("result");
+    type Schema = Result;
 }
 
 /// What the verify circuit gets back: which argument was asked about.
@@ -103,7 +110,7 @@ const CALLER: Caller = Caller::new();
 
 label! {
     ResponseKey = "the MPC response key";
-    ChainCaip2 = "the CAIP-2 chain id";
+    KeyVersion = "the MPC key version";
     ChainId = "the EVM chain id";
     Argument = "the isEven argument";
     Outcome = "the attested isEven result";
@@ -131,32 +138,35 @@ fn assert_initialised(c: &mut Circuit3) {
     c.assert(n.gt(0u64).message("Not initialised"));
 }
 
-/// Pin the MPC response key (derived for this contract's address) and the
-/// destination chain, once.
+/// Pin the MPC response key (derived for this contract's address), the key
+/// VERSION and the destination chain, once.
+///
+/// The caip2 id went with the V1 vocabulary (`executionDest` is the constant
+/// `ethereumCaip2Id()`); the key version took its place as a cell, which is
+/// why `submitIsEvenRequest` below no longer takes one.
 #[circuit]
 fn initialise(
     c: &mut Circuit3,
     response_key: Secp256k1Point,
-    caip2: Caip2Id<Private>,
+    key_version: Uint<8>,
     chain_id: Uint<64>,
-) -> Discloses<(ResponseKey, ChainCaip2, ChainId)> {
+) -> Discloses<(ResponseKey, KeyVersion, ChainId)> {
     let n = CALLER.initialised.read(c);
     c.assert(n.eq(0u64).message("Already initialised"));
     CALLER.initialised.increment(c, 1);
     let key = response_key.disclose_as::<ResponseKey>(c);
-    let caip2 = caip2.disclose_as::<ChainCaip2>(c);
+    let key_version = key_version.disclose_as::<KeyVersion>(c);
     let chain_id = chain_id.disclose_as::<ChainId>(c);
-    CALLER.signet.initialize(c, &key, &caip2, &chain_id);
+    CALLER.signet.initialize(c, &key, &key_version, &chain_id);
     Discloses::of(())
 }
 
-/// `submitIsEvenRequest(evmNonce, keyVersion, to, argWord)`: ask the MPC to
-/// sign `isEven(argWord)` to `to`, under a fixed gas envelope.
+/// `submitIsEvenRequest(evmNonce, to, argWord)`: ask the MPC to sign
+/// `isEven(argWord)` to `to`, under a fixed gas envelope.
 #[circuit]
 fn submit_is_even_request(
     c: &mut Circuit3,
     evm_nonce: Uint<64>,
-    key_version: Uint<8>,
     to: Bytes<20>,
     arg_word: B32<Private>,
 ) -> Discloses<(Argument, Requested)> {
@@ -167,9 +177,11 @@ fn submit_is_even_request(
         |c| Contract::<SignetEvmTarget>::from_address(c, to),
         (|_c: &mut Circuit3| arg_word,),
         Envelope::fixed(),
-        key_version,
         evm_nonce,
-        |c| (SigningPath(B32::pad(c, "caller-path")).private(), ()),
+        |c| {
+            let path = SigningPath(B32::pad(c, "caller-path")).private();
+            (Signing::derived(path), ())
+        },
         |_c, _id, ()| IsEvenEnv { argument },
     );
     Discloses::of(())
@@ -210,13 +222,14 @@ fn the_selector_is_the_one_the_mpcs_caller_asks_for() {
     );
 }
 
-/// Seven fields, flat: the request map at field 6, depth 1 — the MPC's
+/// Six fields, flat: the request map at field 5, depth 1 — the MPC's
 /// caller kept its map at field 4 "so the tests prove the MPC locates it via
 /// the field position named in the notification"; here that position is
-/// derived and this test states it.
+/// derived and this test states it. It moved down one at M44 rung D, when
+/// `Signet` lost its request-nonce counter.
 #[test]
 fn the_request_map_is_where_the_notification_says() {
-    assert_eq!(CALLER.is_even.record_path().as_slice(), &[6]);
+    assert_eq!(CALLER.is_even.record_path().as_slice(), &[5]);
     assert_eq!(CALLER.is_even.record_path().depth(), 1);
 }
 

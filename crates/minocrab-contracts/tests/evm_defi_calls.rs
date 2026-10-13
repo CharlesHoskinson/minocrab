@@ -36,8 +36,9 @@
 
 use minocrab::v3::Circuit3;
 use minocrab::{Private, Public};
-use minocrab_contracts::evm::{aave_v3, erc4626, erc721, uniswap_v3, Kinded};
+use minocrab_contracts::evm::{aave_v3, erc4626, erc721, uniswap_v3, Filed};
 use minocrab_contracts::evm_flow::{Contract, Failed, Owned, Pending, Succeeded};
+use minocrab_contracts::signet_v1::schema;
 use minocrab_contracts::signet_flow::{Requested, Settled, Signet};
 use minocrab_sim::v3::cost;
 use minocrab_std::v3::{
@@ -46,18 +47,18 @@ use minocrab_std::v3::{
 
 // ---- the filings --------------------------------------------------------------
 
-/// `mint(shares, receiver)` on an ERC-4626 vault, filed under kind 1.
-type MintShares = Kinded<erc4626::Mint, 1>;
-/// `exactInputSingle(params)` on `SwapRouter02`, filed under kind 2.
-type SwapIn = Kinded<uniswap_v3::ExactInputSingle, 2>;
-/// `supply(asset, amount, onBehalfOf, referralCode)` on Aave v3's `Pool`,
-/// filed under kind 3.
-type SupplyToPool = Kinded<aave_v3::Supply, 3>;
-/// `setApprovalForAll(operator, approved)` on an NFT, filed under kind 4.
-type ApproveOperator = Kinded<erc721::SetApprovalForAll, 4>;
+/// `mint(shares, receiver)` on an ERC-4626 vault — a `uint256` of assets.
+type MintShares = Filed<erc4626::Mint, schema::Shares>;
+/// `exactInputSingle(params)` on `SwapRouter02` — a `uint256` out.
+type SwapIn = Filed<uniswap_v3::ExactInputSingle, schema::AmountIn>;
+/// `supply(asset, amount, onBehalfOf, referralCode)` on Aave v3's `Pool` —
+/// no return at all.
+type SupplyToPool = Filed<aave_v3::Supply, schema::NoReturn>;
+/// `setApprovalForAll(operator, approved)` on an NFT — no return.
+type ApproveOperator = Filed<erc721::SetApprovalForAll, schema::NoReturn>;
 /// `supplyWithPermit(asset, amount, onBehalfOf, referralCode, deadline,
-/// permitV, permitR, permitS)` on Aave v3's `Pool`, filed under kind 5.
-type SupplyPermitToPool = Kinded<aave_v3::SupplyWithPermit, 5>;
+/// permitV, permitR, permitS)` on Aave v3's `Pool` — no return.
+type SupplyPermitToPool = Filed<aave_v3::SupplyWithPermit, schema::NoReturn>;
 
 /// What a settle needs back.
 #[derive(LedgerRepr)]
@@ -65,7 +66,7 @@ struct Amount {
     amount: Uint<64, Public>,
 }
 
-/// Six Signet fields and five slots, two fields each.
+/// Four Signet fields and five slots, two fields each.
 #[derive(Ledger)]
 struct Positions {
     signet: Signet,
@@ -146,7 +147,6 @@ struct SupplyWithPermitRequest {
 fn mint_shares(
     c: &mut Circuit3,
     evm_nonce: Uint<64>,
-    key_version: Uint<8>,
     vault: Contract<erc4626::Erc4626>,
     shares: Uint<64>,
     receiver: Bytes<20>,
@@ -156,7 +156,6 @@ fn mint_shares(
         c,
         vault,
         (shares.widen::<128>(), receiver),
-        key_version,
         evm_nonce,
         |_, _| Amount {
             amount: Uint::from_field_unchecked(minted),
@@ -199,7 +198,6 @@ fn refund_mint(
 fn swap_in(
     c: &mut Circuit3,
     evm_nonce: Uint<64>,
-    key_version: Uint<8>,
     router: Contract<uniswap_v3::UniswapV3Router>,
     swap: SwapRequest,
 ) -> Discloses<(AmountIn, Requested)> {
@@ -217,7 +215,6 @@ fn swap_in(
             swap.amount_out_minimum,
             B32 { hi: zero, lo: zero },
         ),
-        key_version,
         evm_nonce,
         |_, _| Amount {
             amount: Uint::from_field_unchecked(spent),
@@ -249,7 +246,6 @@ fn refund_swap(c: &mut Circuit3, ticket: Failed<SwapIn>) -> Discloses<Settled> {
 fn supply_to_pool(
     c: &mut Circuit3,
     evm_nonce: Uint<64>,
-    key_version: Uint<8>,
     pool: Contract<aave_v3::AaveV3Pool>,
     supply: SupplyRequest,
 ) -> Discloses<(Supplied, Requested)> {
@@ -263,7 +259,6 @@ fn supply_to_pool(
             supply.on_behalf_of,
             supply.referral_code,
         ),
-        key_version,
         evm_nonce,
         |_, _| Amount {
             amount: Uint::from_field_unchecked(supplied),
@@ -299,7 +294,6 @@ fn refund_supply(c: &mut Circuit3, ticket: Failed<SupplyToPool>) -> Discloses<Se
 fn supply_with_permit_to_pool(
     c: &mut Circuit3,
     evm_nonce: Uint<64>,
-    key_version: Uint<8>,
     pool: Contract<aave_v3::AaveV3Pool>,
     supply: SupplyWithPermitRequest,
 ) -> Discloses<(Supplied, Requested)> {
@@ -317,7 +311,6 @@ fn supply_with_permit_to_pool(
             supply.permit_r,
             supply.permit_s,
         ),
-        key_version,
         evm_nonce,
         |_, _| Amount {
             amount: Uint::from_field_unchecked(supplied),
@@ -358,7 +351,6 @@ fn refund_supply_with_permit(
 fn approve_operator(
     c: &mut Circuit3,
     evm_nonce: Uint<64>,
-    key_version: Uint<8>,
     nft: Contract<erc721::Erc721>,
     operator: Bytes<20>,
     approved: Bool,
@@ -368,7 +360,6 @@ fn approve_operator(
         c,
         nft,
         (operator, approved),
-        key_version,
         evm_nonce,
         |_, _| Amount {
             amount: Uint::from_field_unchecked(granted),
@@ -395,17 +386,17 @@ fn refund_operator(c: &mut Circuit3, ticket: Failed<ApproveOperator>) -> Disclos
 
 // ---- the tests ----------------------------------------------------------------
 
-/// The block's layout: six Signet fields, then two fields per slot,
+/// The block's layout: four Signet fields, then two fields per slot,
 /// whatever the slot's word count.
 #[test]
 fn the_block_is_laid_out_by_slot() {
     assert_eq!(POSITIONS.signet.signer.index(), 0);
-    assert_eq!(POSITIONS.mints.record_path().as_slice(), &[5]);
-    assert_eq!(POSITIONS.swaps.record_path().as_slice(), &[7]);
-    assert_eq!(POSITIONS.supplies.record_path().as_slice(), &[9]);
-    assert_eq!(POSITIONS.operators.record_path().as_slice(), &[11]);
+    assert_eq!(POSITIONS.mints.record_path().as_slice(), &[4]);
+    assert_eq!(POSITIONS.swaps.record_path().as_slice(), &[6]);
+    assert_eq!(POSITIONS.supplies.record_path().as_slice(), &[8]);
+    assert_eq!(POSITIONS.operators.record_path().as_slice(), &[10]);
     assert_eq!(POSITIONS.operators.record_path().depth(), 1);
-    assert_eq!(POSITIONS.supplies_with_permit.record_path().as_slice(), &[13]);
+    assert_eq!(POSITIONS.supplies_with_permit.record_path().as_slice(), &[12]);
     assert_eq!(POSITIONS.supplies_with_permit.record_path().depth(), 1);
 }
 

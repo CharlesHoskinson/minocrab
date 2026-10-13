@@ -1,0 +1,41 @@
+{
+  "version": { "major": 3, "minor": 0 },
+  "do_communications_commitment": true,
+  "inputs": [
+    { "name": "%erc20Address.0", "type": "Scalar<BLS12-381>" }
+  ],
+  "outputs": [
+  ],
+  "instructions": [
+    { "op": "constrain_bits", "val": "%erc20Address.0", "bits": 160 },
+    { "op": "public_input", "type": "Scalar<BLS12-381>", "output": "%t.1", "guard": null },
+    { "op": "impact", "guard": "0x01", "inputs": ["0x30"] },
+    { "op": "impact", "guard": "0x01", "inputs": ["0x51", "0x01", "0x01", "0x01", "0x01", "0x01", "0x00"] },
+    { "op": "impact", "guard": "0x01", "inputs": ["0x0c", "0x01", "0x01", "%t.1"] },
+    { "op": "assert", "cond": "%t.1" },
+    { "op": "private_input", "type": "Scalar<BLS12-381>", "output": "%sk.2", "guard": null },
+    { "op": "constrain_bits", "val": "%sk.2", "bits": 8 },
+    { "op": "private_input", "type": "Scalar<BLS12-381>", "output": "%sk.3", "guard": null },
+    { "op": "constrain_bits", "val": "%sk.3", "bits": 248 },
+    { "op": "transient_hash", "output": "%t.4", "inputs": ["%sk.2", "%sk.3", "0x00", "0x7661756c743a757365723a"] },
+    { "op": "copy", "output": "%t.5", "val": "0x00" },
+    { "op": "div_mod_power_of_two", "outputs": ["%tmp.6", "%t.7"], "val": "%t.4", "bits": 248 },
+    { "op": "public_input", "type": "Scalar<BLS12-381>", "output": "%t.8", "guard": null },
+    { "op": "public_input", "type": "Scalar<BLS12-381>", "output": "%t.9", "guard": null },
+    { "op": "impact", "guard": "0x01", "inputs": ["0x30"] },
+    { "op": "impact", "guard": "0x01", "inputs": ["0x51", "0x01", "0x01", "0x01", "0x01", "0x01", "0x04"] },
+    { "op": "impact", "guard": "0x01", "inputs": ["0x0c", "0x01", "0x20", "%t.8", "%t.9"] },
+    { "op": "test_eq", "output": "%t.10", "a": "%t.5", "b": "%t.8" },
+    { "op": "test_eq", "output": "%t.11", "a": "%t.7", "b": "%t.9" },
+    { "op": "cond_select", "output": "%t.12", "bit": "%t.10", "a": "%t.11", "b": "0x00" },
+    { "op": "assert", "cond": "%t.12" },
+    { "op": "test_eq", "output": "%t.13", "a": "%erc20Address.0", "b": "0x00" },
+    { "op": "cond_select", "output": "%t.14", "bit": "%t.13", "a": "0x00", "b": "0x01" },
+    { "op": "assert", "cond": "%t.14" },
+    { "op": "impact", "guard": "0x01", "inputs": ["0x71", "0x01", "0x01", "0x01", "0x01", "0x01", "0x08"] },
+    { "op": "impact", "guard": "0x01", "inputs": ["0x10", "0x01", "0x01", "0x14", "%erc20Address.0"] },
+    { "op": "impact", "guard": "0x01", "inputs": ["0x11", "0x00"] },
+    { "op": "impact", "guard": "0x01", "inputs": ["0x91"] },
+    { "op": "impact", "guard": "0x01", "inputs": ["0xa2"] }
+  ]
+}

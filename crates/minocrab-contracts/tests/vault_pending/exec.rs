@@ -38,37 +38,38 @@ pub struct PreState {
     pub signer: [u8; 32],
     /// field 5 — `signet.mpcResponseKey` (a `Secp256k1Point`, 5 FAB limbs).
     pub mpc_response_key: Option<AlignedValue>,
-    /// field 6 — `signet.requestNonce: Counter`.
-    pub request_nonce: u64,
-    /// field 7 — `signet.caip2Id`.
-    pub caip2: [u8; 32],
-    /// field 8 — `signet.evmChainId`.
+    /// field 6 — `signet.mpcKeyVersion`. The V2 lineage had a
+    /// `requestNonce: Counter` and a `caip2Id` cell in these positions; both
+    /// went with the V1 vocabulary (M44 rung D), so every field below moved
+    /// down one.
+    pub key_version: u8,
+    /// field 7 — `signet.evmChainId`.
     pub evm_chain_id: u64,
-    /// field 9 — `deposits` records.
+    /// field 8 — `deposits` records.
     pub deposits_records: Entries,
-    /// field 10 — `deposits` envs.
+    /// field 9 — `deposits` envs.
     pub deposits_envs: Entries,
-    /// field 11 — `withdrawals` records.
+    /// field 10 — `withdrawals` records.
     pub withdrawals_records: Entries,
-    /// field 12 — `withdrawals` envs.
+    /// field 11 — `withdrawals` envs.
     pub withdrawals_envs: Entries,
-    /// field 13 — `swaps` records.
+    /// field 12 — `swaps` records.
     pub swaps_records: Entries,
-    /// field 14 — `swaps` envs.
+    /// field 13 — `swaps` envs.
     pub swaps_envs: Entries,
-    /// field 15 — `approvals` (Fired: records only).
+    /// field 14 — `approvals` (Fired: records only).
     pub approvals: Entries,
-    /// field 16 — `stataUnderlying`.
+    /// field 15 — `stataUnderlying`.
     pub stata_underlying: [u8; 20],
-    /// field 17 — `stataToken`.
+    /// field 16 — `stataToken`.
     pub stata_token: [u8; 20],
-    /// field 18 — `supplies` records.
+    /// field 17 — `supplies` records.
     pub supplies_records: Entries,
-    /// field 19 — `supplies` envs.
+    /// field 18 — `supplies` envs.
     pub supplies_envs: Entries,
-    /// field 20 — `redeems` records.
+    /// field 19 — `redeems` records.
     pub redeems_records: Entries,
-    /// field 21 — `redeems` envs.
+    /// field 20 — `redeems` envs.
     pub redeems_envs: Entries,
 }
 
@@ -93,8 +94,7 @@ impl PreState {
                 Some(av) => cell(av.clone()),
                 None => StateValue::Null,
             },
-            cell(bytesn_value(8, &self.request_nonce.to_le_bytes())),
-            cell(bytesn_value(32, &self.caip2)),
+            cell(bytesn_value(1, &[self.key_version])),
             cell(bytesn_value(8, &self.evm_chain_id.to_le_bytes())),
             map_of(&self.deposits_records),
             map_of(&self.deposits_envs),

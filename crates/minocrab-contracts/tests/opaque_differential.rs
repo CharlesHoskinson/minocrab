@@ -445,7 +445,7 @@ fn the_vaults_own_initialize_now_flattens() {
     use minocrab::v3::{CircuitAbi, Prim};
     use minocrab::Public;
     use minocrab_abi::info::ContractInfo;
-    use minocrab_std::v3::{Bytes, Secp256k1Point, Uint, B32};
+    use minocrab_std::v3::{Bytes, Secp256k1Point, Uint};
 
     let text = std::fs::read_to_string(format!(
         "{}/../../corpus/zkir/signet-midnight-examples/examples/erc20-vault/contract/\
@@ -457,7 +457,14 @@ fn the_vaults_own_initialize_now_flattens() {
     let initialize = info.circuit("initialise").expect("the vault exports initialise");
 
     // `responseKey: Secp256k1Point`, published as an `Opaque` under an alias.
-    let response_key = &initialize.arguments.last().expect("seven arguments").ty;
+    // Seventh of eight arguments since M44 — `evmHeight` follows it — so pick
+    // it out by name rather than by position.
+    let response_key = &initialize
+        .arguments
+        .iter()
+        .find(|a| a.name == "responseKey")
+        .expect("the vault's initialise takes a responseKey")
+        .ty;
     assert_eq!(
         response_key.curve_point(),
         Some(minocrab_abi::info::CurvePoint::Secp256k1)
@@ -490,21 +497,22 @@ fn the_vaults_own_initialize_now_flattens() {
             <Uint<64, Public> as CircuitAbi>::prims(),
         ),
         (
-            <B32<Public> as CircuitAbi>::atoms(),
-            <B32<Public> as CircuitAbi>::prims(),
-        ),
-        (
             <Secp256k1Point<Public> as CircuitAbi>::atoms(),
             <Secp256k1Point<Public> as CircuitAbi>::prims(),
         ),
+        (<Uint<8, Public> as CircuitAbi>::atoms(), <Uint<8, Public> as CircuitAbi>::prims()),
+        (<Uint<64, Public> as CircuitAbi>::atoms(), <Uint<64, Public> as CircuitAbi>::prims()),
     ] {
         atoms.extend(a);
         prims.extend(p);
     }
     assert_eq!(flat.atoms, atoms, "the vault's initialize atoms");
     assert_eq!(flat.prims, prims, "the vault's initialize prims");
+    // The response key is the sixth argument of eight since the flush
+    // pattern (the key version and the EVM height follow it): a point slot,
+    // not an opaque one.
     assert_eq!(
-        prims.last(),
+        prims.get(prims.len() - 3),
         Some(&Prim::Point),
         "the response key is a point slot, not an opaque one"
     );

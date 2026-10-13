@@ -4,7 +4,15 @@ name = "signet-signer-interface"
 # agreement suite reads the artifact under ../../corpus. A real interface
 # crate is published by whoever owns the contract, not by us.
 publish = false
-version.workspace = true
+# NOT the workspace version: versions here are PER CALLEE (the note's "one
+# crate per contract" rule — a callee that breaks its ABI must not force a
+# bump on an unrelated one). 0.1 -> 0.2 is the major bump for the V1
+# attestation: `RespondBidirectionalEvent` gained requestId, blockHeight,
+# outputKind, serializedOutputLength and digest, and the two respond methods
+# now take one struct instead of two arguments. That is a WIRE break, which
+# is what the `interface-wire-compat-semver` gate exists to make loud —
+# tests/artifact_agreement.rs holds it to the deployed artifact.
+version = "0.2.0"
 edition.workspace = true
 license.workspace = true
 description = "The Sig Network Signet singleton's cross-contract interface, as an importable MinoCrab crate"

@@ -11,7 +11,7 @@ use minocrab::Fr;
 
 use super::exec::{self, Executed, PreState};
 use super::model::*;
-use super::prims::{b32_slots, bytesn_value, coin_commitment_of, evolved_nonce, user_commitment};
+use super::prims::{b32_slots, bytesn_value, coin_commitment_of, evolved_nonce};
 
 /// Which assertion rejected — named after the Compact-style message the
 /// circuit's own `.message(...)` carries (or, for `signet_flow`'s shared
@@ -108,8 +108,7 @@ const U64_MAX_U128: u128 = u64::MAX as u128;
 // ---- shared pieces -----------------------------------------------------------------------
 
 /// The effects every request circuit declares, on top of any burn: the
-/// nonce increment, the record insert, the (optional) env insert, the
-/// notification call.
+/// record insert, the (optional) env insert, the notification call.
 fn request_effects(
     env: &Env,
     records_field: u8,
@@ -120,7 +119,9 @@ fn request_effects(
     cc_rand: Fr,
 ) -> Vec<Effect> {
     let mut effects = vec![
-        Effect::CounterInc { field: SIGNET_REQUEST_NONCE, by: 1 },
+        // No counter increment since M44 rung D: the Signet request nonce
+        // went with the V1 vocabulary, so a request's first effect is the
+        // record insert.
         Effect::MapInsert { field: records_field, key: rid, value: record_av },
     ];
     if let (Some(f), Some(av)) = (envs_field, env_av) {
@@ -173,8 +174,14 @@ pub fn spec_initialize(s: &InitializeScenario) -> Outcome {
     if s.env.initialized != 0 {
         return Outcome::Reject(GuardId::AlreadyInitialized);
     }
-    if user_commitment(&s.sk) != s.env.deployer() {
+    if pending_user_commitment(&s.sk) != s.env.deployer() {
         return Outcome::Reject(GuardId::NotTheDeployer);
+    }
+    // The key-version guard lives HERE since M44 rung D, where it used to
+    // sit on every request: the version is a write-once cell, so this is the
+    // only circuit that can choose it.
+    if s.key_version == 0 {
+        return Outcome::Reject(GuardId::KeyVersionMustBeGe1);
     }
     if s.chain_id == 0 {
         return Outcome::Reject(GuardId::ChainIdMustBePositive);
@@ -195,7 +202,7 @@ pub fn spec_initialize(s: &InitializeScenario) -> Outcome {
         Effect::CellWrite { field: STATA_UNDERLYING, value: bytesn_value(20, &s.stata_underlying) },
         Effect::CellWrite { field: STATA_TOKEN, value: bytesn_value(20, &s.stata_token) },
         Effect::CellWrite { field: MPC_RESPONSE_KEY, value: point_av(&s.point()) },
-        Effect::CellWrite { field: CAIP2_ID, value: bytesn_value(32, &s.caip2) },
+        Effect::CellWrite { field: MPC_KEY_VERSION, value: bytesn_value(1, &[s.key_version]) },
         Effect::CellWrite { field: EVM_CHAIN_ID, value: bytesn_value(8, &s.chain_id.to_le_bytes()) },
     ])
 }
@@ -207,9 +214,6 @@ pub fn spec_approve_router(s: &ApproveRouterScenario) -> Outcome {
     if s.erc20 == [0u8; 20] {
         return Outcome::Reject(GuardId::Erc20AddressCannotBeZero);
     }
-    if s.key_version == 0 {
-        return Outcome::Reject(GuardId::KeyVersionMustBeGe1);
-    }
     if s.request_exists {
         return Outcome::Reject(GuardId::RequestAlreadyExists);
     }
@@ -219,9 +223,6 @@ pub fn spec_approve_router(s: &ApproveRouterScenario) -> Outcome {
 pub fn spec_approve_stata(s: &ApproveStataScenario) -> Outcome {
     if s.env.initialized < 1 {
         return Outcome::Reject(GuardId::NotInitialized);
-    }
-    if s.key_version == 0 {
-        return Outcome::Reject(GuardId::KeyVersionMustBeGe1);
     }
     if s.request_exists {
         return Outcome::Reject(GuardId::RequestAlreadyExists);
@@ -244,9 +245,6 @@ pub fn spec_start_deposit(s: &StartDepositScenario) -> Outcome {
     }
     if s.gas_limit == 0 {
         return Outcome::Reject(GuardId::GasLimitMustBePositive);
-    }
-    if s.key_version == 0 {
-        return Outcome::Reject(GuardId::KeyVersionMustBeGe1);
     }
     if s.request_exists {
         return Outcome::Reject(GuardId::RequestAlreadyExists);
@@ -272,7 +270,7 @@ pub fn spec_claim(s: &ClaimScenario) -> Outcome {
     if !s.success {
         return Outcome::Reject(GuardId::TheMpcAttestedAFailure);
     }
-    if user_commitment(&s.settle.sk(&s.d.sk)) != s.d.commitment() {
+    if pending_user_commitment(&s.settle.sk(&s.d.sk)) != s.d.commitment() {
         return Outcome::Reject(GuardId::NotTheDepositor);
     }
     let rid = s.d.request_id();
@@ -303,9 +301,6 @@ pub fn spec_start_withdraw(s: &StartWithdrawScenario) -> Outcome {
     }
     if let Some(g) = coin_guards(s.coin_color(), vault_color(&s.erc20, &s.env.self_addr), s.coin_value(), s.amount) {
         return Outcome::Reject(g);
-    }
-    if s.key_version == 0 {
-        return Outcome::Reject(GuardId::KeyVersionMustBeGe1);
     }
     if s.request_exists {
         return Outcome::Reject(GuardId::RequestAlreadyExists);
@@ -386,9 +381,6 @@ pub fn spec_start_swap(s: &StartSwapScenario) -> Outcome {
     if let Some(g) = coin_guards(s.coin_color(), vault_color(&s.token_in, &s.env.self_addr), s.coin_value(), s.amount_in_max) {
         return Outcome::Reject(g);
     }
-    if s.key_version == 0 {
-        return Outcome::Reject(GuardId::KeyVersionMustBeGe1);
-    }
     if s.request_exists {
         return Outcome::Reject(GuardId::RequestAlreadyExists);
     }
@@ -459,9 +451,6 @@ pub fn spec_start_supply(s: &StartSupplyScenario) -> Outcome {
     if let Some(g) = coin_guards(s.coin_color(), vault_color(&s.env.stata_underlying, &s.env.self_addr), s.coin_value(), s.amount) {
         return Outcome::Reject(g);
     }
-    if s.key_version == 0 {
-        return Outcome::Reject(GuardId::KeyVersionMustBeGe1);
-    }
     if s.request_exists {
         return Outcome::Reject(GuardId::RequestAlreadyExists);
     }
@@ -528,9 +517,6 @@ pub fn spec_start_redeem(s: &StartRedeemScenario) -> Outcome {
     if let Some(g) = coin_guards(s.coin_color(), vault_color(&s.env.stata_token, &s.env.self_addr), s.coin_value(), s.shares) {
         return Outcome::Reject(g);
     }
-    if s.key_version == 0 {
-        return Outcome::Reject(GuardId::KeyVersionMustBeGe1);
-    }
     if s.request_exists {
         return Outcome::Reject(GuardId::RequestAlreadyExists);
     }
@@ -588,7 +574,6 @@ pub fn spec_refund_redeem(s: &RefundRedeemScenario) -> Outcome {
 
 fn pre_counter(pre: &PreState, field: u8) -> u64 {
     match field {
-        SIGNET_REQUEST_NONCE => pre.request_nonce,
         INITIALIZED => pre.initialized,
         other => panic!("field {other} is not a counter"),
     }

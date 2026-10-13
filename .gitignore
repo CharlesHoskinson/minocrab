@@ -7,3 +7,5 @@ crates/minocrab-zkir/lean/.lake/
 
 # nix build .#compactc output link (corpus/compile.sh reads ../result/bin/compactc)
 result
+# per-source COMPACT_PATH links corpus/compile.sh rebuilds (M43 A / M44 A)
+corpus/.compact-path-*

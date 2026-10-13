@@ -34,16 +34,20 @@
 use midnight_onchain_state::state::StateValue;
 use midnight_transient_crypto::proofs::Zkir;
 use minocrab::Fr;
-use minocrab_contracts::erc20_vault_pending::{
-    self as pending, RESPONSE_KIND_CLAIM, RESPONSE_KIND_FAILURE, RESPONSE_KIND_SWAP,
-};
+use minocrab_contracts::erc20_vault_pending::{self as pending};
+use minocrab_contracts::signet_v1::ETHEREUM_CAIP2_ID;
 use minocrab_sim::v3::exec::{self, Call};
 use signet_sim::reader::MISC_PAYLOAD_LEN;
-use signet_sim::{EvmOutcome, Refusal, Responder, SigNetSim};
+use signet_sim::{EvmOutcome, Refusal, SigNetSim};
 
 mod vault_pending;
 use vault_pending::model::*;
-use vault_pending::prims::{b32_slots, transient_upgrade};
+use vault_pending::prims::{attestation_digest, b32_slots, pad32};
+
+/// The height the simulated MPC attests. One constant, because what the
+/// tests here are about is the record and the signature — the height's own
+/// gate is `Outbox::raise_seen`'s, and the model varies it under proptest.
+const HEIGHT: u64 = 21_000_000;
 
 /// The singleton's `Misc` payload for a request: `version(1) ‖
 /// requestId(32) ‖ callerAddress(32) ‖ pathDepth(1) ‖ path(4) ‖ zeros`.
@@ -104,38 +108,45 @@ fn deposits_path() -> Vec<u8> {
 fn the_mpc_resolves_the_record_the_request_circuit_filed() {
     let (s, post) = filed_deposit();
     let rid = s.request_id();
-    let mut sim = SigNetSim::from_seed(b"minocrab round trip", RESPONSE_KIND_FAILURE as u8);
+    let mut sim = SigNetSim::from_seed(b"minocrab round trip", 0);
     let payload = notification(&rid, &s.env.self_addr, &deposits_path());
 
     let attestation = sim
-        .respond(&payload, &post, EvmOutcome::Executed { body: vec![1u8] })
+        .respond_v1(&payload, &post, EvmOutcome::Executed { body: vec![1u8] }, HEIGHT)
         .expect("the MPC resolves the filed record");
 
     assert_eq!(attestation.request_id, rid, "the id the MPC signs is the filed one");
     assert_eq!(
         attestation.output,
-        vec![RESPONSE_KIND_CLAIM as u8, 1u8],
-        "the output is the record's own response kind then the EVM body"
+        vec![1u8],
+        "the output is the EVM body ALONE — V1 glues no kind byte to its front"
     );
+    assert_eq!(attestation.output_kind, signet_sim::hashing::v1::output_kind::EXECUTED);
+    assert_eq!(attestation.block_height, HEIGHT, "the height is attested, not inferred");
     // The record the reader decoded is the one the circuit's arguments
     // describe — the drift gate of signet_flow.rs, now driven by STATE
     // rather than by a hand-built cell.
-    assert_eq!(attestation.record.request_nonce, s.env.request_nonce);
-    assert_eq!(attestation.record.caip2_id, s.env.caip2);
-    assert_eq!(attestation.record.response_kind, RESPONSE_KIND_CLAIM as u8);
+    assert_eq!(attestation.record.key_version, s.env.key_version);
+    assert_eq!(attestation.record.execution_dest, pad32(ETHEREUM_CAIP2_ID));
+    assert_eq!(
+        attestation.record.output_deserialization_schema,
+        SUCCESS_SCHEMA,
+        "the schema in the record is the one the Deposit filing names"
+    );
 }
 
-/// A failed destination-chain call: the MPC's failure output, built exactly
-/// as `node/respond_bidirectional.rs` builds it — one kind byte.
+/// A failed destination-chain call: `OutputKind::failed` and an EMPTY
+/// output, where the Borsh lineage attested one failure-kind byte.
 #[test]
-fn a_never_executed_call_attests_the_failure_kind() {
+fn a_never_executed_call_attests_the_failed_verdict() {
     let (s, post) = filed_deposit();
-    let mut sim = SigNetSim::from_seed(b"minocrab round trip", RESPONSE_KIND_FAILURE as u8);
+    let mut sim = SigNetSim::from_seed(b"minocrab round trip", 0);
     let payload = notification(&s.request_id(), &s.env.self_addr, &deposits_path());
     let attestation = sim
-        .respond(&payload, &post, EvmOutcome::NeverExecuted)
+        .respond_v1(&payload, &post, EvmOutcome::NeverExecuted, HEIGHT)
         .expect("a failure is still an attestation");
-    assert_eq!(attestation.output, vec![RESPONSE_KIND_FAILURE as u8]);
+    assert!(attestation.output.is_empty(), "a non-execution decodes nothing");
+    assert_eq!(attestation.output_kind, signet_sim::hashing::v1::output_kind::FAILED);
 }
 
 // ---- the adversarial responders --------------------------------------------
@@ -146,10 +157,10 @@ fn a_never_executed_call_attests_the_failure_kind() {
 #[test]
 fn an_unfiled_id_is_refused_by_the_reader() {
     let (s, post) = filed_deposit();
-    let mut sim = SigNetSim::from_seed(b"minocrab round trip", RESPONSE_KIND_FAILURE as u8);
+    let mut sim = SigNetSim::from_seed(b"minocrab round trip", 0);
     let payload = notification(&[0xabu8; 32], &s.env.self_addr, &deposits_path());
     assert!(matches!(
-        sim.respond(&payload, &post, EvmOutcome::Executed { body: vec![1] }),
+        sim.respond_v1(&payload, &post, EvmOutcome::Executed { body: vec![1] }, HEIGHT),
         Err(Refusal::Absent)
     ));
 }
@@ -159,12 +170,12 @@ fn an_unfiled_id_is_refused_by_the_reader() {
 #[test]
 fn a_wrong_path_is_refused_by_the_reader() {
     let (s, post) = filed_deposit();
-    let mut sim = SigNetSim::from_seed(b"minocrab round trip", RESPONSE_KIND_FAILURE as u8);
+    let mut sim = SigNetSim::from_seed(b"minocrab round trip", 0);
     let mut path = deposits_path();
     *path.last_mut().expect("a non-empty path") += 1;
     let payload = notification(&s.request_id(), &s.env.self_addr, &path);
     assert!(
-        sim.respond(&payload, &post, EvmOutcome::Executed { body: vec![1] })
+        sim.respond_v1(&payload, &post, EvmOutcome::Executed { body: vec![1] }, HEIGHT)
             .is_err(),
         "the neighbouring field is not the request index"
     );
@@ -175,19 +186,19 @@ fn a_wrong_path_is_refused_by_the_reader() {
 #[test]
 fn a_malformed_notification_is_refused_by_the_reader() {
     let (s, post) = filed_deposit();
-    let mut sim = SigNetSim::from_seed(b"minocrab round trip", RESPONSE_KIND_FAILURE as u8);
+    let mut sim = SigNetSim::from_seed(b"minocrab round trip", 0);
 
     let mut bad_depth = notification(&s.request_id(), &s.env.self_addr, &deposits_path());
     bad_depth[65] = 9;
     assert!(matches!(
-        sim.respond(&bad_depth, &post, EvmOutcome::Executed { body: vec![1] }),
+        sim.respond_v1(&bad_depth, &post, EvmOutcome::Executed { body: vec![1] }, HEIGHT),
         Err(Refusal::Notification(_))
     ));
 
     let mut bad_version = notification(&s.request_id(), &s.env.self_addr, &deposits_path());
     bad_version[0] = 2;
     assert!(matches!(
-        sim.respond(&bad_version, &post, EvmOutcome::Executed { body: vec![1] }),
+        sim.respond_v1(&bad_version, &post, EvmOutcome::Executed { body: vec![1] }, HEIGHT),
         Err(Refusal::Notification(_))
     ));
 }
@@ -202,10 +213,10 @@ fn a_wrong_key_attests_the_same_bytes_under_a_different_signature() {
     let payload = notification(&s.request_id(), &s.env.self_addr, &deposits_path());
     let outcome = EvmOutcome::Executed { body: vec![1u8] };
 
-    let mut honest = SigNetSim::from_seed(b"minocrab round trip", RESPONSE_KIND_FAILURE as u8);
-    let mut rogue = SigNetSim::from_seed(b"a different cluster", RESPONSE_KIND_FAILURE as u8);
-    let a = honest.respond(&payload, &post, outcome.clone()).expect("honest");
-    let b = rogue.respond(&payload, &post, outcome).expect("rogue");
+    let mut honest = SigNetSim::from_seed(b"minocrab round trip", 0);
+    let mut rogue = SigNetSim::from_seed(b"a different cluster", 0);
+    let a = honest.respond_v1(&payload, &post, outcome.clone(), HEIGHT).expect("honest");
+    let b = rogue.respond_v1(&payload, &post, outcome, HEIGHT).expect("rogue");
 
     assert_eq!(a.request_id, b.request_id);
     assert_eq!(a.output, b.output);
@@ -224,13 +235,13 @@ fn a_wrong_key_attests_the_same_bytes_under_a_different_signature() {
 #[test]
 fn a_replay_produces_the_identical_attestation() {
     let (s, post) = filed_deposit();
-    let mut sim = SigNetSim::from_seed(b"minocrab round trip", RESPONSE_KIND_FAILURE as u8);
+    let mut sim = SigNetSim::from_seed(b"minocrab round trip", 0);
     let payload = notification(&s.request_id(), &s.env.self_addr, &deposits_path());
     let once = sim
-        .respond(&payload, &post, EvmOutcome::Executed { body: vec![1] })
+        .respond_v1(&payload, &post, EvmOutcome::Executed { body: vec![1] }, HEIGHT)
         .expect("first");
     let twice = sim
-        .respond(&payload, &post, EvmOutcome::Executed { body: vec![1] })
+        .respond_v1(&payload, &post, EvmOutcome::Executed { body: vec![1] }, HEIGHT)
         .expect("second");
     assert_eq!(once, twice, "the responder is a function of its inputs");
 }
@@ -250,44 +261,60 @@ fn a_replay_produces_the_identical_attestation() {
 /// Until 2026-09-07 the typed digest hashed ONE FIELD ELEMENT PER BORSH LEAF
 /// (the kind byte one limb, the payload another) — which agreed with the MPC
 /// under keccak / persistentHash, where the hash is over BYTES, and stopped
-/// agreeing when M28 moved the protocol to `transientHash`: Poseidon hashes
-/// limbs, and the two limb splits differ. This test pinned the disagreement
-/// (`the_typed_settle_digest_is_not_the_digest_the_mpc_signs`); now it pins
-/// the agreement, for the vault's two output shapes, against BOTH the MPC's
-/// rule on bytes and the hand model's packed-limb spelling of it.
+/// agreeing when M28 moved the protocol to `transientHash`. That
+/// disagreement, and the packing that fixed it, belonged to the Borsh
+/// `serializedOutput`: `kind ‖ borsh(output)` as one byte string.
+///
+/// V1 (M44 rung D) has no packing problem to get wrong. The digest names the
+/// id, the HEIGHT, the VERDICT and the attested WIDTH as separate field
+/// elements and then the output's own FAB limbs — so the agreement to pin is
+/// that the hand model, the MPC's rule and the width the filing implies all
+/// say the same thing, at each of the vault's three output shapes.
 #[test]
 fn the_typed_settle_digest_is_the_digest_the_mpc_signs() {
+    use signet_sim::hashing::v1 as mpc;
     let rid = [0x5au8; 32];
-    let (hi, lo) = b32_slots(&rid);
 
-    // A `Bool` output: two bytes, one limb.
-    let kind = RESPONSE_KIND_CLAIM as u8;
-    let success = 1u8;
-    let model = attestation_digest_v2(&rid, kind, &[Fr::from(u64::from(success))]);
-    let mpc = signet_sim::hashing::compute_response_hash(&rid, &[kind, success]);
-    let packed = transient_upgrade(&[hi, lo, Fr::from(u64::from(kind) + (u64::from(success) << 8))]);
-    assert_eq!(packed, mpc, "the MPC's rule is FAB's 31-byte packing of the output");
-    assert_eq!(model, mpc, "the hand model packs the way the MPC does");
+    // A `Bool` output: one byte, one limb.
+    let model = attestation_digest(&rid, HEIGHT, mpc::output_kind::EXECUTED, FLAG_WIDTH, &[Fr::from(1u64)]);
+    let theirs = mpc::attestation_digest(&rid, HEIGHT, mpc::output_kind::EXECUTED, &[1u8]);
+    assert_eq!(model, theirs, "the hand model limbs a Bytes<1> the way the MPC does");
 
-    // A `U64` output: nine bytes, still one limb, the leaf above the kind.
-    let kind = RESPONSE_KIND_SWAP as u8;
+    // A `uint256` output: thirty-two bytes, TWO limbs (byte 31 above the
+    // low thirty-one), which is the shape a packed byte string could not
+    // express and the width the digest now commits to.
     let amount_in = 0x0102_0304_0506_0708u64;
-    let mut bytes = vec![kind];
-    bytes.extend_from_slice(&amount_in.to_le_bytes());
-    let model = attestation_digest_v2(&rid, kind, &[Fr::from(amount_in)]);
-    let mpc = signet_sim::hashing::compute_response_hash(&rid, &bytes);
-    assert_eq!(model, mpc, "a U64 leaf packs little-endian above the kind byte");
+    let mut word = [0u8; 32];
+    word[..8].copy_from_slice(&amount_in.to_le_bytes());
+    let model = attestation_digest(
+        &rid,
+        HEIGHT,
+        mpc::output_kind::EXECUTED,
+        WORD_WIDTH,
+        &word_output_limbs(amount_in),
+    );
+    let theirs = mpc::attestation_digest(&rid, HEIGHT, mpc::output_kind::EXECUTED, &word);
+    assert_eq!(model, theirs, "a uint256 limbs as [byte 31, bytes 0..31]");
 
-    // The MPC's failure kind: the kind byte alone.
-    let kind = RESPONSE_KIND_FAILURE as u8;
-    let model = attestation_digest_v2(&rid, kind, &[]);
-    let mpc = signet_sim::hashing::compute_response_hash(&rid, &[kind]);
-    assert_eq!(model, mpc, "a failure attests the kind alone");
+    // A non-execution: width zero, no limbs. Under the Borsh rule this was
+    // the failure KIND byte alone; now the verdict carries it and the
+    // output is genuinely empty.
+    let model = attestation_digest(&rid, HEIGHT, mpc::output_kind::FAILED, 0, &[]);
+    let theirs = mpc::attestation_digest(&rid, HEIGHT, mpc::output_kind::FAILED, &[]);
+    assert_eq!(model, theirs, "a failure attests nothing at width zero");
+
+    // AND THE WIDTH IS LOAD-BEARING: the same bytes at a width the filing
+    // does not imply is a different digest, which is what makes a
+    // wrong-width output unverifiable rather than merely wrong.
+    assert_ne!(
+        attestation_digest(&rid, HEIGHT, mpc::output_kind::EXECUTED, FLAG_WIDTH, &[Fr::from(1u64)]),
+        attestation_digest(&rid, HEIGHT, mpc::output_kind::EXECUTED, WORD_WIDTH, &[Fr::from(1u64)]),
+    );
 
     // And what the CIRCUIT hashes is the model's: `tests/vault_pending`'s
     // spec harness holds the two together on every settle, and
-    // `the_pairs_chain_through_state` below settles against the sim's
-    // attestation.
+    // `deposit_then_claim_settles_the_sims_attestation` below settles
+    // against the sim's own attestation.
 }
 
 // ---- the pairs, chained through state ---------------------------------------
@@ -348,10 +375,10 @@ fn chain(
 /// (under a key the sim does not hold) is replaced slot for slot.
 #[test]
 fn deposit_then_claim_settles_the_sims_attestation() {
-    let mut sim = SigNetSim::from_seed(b"minocrab round trip", RESPONSE_KIND_FAILURE as u8);
+    let mut sim = SigNetSim::from_seed(b"minocrab round trip", 0);
     let mut c = ClaimScenario::new();
     let self_addr = c.d.env.self_addr;
-    let key = sim.response_key(u32::from(c.d.key_version), &self_addr);
+    let key = sim.response_key(u32::from(c.d.env.key_version), &self_addr);
     c.d.env.mpc_key_xy = Some(SigNetSim::point_coordinates(&key).expect("a derived key is not the identity"));
 
     let post = {
@@ -367,21 +394,28 @@ fn deposit_then_claim_settles_the_sims_attestation() {
     };
     let payload = notification(&c.d.request_id(), &self_addr, &deposits_path());
     let attestation = sim
-        .respond(&payload, &post, EvmOutcome::Executed { body: vec![1u8] })
+        .respond_v1(&payload, &post, EvmOutcome::Executed { body: vec![1u8] }, HEIGHT)
         .expect("the MPC resolves the filed record");
-    assert_eq!(attestation.output, vec![RESPONSE_KIND_CLAIM as u8, 1u8]);
+    assert_eq!(attestation.output, vec![1u8]);
 
     let settle = |signature: &signet_sim::sign::Signature| {
         let sig = signature.circuit_input();
         let (rx_hi, rx_lo) = b32_slots(&sig.big_r_x);
         let (s_hi, s_lo) = b32_slots(&sig.s);
-        // `settle_head_inputs`' slot order: requestId, bigR.x, bigR.y, s,
-        // recoveryId, then the attested output.
+        // `settle_head_inputs`' V1 slot order: requestId (two),
+        // blockHeight, outputKind, serializedOutputLength, digest (two),
+        // bigR.x (two), bigR.y (two), s (two), recoveryId, then the
+        // attested output. The DIGEST slot is replaced too: it is the
+        // sim's, and the model's own value was computed under the model's
+        // key.
         let mut inputs = c.inputs();
-        inputs[2] = rx_hi;
-        inputs[3] = rx_lo;
-        inputs[6] = s_hi;
-        inputs[7] = s_lo;
+        let (d_hi, d_lo) = b32_slots(&attestation.digest);
+        inputs[5] = d_hi;
+        inputs[6] = d_lo;
+        inputs[7] = rx_hi;
+        inputs[8] = rx_lo;
+        inputs[11] = s_hi;
+        inputs[12] = s_lo;
         let witnesses = c.witnesses();
         let mut call = Call::new(&inputs, &witnesses);
         if let Some((_, rand)) = c.preimage().communications_commitment {
@@ -395,9 +429,9 @@ fn deposit_then_claim_settles_the_sims_attestation() {
 
     // A cluster with a different root signs the same bytes under a key the
     // vault did not store: refused at the signature check, nothing else.
-    let mut rogue = SigNetSim::from_seed(b"a different cluster", RESPONSE_KIND_FAILURE as u8);
+    let mut rogue = SigNetSim::from_seed(b"a different cluster", 0);
     let forged = rogue
-        .respond(&payload, &post, EvmOutcome::Executed { body: vec![1u8] })
+        .respond_v1(&payload, &post, EvmOutcome::Executed { body: vec![1u8] }, HEIGHT)
         .expect("the rogue reads the same record");
     assert_eq!(forged.output, attestation.output);
     assert!(

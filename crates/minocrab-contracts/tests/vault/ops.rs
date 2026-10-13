@@ -1,24 +1,26 @@
 //! The reference model's Impact op builders, over the vault's SEGMENTED
-//! 21-field ledger.
+//! 35-field ledger.
 //!
 //! compactc batches a ledger block into segments of fifteen
 //! (`maximum-ledger-segment-length`, langs.ss:851; `determine-ledger-paths.ss`):
-//! 21 fields = a leading remainder segment of six and one full segment of
-//! fifteen, so field `i` lives at `[0, i]` for `i < 6` and `[1, i − 6]`
-//! otherwise, and every whole-field write is a NESTED write. These
-//! builders spell the op shapes compactc emits for that layout
-//! (transcribed from the `0d9c1660` artifacts — `initialise.zkir:8-78`,
-//! `startDeposit.zkir:160-181`, `completeDeposit.zkir:119-152`), which is
+//! 35 fields = a leading remainder segment of five and two full segments of
+//! fifteen, so field `i` lives at `[0, i]` for `i < 5`, `[1, i − 5]` for
+//! `i < 20` and `[2, i − 20]` otherwise, and every whole-field write is a
+//! NESTED write. These builders spell the op shapes compactc emits for that
+//! layout (transcribed from the `375071b` artifacts — `initialise.zkir`,
+//! `startDeposit.zkir`, `completeDeposit.zkir`, `flushQueue.zkir`), which is
 //! what the differential suite pins our lowering to and the executor runs
 //! against a real state.
 //!
+//! Keys are `AlignedValue`s, because the flush-pattern vault keys its maps
+//! three ways: `Uint<64>` indices (8-byte atoms), `Bytes<32>` ids and a
+//! `Bytes<20>` set element.
+//!
 //! Independent of `minocrab-ledger` on purpose: this is the ORACLE the
-//! eDSL's `LedgerMap` / `LedgerCell` / `LedgerCounter` methods are checked
+//! eDSL's `LedgerMap` / `LedgerSet` / `LedgerCell` methods are checked
 //! against, so it must not be built from them.
 
-use midnight_base_crypto::fab::{
-    Alignment, AlignmentAtom, AlignmentSegment, AlignedValue, Value, ValueAtom,
-};
+use midnight_base_crypto::fab::{Alignment, AlignmentAtom, AlignmentSegment, AlignedValue, Value, ValueAtom};
 use midnight_onchain_state::state::StateValue;
 use midnight_onchain_vm::ops::{Key, Op};
 use midnight_transient_crypto::fab::ValueReprAlignedValue;
@@ -28,12 +30,12 @@ use minocrab::Fr;
 use super::prims::{atom, bytesn_value, cell, VmOp};
 
 /// The vault's field count, and compactc's segment length.
-pub const FIELDS: u8 = 21;
+pub const FIELDS: u8 = 35;
 const SEGMENT: u8 = 15;
 
 /// A field's two-element path: `[segment, offset]`. The remainder segment
-/// LEADS (`batch` in determine-ledger-paths.ss), so the first `21 mod 15 =
-/// 6` fields sit in segment 0.
+/// LEADS (`batch` in determine-ledger-paths.ss), so the first `35 mod 15 =
+/// 5` fields sit in segment 0.
 pub fn segment_of(field: u8) -> (u8, u8) {
     assert!(field < FIELDS, "field {field} is not one of the vault's {FIELDS}");
     let lead = FIELDS % SEGMENT;
@@ -53,12 +55,22 @@ pub fn field_path(field: u8) -> Vec<Key> {
     vec![key(seg), key(off)]
 }
 
-fn key32(k: &[u8; 32]) -> StateValue {
-    cell(bytesn_value(32, k))
+/// A `Uint<64>` map key.
+pub fn key_u64(i: u64) -> AlignedValue {
+    bytesn_value(8, &i.to_le_bytes())
 }
 
-/// `field.read()` — `dup 0; idx f; popeq[c]`. Counters read cached
-/// (`popeqc`), cells uncached (`popeq`).
+/// A `Bytes<32>` map key.
+pub fn key32(k: &[u8; 32]) -> AlignedValue {
+    bytesn_value(32, k)
+}
+
+/// A `Bytes<20>` set element.
+pub fn key20(k: &[u8; 20]) -> AlignedValue {
+    bytesn_value(20, k)
+}
+
+/// `field.read()` — `dup 0; idx f; popeq[c]`. Cells read uncached.
 pub fn read(field: u8, cached: bool, result: AlignedValue) -> Vec<VmOp> {
     vec![
         Op::Dup { n: 0 },
@@ -87,8 +99,8 @@ pub fn kernel_self(addr: &[u8; 32]) -> Vec<VmOp> {
     ]
 }
 
-/// `map.member(key)` — `dup 0; idx f; push key; member; popeqc`.
-pub fn member(field: u8, k: &[u8; 32], result: bool) -> Vec<VmOp> {
+/// `map.member(key)` / `set.member(elem)` — `dup 0; idx f; push key; member; popeqc`.
+pub fn member(field: u8, k: AlignedValue, result: bool) -> Vec<VmOp> {
     vec![
         Op::Dup { n: 0 },
         Op::Idx {
@@ -98,7 +110,7 @@ pub fn member(field: u8, k: &[u8; 32], result: bool) -> Vec<VmOp> {
         },
         Op::Push {
             storage: false,
-            value: key32(k),
+            value: cell(k),
         },
         Op::Member,
         Op::Popeq {
@@ -109,7 +121,7 @@ pub fn member(field: u8, k: &[u8; 32], result: bool) -> Vec<VmOp> {
 }
 
 /// `map.lookup(key)` — `dup 0; idx f; idx [key]; popeq`.
-pub fn lookup(field: u8, k: &[u8; 32], result: AlignedValue) -> Vec<VmOp> {
+pub fn lookup(field: u8, k: AlignedValue, result: AlignedValue) -> Vec<VmOp> {
     vec![
         Op::Dup { n: 0 },
         Op::Idx {
@@ -120,17 +132,14 @@ pub fn lookup(field: u8, k: &[u8; 32], result: AlignedValue) -> Vec<VmOp> {
         Op::Idx {
             cached: false,
             push_path: false,
-            path: vec![Key::Value(bytesn_value(32, k))].into(),
+            path: vec![Key::Value(k)].into(),
         },
-        Op::Popeq {
-            cached: false,
-            result,
-        },
+        Op::Popeq { cached: false, result },
     ]
 }
 
 /// `map.insert(key, value)` — `idxp f; push key; pushs value; ins 1; insc 2`.
-pub fn insert(field: u8, k: &[u8; 32], value: AlignedValue) -> Vec<VmOp> {
+pub fn insert(field: u8, k: AlignedValue, value: AlignedValue) -> Vec<VmOp> {
     vec![
         Op::Idx {
             cached: false,
@@ -139,22 +148,19 @@ pub fn insert(field: u8, k: &[u8; 32], value: AlignedValue) -> Vec<VmOp> {
         },
         Op::Push {
             storage: false,
-            value: key32(k),
+            value: cell(k),
         },
         Op::Push {
             storage: true,
             value: cell(value),
         },
-        Op::Ins {
-            cached: false,
-            n: 1,
-        },
+        Op::Ins { cached: false, n: 1 },
         Op::Ins { cached: true, n: 2 },
     ]
 }
 
-/// `map.remove(key)` — `idxp f; push key; rem; insc 2`.
-pub fn remove(field: u8, k: &[u8; 32]) -> Vec<VmOp> {
+/// `set.insert(elem)` — `idxp f; push elem; pushs null; ins 1; insc 2`.
+pub fn set_insert(field: u8, elem: AlignedValue) -> Vec<VmOp> {
     vec![
         Op::Idx {
             cached: false,
@@ -163,22 +169,30 @@ pub fn remove(field: u8, k: &[u8; 32]) -> Vec<VmOp> {
         },
         Op::Push {
             storage: false,
-            value: key32(k),
+            value: cell(elem),
         },
-        Op::Rem { cached: false },
+        Op::Push {
+            storage: true,
+            value: StateValue::Null,
+        },
+        Op::Ins { cached: false, n: 1 },
         Op::Ins { cached: true, n: 2 },
     ]
 }
 
-/// `counter.increment(1)` — `idxp f; addi 1; insc 2`.
-pub fn counter_inc(field: u8) -> Vec<VmOp> {
+/// `map.remove(key)` — `idxp f; push key; rem; insc 2`.
+pub fn remove(field: u8, k: AlignedValue) -> Vec<VmOp> {
     vec![
         Op::Idx {
             cached: false,
             push_path: true,
             path: field_path(field).into(),
         },
-        Op::Addi { immediate: 1 },
+        Op::Push {
+            storage: false,
+            value: cell(k),
+        },
+        Op::Rem { cached: false },
         Op::Ins { cached: true, n: 2 },
     ]
 }
@@ -201,10 +215,7 @@ pub fn cell_write(field: u8, value: AlignedValue) -> Vec<VmOp> {
             storage: true,
             value: cell(value),
         },
-        Op::Ins {
-            cached: false,
-            n: 1,
-        },
+        Op::Ins { cached: false, n: 1 },
         Op::Ins { cached: true, n: 1 },
     ]
 }
@@ -221,7 +232,7 @@ pub fn claim(effect: u8, note: &[u8; 32]) -> Vec<VmOp> {
         },
         Op::Push {
             storage: false,
-            value: key32(note),
+            value: cell(key32(note)),
         },
         Op::Push {
             storage: false,
@@ -244,7 +255,7 @@ pub fn mint_shielded(domain_sep: &[u8; 32], amount: u64) -> Vec<VmOp> {
         },
         Op::Push {
             storage: false,
-            value: key32(domain_sep),
+            value: cell(key32(domain_sep)),
         },
         Op::Dup { n: 1 },
         Op::Dup { n: 1 },
@@ -291,11 +302,7 @@ pub fn claim_contract_call(addr: &[u8; 32], ep: &[u8; 32], comm: Fr) -> Vec<VmOp
             ValueAtom(ep.to_vec()).normalize(),
             ValueAtom(comm_bytes).normalize(),
         ]),
-        Alignment(vec![
-            atom(32),
-            atom(32),
-            AlignmentSegment::Atom(AlignmentAtom::Field),
-        ]),
+        Alignment(vec![atom(32), atom(32), AlignmentSegment::Atom(AlignmentAtom::Field)]),
     )
     .unwrap();
     vec![
@@ -311,10 +318,7 @@ pub fn claim_contract_call(addr: &[u8; 32], ep: &[u8; 32], comm: Fr) -> Vec<VmOp
             storage: false,
             value: cell(addr_ep_comm),
         },
-        Op::Concat {
-            cached: true,
-            n: 160,
-        },
+        Op::Concat { cached: true, n: 160 },
         Op::Push {
             storage: false,
             value: StateValue::Null,

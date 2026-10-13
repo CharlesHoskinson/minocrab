@@ -166,6 +166,12 @@ pub fn remove(field: u8, k: &[u8; 32]) -> Vec<VmOp> {
 }
 
 /// `counter.increment(1)` — `idxp f; addi 1; insc 1`.
+///
+/// UNUSED since M44 rung D: the treasury's only counter was the Signet
+/// request nonce, which went with the V1 vocabulary. Kept because the next
+/// contract with a counter needs it and the op encoding is the thing worth
+/// not re-deriving.
+#[allow(dead_code)]
 pub fn counter_inc(field: u8) -> Vec<VmOp> {
     vec![
         Op::Idx {

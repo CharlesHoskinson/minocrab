@@ -745,6 +745,20 @@ What a firing MEANS is in CONTRIBUTING.md ("What an instrument MEANS"):
 wire compatibility, not style — read =tests/artifact_agreement.rs= in
 the crate it names before regenerating anything.
 
+FIRED FOR REAL, 2026-10-11 (M44 D part 1's PR, carrying M43 B's break):
+=RespondBidirectionalEvent= gained =requestId=, =blockHeight=,
+=outputKind=, =serializedOutputLength= and =digest=, and =respond= /
+=respond_bidirectional= went from two arguments to one struct —
+=constructible_struct_adds_field= and =method_parameter_count_changed=,
+six fields and two methods named by file and line. Reviewed as deliberate
+(the PR #127 attestation shape, milestones M43 B) and answered with the
+bump M43 B said it was making: =signet-signer-interface= now carries its
+OWN =version = "0.2.0"= instead of =version.workspace = true=, which is
+the "one crate per contract" rule applied — the workspace version would
+have forced the bump on =xcall-target-interface=, whose callee did not
+move. =artifact_agreement= is green against the pr127 artifact
+throughout.
+
 * As built — stage 6 (2026-08-15)
 The callee side. row_snapshot and interface_snapshot bit-identical, all
 differential suites green (including =signet_contract='s differential and

@@ -3,7 +3,7 @@
 # Field elements are `0x` + little-endian hex bytes, minimal length —
 # the artifact's own immediate lexeme (print-zkir-v3.ss:46-61).
 # Keys repeat to wrap; a bare key is an empty stream.
-artifact corpus/zkir/signet-midnight-integration/packages/signet-contract/src/signet-contract/zkir/respond.zkir
+artifact corpus/zkir/signet-midnight-integration-pr127/packages/signet-contract/src/signet-contract/zkir/respond.zkir
 variant tampered transcript 1
 inputs 0x9c 0x726571756573742d6964 0x70 0xddeaf704111e2b3845525f6c798693a0adbac7d4e1eefb0815222f3c495663 0x2e 0x9ba8b5c2cfdce9f603101d2a3744515e6b7885929facb9c6d3e0edfa071421 0xda 0x4754616e7b8895a2afbcc9d6e3f0fd0a1724313e4b5865727f8c99a6b3c0cd
 inputs 0x01

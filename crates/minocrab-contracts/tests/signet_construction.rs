@@ -34,11 +34,14 @@ use minocrab_zkir::v3::IrSource;
 
 mod support;
 
-use support::signet_call::{b128_limbs, b32_slots, bytesn_value, call_preimage, scalar_input};
+use support::signet_call::{
+    b128_limbs, b32_slots, bytesn_value, call_preimage, respond_bidirectional_input,
+    respond_bidirectional_misc, sample_attestation, scalar_input, RespondAttestation,
+};
 
 fn corpus_zkir(name: &str) -> IrSource {
     let path = format!(
-        "{}/../../corpus/zkir/signet-midnight-integration/packages/signet-contract/src/signet-contract/zkir/{name}.zkir",
+        "{}/../../corpus/zkir/signet-midnight-integration-pr127/packages/signet-contract/src/signet-contract/zkir/{name}.zkir",
         env!("CARGO_MANIFEST_DIR")
     );
     minocrab_zkir::v3::read_zkir(&path).expect("corpus golden parses")
@@ -110,8 +113,9 @@ impl SignCall {
     }
 }
 
-/// `respond` / `respondBidirectional`: `(requestId, { signature: { bigR:
-/// {x, y}, s, recoveryId } })` — nine field inputs.
+/// `respond`: `({ requestId, signature: { bigR: {x, y}, s, recoveryId } })`
+/// — nine field inputs, the same nine as when the id was a separate
+/// argument (PR #127 only moved it into the struct).
 pub struct RespondCall {
     request_id: [u8; 32],
     big_r_x: [u8; 32],
@@ -174,6 +178,55 @@ impl RespondCall {
     }
 }
 
+/// `respondBidirectional`: `({ requestId, blockHeight, outputKind,
+/// serializedOutputLength, digest, signature })` — fourteen field inputs
+/// (PR #127).
+pub struct RespondBidirectionalCall {
+    respond: RespondCall,
+    attestation: RespondAttestation,
+}
+
+impl RespondBidirectionalCall {
+    fn new() -> RespondBidirectionalCall {
+        RespondBidirectionalCall { respond: RespondCall::new(), attestation: sample_attestation() }
+    }
+
+    fn misc_bytes(&self) -> Vec<u8> {
+        let r = &self.respond;
+        respond_bidirectional_misc(&r.request_id, &self.attestation, &r.big_r_x, &r.big_r_y, &r.s, r.recovery_id)
+    }
+
+    fn typed_input(&self) -> AlignedValue {
+        let r = &self.respond;
+        respond_bidirectional_input(&r.request_id, &self.attestation, &r.big_r_x, &r.big_r_y, &r.s, r.recovery_id)
+    }
+
+    /// The struct's fields in order, each at its FAB width: `Bytes<32>` is
+    /// two limbs (hi, lo), a `Uint<64>` and the enum are one each.
+    fn limbs(&self) -> Vec<Fr> {
+        let r = &self.respond;
+        let a = &self.attestation;
+        let mut limbs = Vec::new();
+        let (hi, lo) = b32_slots(&r.request_id);
+        limbs.extend([hi, lo]);
+        limbs.push(Fr::from(a.block_height));
+        limbs.push(Fr::from(u64::from(a.output_kind)));
+        limbs.push(Fr::from(a.serialized_output_length));
+        let (hi, lo) = b32_slots(&a.digest);
+        limbs.extend([hi, lo]);
+        for b32 in [&r.big_r_x, &r.big_r_y, &r.s] {
+            let (hi, lo) = b32_slots(b32);
+            limbs.extend([hi, lo]);
+        }
+        limbs.push(Fr::from(u64::from(r.recovery_id)));
+        limbs
+    }
+
+    fn preimage(&self) -> ProofPreimage {
+        call_preimage("respondBidirectional", self.typed_input(), &self.misc_bytes())
+    }
+}
+
 // ---- the gate --------------------------------------------------------------
 
 #[test]
@@ -194,8 +247,8 @@ fn respond_call_is_compatible_with_the_corpus_artifact() {
 
 #[test]
 fn respond_bidirectional_call_is_compatible_with_the_corpus_artifact() {
-    let call = RespondCall::new();
-    let pi = call.preimage("respondBidirectional", signet_contract::RESPOND_BIDIRECTIONAL_EVENT);
+    let call = RespondBidirectionalCall::new();
+    let pi = call.preimage();
     support::dump_preimage("respondBidirectional", &pi);
     assert_call_compatible(
         &signet_contract::SignetContract::respond_bidirectional().ir,
@@ -228,6 +281,9 @@ fn the_ledgers_inputs_are_the_arguments_field_repr() {
         respond.limbs(),
         "respond"
     );
+
+    let bidirectional = RespondBidirectionalCall::new();
+    assert_eq!(bidirectional.preimage().inputs, bidirectional.limbs(), "respondBidirectional");
 }
 
 /// The typed alignment and a flat `[Field; n]` alignment over the same limbs
@@ -257,6 +313,12 @@ fn the_alignment_does_not_reach_the_preimage() {
             RespondCall::new().limbs(),
             RespondCall::new().misc_bytes(signet_contract::SIGNATURE_RESPONDED_EVENT),
         ),
+        (
+            "respondBidirectional",
+            RespondBidirectionalCall::new().typed_input(),
+            RespondBidirectionalCall::new().limbs(),
+            RespondBidirectionalCall::new().misc_bytes(),
+        ),
     ] {
         let typed_pi = call_preimage(entry_point, typed, &misc);
         let flat_pi = call_preimage(entry_point, scalar_input(&limbs), &misc);
@@ -270,7 +332,7 @@ fn the_alignment_does_not_reach_the_preimage() {
 /// two circuits that read different argument lists.
 #[test]
 fn input_schema_matches_the_corpus_artifact() {
-    for (name, count) in [("signBidirectional", 8usize), ("respond", 9), ("respondBidirectional", 9)] {
+    for (name, count) in [("signBidirectional", 8usize), ("respond", 9), ("respondBidirectional", 14)] {
         let theirs = corpus_zkir(name);
         assert_eq!(theirs.inputs.len(), count, "{name}: corpus input count");
     }
@@ -279,6 +341,7 @@ fn input_schema_matches_the_corpus_artifact() {
         RespondCall::new().preimage("respond", signet_contract::SIGNATURE_RESPONDED_EVENT).inputs.len(),
         9
     );
+    assert_eq!(RespondBidirectionalCall::new().preimage().inputs.len(), 14);
 }
 
 /// The tamper twins, on the LEDGER-BUILT preimage: a transcript whose logged
@@ -300,6 +363,33 @@ fn a_tampered_event_is_rejected_by_both_artifacts() {
     let pi = call_preimage("respond", respond.typed_input(), &misc);
     assert!(simulate(&signet_contract::SignetContract::respond().ir, &pi).is_err(), "ours must reject");
     assert!(simulate(&corpus_zkir("respond"), &pi).is_err(), "corpus must reject");
+
+    // The five PR #127 fields, one tamper each, at the offsets the layout
+    // declares (name(32) then requestId at 32, blockHeight at 64, outputKind
+    // at 72, length at 73, digest at 81).
+    let bidirectional = RespondBidirectionalCall::new();
+    for (offset, what) in [(64usize, "blockHeight byte 0"), (71, "blockHeight byte 7"), (72, "outputKind"), (80, "serializedOutputLength byte 7"), (81, "digest byte 0")] {
+        let mut misc = bidirectional.misc_bytes();
+        misc[offset] ^= 0x01;
+        let pi = call_preimage("respondBidirectional", bidirectional.typed_input(), &misc);
+        assert!(simulate(&signet_contract::SignetContract::respond_bidirectional().ir, &pi).is_err(), "ours must reject a tampered {what}");
+        assert!(simulate(&corpus_zkir("respondBidirectional"), &pi).is_err(), "corpus must reject a tampered {what}");
+    }
+}
+
+/// `outputKind` is a three-variant enum: both artifacts refuse a fourth
+/// value even when the logged byte agrees with it.
+#[test]
+fn an_out_of_range_output_kind_is_rejected_by_both_artifacts() {
+    let mut call = RespondBidirectionalCall::new();
+    call.attestation.output_kind = 3;
+    let pi = call.preimage();
+    assert!(simulate(&signet_contract::SignetContract::respond_bidirectional().ir, &pi).is_err(), "ours must reject");
+    assert!(simulate(&corpus_zkir("respondBidirectional"), &pi).is_err(), "corpus must reject");
+    call.attestation.output_kind = 2;
+    let pi = call.preimage();
+    assert!(simulate(&signet_contract::SignetContract::respond_bidirectional().ir, &pi).is_ok(), "ours accepts `unviable`");
+    assert!(simulate(&corpus_zkir("respondBidirectional"), &pi).is_ok(), "corpus accepts `unviable`");
 }
 
 /// The two respond circuits differ only by event name: each must reject the

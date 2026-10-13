@@ -2,10 +2,26 @@
   "$comment": "GENERATED — do not edit. Regenerate with: cargo test --release -p minocrab-contracts --test serialization_conformance -- --ignored regenerate_spec",
   "format": "borsh-subset-vectors/1",
   "spec": "spec/borsh-subset.md",
-  "about": "TODAY'S deployed attested outputs, for reference only: no kind byte, success as a raw u8 (any byte is accepted — the 0x02 hazard), and a 5-byte 0xdeadbeef01 failure sentinel. New implementations use attested-outputs.json.",
+  "about": "TODAY'S deployed (V1) attested outputs: a Bytes<LEN> at one of THREE widths, with no kind byte. 0 — the EMPTY output, which queueAttestation0 takes and which EVERY failed or unviable verdict carries whatever the request asked for; 1 — the EVM bool, as a raw byte (any byte is accepted and everything but 0x01 routes to the failure branch: the 0x02 hazard); 32 — one big-endian ABI word, which is how V1 carries every uint256 the destination chain returns (the swap's amountIn, the supply's shares, the redeem's assets). There is NO failure sentinel: the superseded 5-byte 0xdeadbeef01 output has no successor, because the verdict and the output's width are signed into the attestation digest instead. That digest is Poseidon over FIELD elements — [HashDomain, requestId, blockHeight, outputKind, LEN, ..output] — so it has no byte preimage and no vector here.",
   "vectors": [
     {
-      "type": "ClaimOutput",
+      "type": "EmptyOutput",
+      "len": 0,
+      "hex": "",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "keccak256": "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+      "fields": [
+        {
+          "path": "output",
+          "type": "[u8; 0]",
+          "offset": 0,
+          "width": 0,
+          "hex": ""
+        }
+      ]
+    },
+    {
+      "type": "BoolOutput",
       "len": 1,
       "hex": "01",
       "sha256": "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
@@ -22,100 +38,18 @@
       ]
     },
     {
-      "type": "CompleteWithdrawOutput",
-      "len": 1,
-      "hex": "01",
-      "sha256": "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
-      "keccak256": "5fe7f977e71dba2ea1a68e21057beebb9be2ac30c6410aa38d4f3fbe41dcffd2",
+      "type": "WordOutput",
+      "len": 32,
+      "hex": "808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f",
+      "sha256": "82d86408530b765e46ebf47807095027e807bc08674b0de77ee5ef2fae7d0492",
+      "keccak256": "5b124ff20cef6e2439c93655d7befdf08af7d4e05c50f1c4b30e0e63781221fe",
       "fields": [
         {
-          "path": "success",
-          "type": "u8",
-          "offset": 0,
-          "width": 1,
-          "hex": "01",
-          "number": 1
-        }
-      ]
-    },
-    {
-      "type": "RefundOutput",
-      "len": 5,
-      "hex": "deadbeef01",
-      "sha256": "bf0aa59f05263966492367e9b3dd465ebd5b09020a7729144b9ae55dca0ba35f",
-      "keccak256": "8c4f5adf324091d1f71bcb1bcaf7561e8259c9e8ec0ce8b997dc50f7bcfaeb71",
-      "fields": [
-        {
-          "path": "failure",
-          "type": "[u8; 5]",
-          "offset": 0,
-          "width": 5,
-          "hex": "deadbeef01"
-        }
-      ]
-    },
-    {
-      "type": "CompleteSwapOutput",
-      "len": 8,
-      "hex": "d202964900000000",
-      "sha256": "5757f630493b5f652e70ec464c4f27a4e541350ab6ac679e53b3d1ab1157ef46",
-      "keccak256": "82ed77836138f821e6f0380766287bbb3054c2aa2142108325f585301d810542",
-      "fields": [
-        {
-          "path": "amount_in",
-          "type": "u64",
-          "offset": 0,
-          "width": 8,
-          "hex": "d202964900000000",
-          "number": 1234567890
-        }
-      ]
-    },
-    {
-      "type": "AttestationPreimage<ClaimOutput>",
-      "len": 33,
-      "hex": "ae7b37c0e414fb7b4a30c61b9cbda5f8468c30a322b1eb1210e22c6916a2b27901",
-      "sha256": "b0f55c717648e748f63303213c12399f31bc25f8001d0a290504866fc4e882e3",
-      "keccak256": "e71aefe3406a56f8d9c3e39ba5e704fa6132431fc53c2d69d00f6b3f05c9f8a3",
-      "fields": [
-        {
-          "path": "request_id",
+          "path": "word",
           "type": "[u8; 32]",
           "offset": 0,
           "width": 32,
-          "hex": "ae7b37c0e414fb7b4a30c61b9cbda5f8468c30a322b1eb1210e22c6916a2b279"
-        },
-        {
-          "path": "output.success",
-          "type": "u8",
-          "offset": 32,
-          "width": 1,
-          "hex": "01",
-          "number": 1
-        }
-      ]
-    },
-    {
-      "type": "AttestationPreimage<CompleteSwapOutput>",
-      "len": 40,
-      "hex": "ae7b37c0e414fb7b4a30c61b9cbda5f8468c30a322b1eb1210e22c6916a2b279d202964900000000",
-      "sha256": "d6b6a6432056d7893274220b4bf17222ec51b418ebfeae0d3b273fc713d014d4",
-      "keccak256": "7efb41c9371f925b4de07df47cdf3c16165fa8cc91da5d084f236ab0ba64e50e",
-      "fields": [
-        {
-          "path": "request_id",
-          "type": "[u8; 32]",
-          "offset": 0,
-          "width": 32,
-          "hex": "ae7b37c0e414fb7b4a30c61b9cbda5f8468c30a322b1eb1210e22c6916a2b279"
-        },
-        {
-          "path": "output.amount_in",
-          "type": "u64",
-          "offset": 32,
-          "width": 8,
-          "hex": "d202964900000000",
-          "number": 1234567890
+          "hex": "808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f"
         }
       ]
     }

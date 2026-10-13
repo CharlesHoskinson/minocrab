@@ -68,14 +68,52 @@
       ]
     },
     {
+      "name": "signet-midnight-integration-pr127",
+      "url": "https://github.com/sig-net/midnight-integration",
+      "rev": "e9350c4c470db4a1886bc3b161c64d509dcec794",
+      "license": "UNLICENSED (sig-net internal)",
+      "paths": [
+        "packages/signet-contract",
+        "packages/signet-midnight"
+      ],
+      "flags": [
+        "--feature-zkir-v3"
+      ],
+      "compact_path_links": {
+        "@sig-net/midnight": "signet-midnight-integration-pr127/packages/signet-midnight"
+      },
+      "note": "PR #127 (align-with-protocol-spec) head, the production target of the Signet singleton (M43). The unsuffixed source stays at fff3421c for the vault, test-caller and Signet-module ports."
+    },
+    {
+      "name": "signet-midnight-integration-v0241",
+      "url": "https://github.com/sig-net/midnight-integration",
+      "rev": "a80e98ef9495be3c93472932a45113c8356060bb",
+      "license": "UNLICENSED (sig-net internal)",
+      "paths": [
+        "packages/signet-contract",
+        "packages/signet-midnight"
+      ],
+      "flags": [
+        "--feature-zkir-v3"
+      ],
+      "compact_path_links": {
+        "@sig-net/midnight": "signet-midnight-integration-v0241/packages/signet-midnight"
+      },
+      "note": "Tag v0.24.1 (= main at 2026-10-07): the V1 wire vocabulary (SignBidirectionalEventV1, RequestIdPreimageV1, calculateEvmType2TxParamsDigestV1, RespondBidirectionalEventV1, OutputKind) the flush-pattern vault imports (M44). The pr127 pin stays for the signer artifacts of M43."
+    },
+    {
       "name": "signet-midnight-examples",
       "url": "https://github.com/sig-net/midnight-examples",
-      "rev": "0d9c16601d2f6712cad57cf5c240ec9a201d9932",
+      "rev": "375071b182a7ad2fb35fb2ae334e9725a88442c3",
       "license": "UNLICENSED (sig-net internal)",
       "paths": [],
       "flags": [
         "--feature-zkir-v3"
-      ]
+      ],
+      "compact_path_links": {
+        "@sig-net/midnight": "signet-midnight-integration-v0241/packages/signet-midnight"
+      },
+      "note": "main at 2026-10-07 (PR #91): the vault on the flush pattern, importing the V1 Signet vocabulary of @sig-net/midnight 0.24.x, so its @sig-net/midnight link points at the v0.24.1 pin (M44)."
     },
     {
       "name": "signet-midnight-experiments",

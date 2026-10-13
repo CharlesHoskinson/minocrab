@@ -4,7 +4,7 @@
   "runtime-version": "0.19.0",
   "circuits": [
     {
-      "name": "vaultResponseSchema",
+      "name": "vaultOutputSchema",
       "pure": true,
       "proof": false,
       "arguments": [
@@ -12,17 +12,6 @@
       "result-type": {
         "type-name": "Bytes",
         "length": 34
-      }
-    },
-    {
-      "name": "unlimitedAllowance",
-      "pure": true,
-      "proof": false,
-      "arguments": [
-      ],
-      "result-type": {
-        "type-name": "Uint",
-        "maxval": 340282366920938463463374607431768211455
       }
     },
     {
@@ -53,35 +42,6 @@
           "type": {
             "type-name": "Bytes",
             "length": 32
-          }
-        }
-      ],
-      "result-type": {
-        "type-name": "Bytes",
-        "length": 32
-      }
-    },
-    {
-      "name": "refundCommitment",
-      "pure": true,
-      "proof": false,
-      "arguments": [
-        {
-          "name": "sk",
-          "type": {
-            "type-name": "Bytes",
-            "length": 32
-          }
-        },
-        {
-          "name": "requestId",
-          "type": {
-            "type-name": "Alias",
-            "name": "RequestId",
-            "type": {
-              "type-name": "Bytes",
-              "length": 32
-            }
           }
         }
       ],
@@ -131,16 +91,23 @@
           }
         },
         {
-          "name": "chainCaip2Id",
-          "type": {
-            "type-name": "Bytes",
-            "length": 32
-          }
-        },
-        {
           "name": "responseKey",
           "type": {
             "type-name": "Secp256k1Point"
+          }
+        },
+        {
+          "name": "responseKeyVersion",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 255
+          }
+        },
+        {
+          "name": "evmHeight",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 18446744073709551615
           }
         }
       ],
@@ -151,22 +118,57 @@
       }
     },
     {
-      "name": "approveStata",
+      "name": "setGasParams",
       "pure": false,
       "proof": true,
       "arguments": [
         {
-          "name": "evmNonce",
+          "name": "newMaxFeePerGas",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 340282366920938463463374607431768211455
+          }
+        },
+        {
+          "name": "newMaxPriorityFeePerGas",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 340282366920938463463374607431768211455
+          }
+        },
+        {
+          "name": "newWithdrawGasLimit",
           "type": {
             "type-name": "Uint",
             "maxval": 18446744073709551615
           }
         },
         {
-          "name": "keyVersion",
+          "name": "newApproveGasLimit",
           "type": {
             "type-name": "Uint",
-            "maxval": 255
+            "maxval": 18446744073709551615
+          }
+        },
+        {
+          "name": "newSwapGasLimit",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 18446744073709551615
+          }
+        },
+        {
+          "name": "newSupplyGasLimit",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 18446744073709551615
+          }
+        },
+        {
+          "name": "newRedeemGasLimit",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 18446744073709551615
           }
         }
       ],
@@ -177,7 +179,7 @@
       }
     },
     {
-      "name": "approveRouter",
+      "name": "addAllowedToken",
       "pure": false,
       "proof": true,
       "arguments": [
@@ -187,20 +189,6 @@
             "type-name": "Bytes",
             "length": 20
           }
-        },
-        {
-          "name": "evmNonce",
-          "type": {
-            "type-name": "Uint",
-            "maxval": 18446744073709551615
-          }
-        },
-        {
-          "name": "keyVersion",
-          "type": {
-            "type-name": "Uint",
-            "maxval": 255
-          }
         }
       ],
       "result-type": {
@@ -210,63 +198,89 @@
       }
     },
     {
-      "name": "startDeposit",
-      "pure": false,
-      "proof": true,
+      "name": "ownershipCommitment",
+      "pure": true,
+      "proof": false,
       "arguments": [
         {
-          "name": "evmNonce",
+          "name": "inIndex",
           "type": {
             "type-name": "Uint",
             "maxval": 18446744073709551615
           }
         },
         {
-          "name": "gasLimit",
+          "name": "sk",
           "type": {
-            "type-name": "Uint",
-            "maxval": 18446744073709551615
+            "type-name": "Bytes",
+            "length": 32
           }
-        },
+        }
+      ],
+      "result-type": {
+        "type-name": "Bytes",
+        "length": 32
+      }
+    },
+    {
+      "name": "requestIndex",
+      "pure": true,
+      "proof": false,
+      "arguments": [
         {
-          "name": "maxFeePerGas",
-          "type": {
-            "type-name": "Uint",
-            "maxval": 340282366920938463463374607431768211455
-          }
-        },
-        {
-          "name": "maxPriorityFeePerGas",
-          "type": {
-            "type-name": "Uint",
-            "maxval": 340282366920938463463374607431768211455
-          }
-        },
-        {
-          "name": "keyVersion",
-          "type": {
-            "type-name": "Uint",
-            "maxval": 255
-          }
-        },
-        {
-          "name": "depositRequest",
+          "name": "entry",
           "type": {
             "type-name": "Struct",
-            "name": "DepositRequest",
+            "name": "RequestBufferEntry",
             "elements": [
               {
-                "name": "erc20Address",
+                "name": "action",
                 "type": {
-                  "type-name": "Bytes",
-                  "length": 20
+                  "type-name": "Enum",
+                  "name": "Action",
+                  "elements": [
+                    "deposit",
+                    "withdraw",
+                    "swap",
+                    "supply",
+                    "redeem",
+                    "approve",
+                    "replaceNonce"
+                  ]
                 }
               },
               {
-                "name": "amount",
+                "name": "useNextVaultAccountNonce",
+                "type": {
+                  "type-name": "Boolean"
+                }
+              },
+              {
+                "name": "evmNonce",
                 "type": {
                   "type-name": "Uint",
-                  "maxval": 340282366920938463463374607431768211455
+                  "maxval": 18446744073709551615
+                }
+              },
+              {
+                "name": "inIndex",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 18446744073709551615
+                }
+              },
+              {
+                "name": "commitment",
+                "type": {
+                  "type-name": "Bytes",
+                  "length": 32
+                }
+              },
+              {
+                "name": "argsHash",
+                "type": {
+                  "type-name": "Bytes",
+                  "length": 32
                 }
               }
             ]
@@ -274,33 +288,120 @@
         }
       ],
       "result-type": {
+        "type-name": "Bytes",
+        "length": 32
+      }
+    },
+    {
+      "name": "flushQueue",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+        {
+          "name": "slots",
+          "type": {
+            "type-name": "Vector",
+            "length": 10,
+            "type": {
+              "type-name": "Struct",
+              "name": "FlushSlot",
+              "elements": [
+                {
+                  "name": "channel",
+                  "type": {
+                    "type-name": "Enum",
+                    "name": "FlushChannel",
+                    "elements": [
+                      "empty",
+                      "request",
+                      "attestation"
+                    ]
+                  }
+                },
+                {
+                  "name": "inIndex",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 18446744073709551615
+                  }
+                },
+                {
+                  "name": "requestId",
+                  "type": {
+                    "type-name": "Alias",
+                    "name": "RequestId",
+                    "type": {
+                      "type-name": "Bytes",
+                      "length": 32
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "result-type": {
         "type-name": "Tuple",
         "types": [
         ]
       }
     },
     {
-      "name": "completeDeposit",
+      "name": "queueAttestation0",
       "pure": false,
       "proof": true,
       "arguments": [
         {
-          "name": "requestId",
-          "type": {
-            "type-name": "Alias",
-            "name": "RequestId",
-            "type": {
-              "type-name": "Bytes",
-              "length": 32
-            }
-          }
-        },
-        {
           "name": "respondBidirectionalEvent",
           "type": {
             "type-name": "Struct",
-            "name": "RespondBidirectionalEvent",
+            "name": "RespondBidirectionalEventV1",
             "elements": [
+              {
+                "name": "requestId",
+                "type": {
+                  "type-name": "Alias",
+                  "name": "RequestId",
+                  "type": {
+                    "type-name": "Bytes",
+                    "length": 32
+                  }
+                }
+              },
+              {
+                "name": "blockHeight",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 18446744073709551615
+                }
+              },
+              {
+                "name": "outputKind",
+                "type": {
+                  "type-name": "Enum",
+                  "name": "OutputKind",
+                  "elements": [
+                    "executed",
+                    "failed",
+                    "unviable"
+                  ]
+                }
+              },
+              {
+                "name": "serializedOutputLength",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 18446744073709551615
+                }
+              },
+              {
+                "name": "digest",
+                "type": {
+                  "type-name": "Bytes",
+                  "length": 32
+                }
+              },
               {
                 "name": "signature",
                 "type": {
@@ -348,6 +449,574 @@
                 }
               }
             ]
+          }
+        },
+        {
+          "name": "serializedOutput",
+          "type": {
+            "type-name": "Bytes",
+            "length": 0
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    },
+    {
+      "name": "queueAttestation1",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+        {
+          "name": "respondBidirectionalEvent",
+          "type": {
+            "type-name": "Struct",
+            "name": "RespondBidirectionalEventV1",
+            "elements": [
+              {
+                "name": "requestId",
+                "type": {
+                  "type-name": "Alias",
+                  "name": "RequestId",
+                  "type": {
+                    "type-name": "Bytes",
+                    "length": 32
+                  }
+                }
+              },
+              {
+                "name": "blockHeight",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 18446744073709551615
+                }
+              },
+              {
+                "name": "outputKind",
+                "type": {
+                  "type-name": "Enum",
+                  "name": "OutputKind",
+                  "elements": [
+                    "executed",
+                    "failed",
+                    "unviable"
+                  ]
+                }
+              },
+              {
+                "name": "serializedOutputLength",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 18446744073709551615
+                }
+              },
+              {
+                "name": "digest",
+                "type": {
+                  "type-name": "Bytes",
+                  "length": 32
+                }
+              },
+              {
+                "name": "signature",
+                "type": {
+                  "type-name": "Struct",
+                  "name": "Signature",
+                  "elements": [
+                    {
+                      "name": "bigR",
+                      "type": {
+                        "type-name": "Struct",
+                        "name": "AffinePoint",
+                        "elements": [
+                          {
+                            "name": "x",
+                            "type": {
+                              "type-name": "Bytes",
+                              "length": 32
+                            }
+                          },
+                          {
+                            "name": "y",
+                            "type": {
+                              "type-name": "Bytes",
+                              "length": 32
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "name": "s",
+                      "type": {
+                        "type-name": "Bytes",
+                        "length": 32
+                      }
+                    },
+                    {
+                      "name": "recoveryId",
+                      "type": {
+                        "type-name": "Uint",
+                        "maxval": 255
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "name": "serializedOutput",
+          "type": {
+            "type-name": "Bytes",
+            "length": 1
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    },
+    {
+      "name": "queueAttestation32",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+        {
+          "name": "respondBidirectionalEvent",
+          "type": {
+            "type-name": "Struct",
+            "name": "RespondBidirectionalEventV1",
+            "elements": [
+              {
+                "name": "requestId",
+                "type": {
+                  "type-name": "Alias",
+                  "name": "RequestId",
+                  "type": {
+                    "type-name": "Bytes",
+                    "length": 32
+                  }
+                }
+              },
+              {
+                "name": "blockHeight",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 18446744073709551615
+                }
+              },
+              {
+                "name": "outputKind",
+                "type": {
+                  "type-name": "Enum",
+                  "name": "OutputKind",
+                  "elements": [
+                    "executed",
+                    "failed",
+                    "unviable"
+                  ]
+                }
+              },
+              {
+                "name": "serializedOutputLength",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 18446744073709551615
+                }
+              },
+              {
+                "name": "digest",
+                "type": {
+                  "type-name": "Bytes",
+                  "length": 32
+                }
+              },
+              {
+                "name": "signature",
+                "type": {
+                  "type-name": "Struct",
+                  "name": "Signature",
+                  "elements": [
+                    {
+                      "name": "bigR",
+                      "type": {
+                        "type-name": "Struct",
+                        "name": "AffinePoint",
+                        "elements": [
+                          {
+                            "name": "x",
+                            "type": {
+                              "type-name": "Bytes",
+                              "length": 32
+                            }
+                          },
+                          {
+                            "name": "y",
+                            "type": {
+                              "type-name": "Bytes",
+                              "length": 32
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "name": "s",
+                      "type": {
+                        "type-name": "Bytes",
+                        "length": 32
+                      }
+                    },
+                    {
+                      "name": "recoveryId",
+                      "type": {
+                        "type-name": "Uint",
+                        "maxval": 255
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "name": "serializedOutput",
+          "type": {
+            "type-name": "Bytes",
+            "length": 32
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    },
+    {
+      "name": "replaceNonceOutputSchema",
+      "pure": true,
+      "proof": false,
+      "arguments": [
+      ],
+      "result-type": {
+        "type-name": "Bytes",
+        "length": 2
+      }
+    },
+    {
+      "name": "startReplaceNonce",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+        {
+          "name": "inIndex",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 18446744073709551615
+          }
+        },
+        {
+          "name": "requestId",
+          "type": {
+            "type-name": "Alias",
+            "name": "RequestId",
+            "type": {
+              "type-name": "Bytes",
+              "length": 32
+            }
+          }
+        },
+        {
+          "name": "action",
+          "type": {
+            "type-name": "Enum",
+            "name": "Action",
+            "elements": [
+              "deposit",
+              "withdraw",
+              "swap",
+              "supply",
+              "redeem",
+              "approve",
+              "replaceNonce"
+            ]
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    },
+    {
+      "name": "sendReplaceNonce",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+        {
+          "name": "outIndex",
+          "type": {
+            "type-name": "Bytes",
+            "length": 32
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    },
+    {
+      "name": "completeReplaceNonce",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+        {
+          "name": "requestId",
+          "type": {
+            "type-name": "Alias",
+            "name": "RequestId",
+            "type": {
+              "type-name": "Bytes",
+              "length": 32
+            }
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    },
+    {
+      "name": "unlimitedAllowance",
+      "pure": true,
+      "proof": false,
+      "arguments": [
+      ],
+      "result-type": {
+        "type-name": "Uint",
+        "maxval": 340282366920938463463374607431768211455
+      }
+    },
+    {
+      "name": "startApproveRouter",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+        {
+          "name": "inIndex",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 18446744073709551615
+          }
+        },
+        {
+          "name": "erc20Address",
+          "type": {
+            "type-name": "Bytes",
+            "length": 20
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    },
+    {
+      "name": "startApproveStata",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+        {
+          "name": "inIndex",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 18446744073709551615
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    },
+    {
+      "name": "sendApprove",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+        {
+          "name": "outIndex",
+          "type": {
+            "type-name": "Bytes",
+            "length": 32
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    },
+    {
+      "name": "completeApprove",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+        {
+          "name": "requestId",
+          "type": {
+            "type-name": "Alias",
+            "name": "RequestId",
+            "type": {
+              "type-name": "Bytes",
+              "length": 32
+            }
+          }
+        },
+        {
+          "name": "serializedOutput",
+          "type": {
+            "type-name": "Bytes",
+            "length": 1
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    },
+    {
+      "name": "startDeposit",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+        {
+          "name": "inIndex",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 18446744073709551615
+          }
+        },
+        {
+          "name": "evmNonce",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 18446744073709551615
+          }
+        },
+        {
+          "name": "gas",
+          "type": {
+            "type-name": "Struct",
+            "name": "GasParams",
+            "elements": [
+              {
+                "name": "gasLimit",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 18446744073709551615
+                }
+              },
+              {
+                "name": "maxFeePerGas",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 340282366920938463463374607431768211455
+                }
+              },
+              {
+                "name": "maxPriorityFeePerGas",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 340282366920938463463374607431768211455
+                }
+              }
+            ]
+          }
+        },
+        {
+          "name": "depositRequest",
+          "type": {
+            "type-name": "Struct",
+            "name": "DepositRequest",
+            "elements": [
+              {
+                "name": "erc20Address",
+                "type": {
+                  "type-name": "Bytes",
+                  "length": 20
+                }
+              },
+              {
+                "name": "amount",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 340282366920938463463374607431768211455
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    },
+    {
+      "name": "sendDeposit",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+        {
+          "name": "outIndex",
+          "type": {
+            "type-name": "Bytes",
+            "length": 32
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    },
+    {
+      "name": "completeDeposit",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+        {
+          "name": "requestId",
+          "type": {
+            "type-name": "Alias",
+            "name": "RequestId",
+            "type": {
+              "type-name": "Bytes",
+              "length": 32
+            }
           }
         },
         {
@@ -439,17 +1108,10 @@
       "proof": true,
       "arguments": [
         {
-          "name": "evmNonce",
+          "name": "inIndex",
           "type": {
             "type-name": "Uint",
             "maxval": 18446744073709551615
-          }
-        },
-        {
-          "name": "keyVersion",
-          "type": {
-            "type-name": "Uint",
-            "maxval": 255
           }
         },
         {
@@ -520,6 +1182,25 @@
       }
     },
     {
+      "name": "sendWithdraw",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+        {
+          "name": "outIndex",
+          "type": {
+            "type-name": "Bytes",
+            "length": 32
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    },
+    {
       "name": "completeWithdraw",
       "pure": false,
       "proof": true,
@@ -536,157 +1217,10 @@
           }
         },
         {
-          "name": "respondBidirectionalEvent",
-          "type": {
-            "type-name": "Struct",
-            "name": "RespondBidirectionalEvent",
-            "elements": [
-              {
-                "name": "signature",
-                "type": {
-                  "type-name": "Struct",
-                  "name": "Signature",
-                  "elements": [
-                    {
-                      "name": "bigR",
-                      "type": {
-                        "type-name": "Struct",
-                        "name": "AffinePoint",
-                        "elements": [
-                          {
-                            "name": "x",
-                            "type": {
-                              "type-name": "Bytes",
-                              "length": 32
-                            }
-                          },
-                          {
-                            "name": "y",
-                            "type": {
-                              "type-name": "Bytes",
-                              "length": 32
-                            }
-                          }
-                        ]
-                      }
-                    },
-                    {
-                      "name": "s",
-                      "type": {
-                        "type-name": "Bytes",
-                        "length": 32
-                      }
-                    },
-                    {
-                      "name": "recoveryId",
-                      "type": {
-                        "type-name": "Uint",
-                        "maxval": 255
-                      }
-                    }
-                  ]
-                }
-              }
-            ]
-          }
-        },
-        {
           "name": "serializedOutput",
           "type": {
             "type-name": "Bytes",
             "length": 1
-          }
-        },
-        {
-          "name": "mintNonce",
-          "type": {
-            "type-name": "Bytes",
-            "length": 32
-          }
-        }
-      ],
-      "result-type": {
-        "type-name": "Tuple",
-        "types": [
-        ]
-      }
-    },
-    {
-      "name": "refundWithdraw",
-      "pure": false,
-      "proof": true,
-      "arguments": [
-        {
-          "name": "requestId",
-          "type": {
-            "type-name": "Alias",
-            "name": "RequestId",
-            "type": {
-              "type-name": "Bytes",
-              "length": 32
-            }
-          }
-        },
-        {
-          "name": "respondBidirectionalEvent",
-          "type": {
-            "type-name": "Struct",
-            "name": "RespondBidirectionalEvent",
-            "elements": [
-              {
-                "name": "signature",
-                "type": {
-                  "type-name": "Struct",
-                  "name": "Signature",
-                  "elements": [
-                    {
-                      "name": "bigR",
-                      "type": {
-                        "type-name": "Struct",
-                        "name": "AffinePoint",
-                        "elements": [
-                          {
-                            "name": "x",
-                            "type": {
-                              "type-name": "Bytes",
-                              "length": 32
-                            }
-                          },
-                          {
-                            "name": "y",
-                            "type": {
-                              "type-name": "Bytes",
-                              "length": 32
-                            }
-                          }
-                        ]
-                      }
-                    },
-                    {
-                      "name": "s",
-                      "type": {
-                        "type-name": "Bytes",
-                        "length": 32
-                      }
-                    },
-                    {
-                      "name": "recoveryId",
-                      "type": {
-                        "type-name": "Uint",
-                        "maxval": 255
-                      }
-                    }
-                  ]
-                }
-              }
-            ]
-          }
-        },
-        {
-          "name": "serializedOutput",
-          "type": {
-            "type-name": "Bytes",
-            "length": 5
           }
         },
         {
@@ -715,33 +1249,15 @@
       }
     },
     {
-      "name": "swapRespondSchema",
-      "pure": true,
-      "proof": false,
-      "arguments": [
-      ],
-      "result-type": {
-        "type-name": "Bytes",
-        "length": 37
-      }
-    },
-    {
       "name": "startSwap",
       "pure": false,
       "proof": true,
       "arguments": [
         {
-          "name": "evmNonce",
+          "name": "inIndex",
           "type": {
             "type-name": "Uint",
             "maxval": 18446744073709551615
-          }
-        },
-        {
-          "name": "keyVersion",
-          "type": {
-            "type-name": "Uint",
-            "maxval": 255
           }
         },
         {
@@ -751,14 +1267,14 @@
             "name": "SwapRequest",
             "elements": [
               {
-                "name": "tokenIn",
+                "name": "erc20AddressIn",
                 "type": {
                   "type-name": "Bytes",
                   "length": 20
                 }
               },
               {
-                "name": "tokenOut",
+                "name": "erc20AddressOut",
                 "type": {
                   "type-name": "Bytes",
                   "length": 20
@@ -768,7 +1284,7 @@
                 "name": "fee",
                 "type": {
                   "type-name": "Uint",
-                  "maxval": 16777215
+                  "maxval": 340282366920938463463374607431768211455
                 }
               },
               {
@@ -826,6 +1342,43 @@
       }
     },
     {
+      "name": "sendSwap",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+        {
+          "name": "outIndex",
+          "type": {
+            "type-name": "Bytes",
+            "length": 32
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    },
+    {
+      "name": "swapAmountIn",
+      "pure": true,
+      "proof": false,
+      "arguments": [
+        {
+          "name": "output",
+          "type": {
+            "type-name": "Bytes",
+            "length": 32
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Uint",
+        "maxval": 18446744073709551615
+      }
+    },
+    {
       "name": "completeSwap",
       "pure": false,
       "proof": true,
@@ -842,65 +1395,10 @@
           }
         },
         {
-          "name": "respondBidirectionalEvent",
-          "type": {
-            "type-name": "Struct",
-            "name": "RespondBidirectionalEvent",
-            "elements": [
-              {
-                "name": "signature",
-                "type": {
-                  "type-name": "Struct",
-                  "name": "Signature",
-                  "elements": [
-                    {
-                      "name": "bigR",
-                      "type": {
-                        "type-name": "Struct",
-                        "name": "AffinePoint",
-                        "elements": [
-                          {
-                            "name": "x",
-                            "type": {
-                              "type-name": "Bytes",
-                              "length": 32
-                            }
-                          },
-                          {
-                            "name": "y",
-                            "type": {
-                              "type-name": "Bytes",
-                              "length": 32
-                            }
-                          }
-                        ]
-                      }
-                    },
-                    {
-                      "name": "s",
-                      "type": {
-                        "type-name": "Bytes",
-                        "length": 32
-                      }
-                    },
-                    {
-                      "name": "recoveryId",
-                      "type": {
-                        "type-name": "Uint",
-                        "maxval": 255
-                      }
-                    }
-                  ]
-                }
-              }
-            ]
-          }
-        },
-        {
           "name": "serializedOutput",
           "type": {
             "type-name": "Bytes",
-            "length": 8
+            "length": 32
           }
         },
         {
@@ -925,98 +1423,6 @@
       }
     },
     {
-      "name": "refundSwap",
-      "pure": false,
-      "proof": true,
-      "arguments": [
-        {
-          "name": "requestId",
-          "type": {
-            "type-name": "Alias",
-            "name": "RequestId",
-            "type": {
-              "type-name": "Bytes",
-              "length": 32
-            }
-          }
-        },
-        {
-          "name": "respondBidirectionalEvent",
-          "type": {
-            "type-name": "Struct",
-            "name": "RespondBidirectionalEvent",
-            "elements": [
-              {
-                "name": "signature",
-                "type": {
-                  "type-name": "Struct",
-                  "name": "Signature",
-                  "elements": [
-                    {
-                      "name": "bigR",
-                      "type": {
-                        "type-name": "Struct",
-                        "name": "AffinePoint",
-                        "elements": [
-                          {
-                            "name": "x",
-                            "type": {
-                              "type-name": "Bytes",
-                              "length": 32
-                            }
-                          },
-                          {
-                            "name": "y",
-                            "type": {
-                              "type-name": "Bytes",
-                              "length": 32
-                            }
-                          }
-                        ]
-                      }
-                    },
-                    {
-                      "name": "s",
-                      "type": {
-                        "type-name": "Bytes",
-                        "length": 32
-                      }
-                    },
-                    {
-                      "name": "recoveryId",
-                      "type": {
-                        "type-name": "Uint",
-                        "maxval": 255
-                      }
-                    }
-                  ]
-                }
-              }
-            ]
-          }
-        },
-        {
-          "name": "serializedOutput",
-          "type": {
-            "type-name": "Bytes",
-            "length": 5
-          }
-        },
-        {
-          "name": "mintNonce",
-          "type": {
-            "type-name": "Bytes",
-            "length": 32
-          }
-        }
-      ],
-      "result-type": {
-        "type-name": "Tuple",
-        "types": [
-        ]
-      }
-    },
-    {
       "name": "supplyOutputSchema",
       "pure": true,
       "proof": false,
@@ -1028,40 +1434,31 @@
       }
     },
     {
-      "name": "supplyRespondSchema",
-      "pure": true,
-      "proof": false,
-      "arguments": [
-      ],
-      "result-type": {
-        "type-name": "Bytes",
-        "length": 35
-      }
-    },
-    {
       "name": "startSupply",
       "pure": false,
       "proof": true,
       "arguments": [
         {
-          "name": "evmNonce",
+          "name": "inIndex",
           "type": {
             "type-name": "Uint",
             "maxval": 18446744073709551615
           }
         },
         {
-          "name": "keyVersion",
+          "name": "supplyRequest",
           "type": {
-            "type-name": "Uint",
-            "maxval": 255
-          }
-        },
-        {
-          "name": "amount",
-          "type": {
-            "type-name": "Uint",
-            "maxval": 340282366920938463463374607431768211455
+            "type-name": "Struct",
+            "name": "SupplyRequest",
+            "elements": [
+              {
+                "name": "amount",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 340282366920938463463374607431768211455
+                }
+              }
+            ]
           }
         },
         {
@@ -1102,6 +1499,43 @@
       }
     },
     {
+      "name": "sendSupply",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+        {
+          "name": "outIndex",
+          "type": {
+            "type-name": "Bytes",
+            "length": 32
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    },
+    {
+      "name": "supplyShares",
+      "pure": true,
+      "proof": false,
+      "arguments": [
+        {
+          "name": "output",
+          "type": {
+            "type-name": "Bytes",
+            "length": 32
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Uint",
+        "maxval": 18446744073709551615
+      }
+    },
+    {
       "name": "completeSupply",
       "pure": false,
       "proof": true,
@@ -1118,157 +1552,10 @@
           }
         },
         {
-          "name": "respondBidirectionalEvent",
-          "type": {
-            "type-name": "Struct",
-            "name": "RespondBidirectionalEvent",
-            "elements": [
-              {
-                "name": "signature",
-                "type": {
-                  "type-name": "Struct",
-                  "name": "Signature",
-                  "elements": [
-                    {
-                      "name": "bigR",
-                      "type": {
-                        "type-name": "Struct",
-                        "name": "AffinePoint",
-                        "elements": [
-                          {
-                            "name": "x",
-                            "type": {
-                              "type-name": "Bytes",
-                              "length": 32
-                            }
-                          },
-                          {
-                            "name": "y",
-                            "type": {
-                              "type-name": "Bytes",
-                              "length": 32
-                            }
-                          }
-                        ]
-                      }
-                    },
-                    {
-                      "name": "s",
-                      "type": {
-                        "type-name": "Bytes",
-                        "length": 32
-                      }
-                    },
-                    {
-                      "name": "recoveryId",
-                      "type": {
-                        "type-name": "Uint",
-                        "maxval": 255
-                      }
-                    }
-                  ]
-                }
-              }
-            ]
-          }
-        },
-        {
           "name": "serializedOutput",
-          "type": {
-            "type-name": "Bytes",
-            "length": 8
-          }
-        },
-        {
-          "name": "mintNonce",
           "type": {
             "type-name": "Bytes",
             "length": 32
-          }
-        }
-      ],
-      "result-type": {
-        "type-name": "Tuple",
-        "types": [
-        ]
-      }
-    },
-    {
-      "name": "refundSupply",
-      "pure": false,
-      "proof": true,
-      "arguments": [
-        {
-          "name": "requestId",
-          "type": {
-            "type-name": "Alias",
-            "name": "RequestId",
-            "type": {
-              "type-name": "Bytes",
-              "length": 32
-            }
-          }
-        },
-        {
-          "name": "respondBidirectionalEvent",
-          "type": {
-            "type-name": "Struct",
-            "name": "RespondBidirectionalEvent",
-            "elements": [
-              {
-                "name": "signature",
-                "type": {
-                  "type-name": "Struct",
-                  "name": "Signature",
-                  "elements": [
-                    {
-                      "name": "bigR",
-                      "type": {
-                        "type-name": "Struct",
-                        "name": "AffinePoint",
-                        "elements": [
-                          {
-                            "name": "x",
-                            "type": {
-                              "type-name": "Bytes",
-                              "length": 32
-                            }
-                          },
-                          {
-                            "name": "y",
-                            "type": {
-                              "type-name": "Bytes",
-                              "length": 32
-                            }
-                          }
-                        ]
-                      }
-                    },
-                    {
-                      "name": "s",
-                      "type": {
-                        "type-name": "Bytes",
-                        "length": 32
-                      }
-                    },
-                    {
-                      "name": "recoveryId",
-                      "type": {
-                        "type-name": "Uint",
-                        "maxval": 255
-                      }
-                    }
-                  ]
-                }
-              }
-            ]
-          }
-        },
-        {
-          "name": "serializedOutput",
-          "type": {
-            "type-name": "Bytes",
-            "length": 5
           }
         },
         {
@@ -1297,40 +1584,31 @@
       }
     },
     {
-      "name": "redeemRespondSchema",
-      "pure": true,
-      "proof": false,
-      "arguments": [
-      ],
-      "result-type": {
-        "type-name": "Bytes",
-        "length": 35
-      }
-    },
-    {
       "name": "startRedeem",
       "pure": false,
       "proof": true,
       "arguments": [
         {
-          "name": "evmNonce",
+          "name": "inIndex",
           "type": {
             "type-name": "Uint",
             "maxval": 18446744073709551615
           }
         },
         {
-          "name": "keyVersion",
+          "name": "redeemRequest",
           "type": {
-            "type-name": "Uint",
-            "maxval": 255
-          }
-        },
-        {
-          "name": "shares",
-          "type": {
-            "type-name": "Uint",
-            "maxval": 340282366920938463463374607431768211455
+            "type-name": "Struct",
+            "name": "RedeemRequest",
+            "elements": [
+              {
+                "name": "shares",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 340282366920938463463374607431768211455
+                }
+              }
+            ]
           }
         },
         {
@@ -1371,6 +1649,43 @@
       }
     },
     {
+      "name": "sendRedeem",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+        {
+          "name": "outIndex",
+          "type": {
+            "type-name": "Bytes",
+            "length": 32
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    },
+    {
+      "name": "redeemAssets",
+      "pure": true,
+      "proof": false,
+      "arguments": [
+        {
+          "name": "output",
+          "type": {
+            "type-name": "Bytes",
+            "length": 32
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Uint",
+        "maxval": 18446744073709551615
+      }
+    },
+    {
       "name": "completeRedeem",
       "pure": false,
       "proof": true,
@@ -1387,157 +1702,10 @@
           }
         },
         {
-          "name": "respondBidirectionalEvent",
-          "type": {
-            "type-name": "Struct",
-            "name": "RespondBidirectionalEvent",
-            "elements": [
-              {
-                "name": "signature",
-                "type": {
-                  "type-name": "Struct",
-                  "name": "Signature",
-                  "elements": [
-                    {
-                      "name": "bigR",
-                      "type": {
-                        "type-name": "Struct",
-                        "name": "AffinePoint",
-                        "elements": [
-                          {
-                            "name": "x",
-                            "type": {
-                              "type-name": "Bytes",
-                              "length": 32
-                            }
-                          },
-                          {
-                            "name": "y",
-                            "type": {
-                              "type-name": "Bytes",
-                              "length": 32
-                            }
-                          }
-                        ]
-                      }
-                    },
-                    {
-                      "name": "s",
-                      "type": {
-                        "type-name": "Bytes",
-                        "length": 32
-                      }
-                    },
-                    {
-                      "name": "recoveryId",
-                      "type": {
-                        "type-name": "Uint",
-                        "maxval": 255
-                      }
-                    }
-                  ]
-                }
-              }
-            ]
-          }
-        },
-        {
           "name": "serializedOutput",
-          "type": {
-            "type-name": "Bytes",
-            "length": 8
-          }
-        },
-        {
-          "name": "mintNonce",
           "type": {
             "type-name": "Bytes",
             "length": 32
-          }
-        }
-      ],
-      "result-type": {
-        "type-name": "Tuple",
-        "types": [
-        ]
-      }
-    },
-    {
-      "name": "refundRedeem",
-      "pure": false,
-      "proof": true,
-      "arguments": [
-        {
-          "name": "requestId",
-          "type": {
-            "type-name": "Alias",
-            "name": "RequestId",
-            "type": {
-              "type-name": "Bytes",
-              "length": 32
-            }
-          }
-        },
-        {
-          "name": "respondBidirectionalEvent",
-          "type": {
-            "type-name": "Struct",
-            "name": "RespondBidirectionalEvent",
-            "elements": [
-              {
-                "name": "signature",
-                "type": {
-                  "type-name": "Struct",
-                  "name": "Signature",
-                  "elements": [
-                    {
-                      "name": "bigR",
-                      "type": {
-                        "type-name": "Struct",
-                        "name": "AffinePoint",
-                        "elements": [
-                          {
-                            "name": "x",
-                            "type": {
-                              "type-name": "Bytes",
-                              "length": 32
-                            }
-                          },
-                          {
-                            "name": "y",
-                            "type": {
-                              "type-name": "Bytes",
-                              "length": 32
-                            }
-                          }
-                        ]
-                      }
-                    },
-                    {
-                      "name": "s",
-                      "type": {
-                        "type-name": "Bytes",
-                        "length": 32
-                      }
-                    },
-                    {
-                      "name": "recoveryId",
-                      "type": {
-                        "type-name": "Uint",
-                        "maxval": 255
-                      }
-                    }
-                  ]
-                }
-              }
-            ]
-          }
-        },
-        {
-          "name": "serializedOutput",
-          "type": {
-            "type-name": "Bytes",
-            "length": 5
           }
         },
         {
@@ -1614,283 +1782,10 @@
   ],
   "ledger": [
     {
-      "name": "signBidirectionalEventMap",
-      "index": [
-        0,
-        0
-      ],
-      "exported": true,
-      "storage": "Map",
-      "key": {
-        "type-name": "Alias",
-        "name": "RequestId",
-        "type": {
-          "type-name": "Bytes",
-          "length": 32
-        }
-      },
-      "value": {
-        "type-name": "Struct",
-        "name": "SignBidirectionalEvent",
-        "elements": [
-          {
-            "name": "sender",
-            "type": {
-              "type-name": "Struct",
-              "name": "ContractAddress",
-              "elements": [
-                {
-                  "name": "bytes",
-                  "type": {
-                    "type-name": "Bytes",
-                    "length": 32
-                  }
-                }
-              ]
-            }
-          },
-          {
-            "name": "requestNonce",
-            "type": {
-              "type-name": "Uint",
-              "maxval": 18446744073709551615
-            }
-          },
-          {
-            "name": "keyVersion",
-            "type": {
-              "type-name": "Uint",
-              "maxval": 255
-            }
-          },
-          {
-            "name": "path",
-            "type": {
-              "type-name": "Bytes",
-              "length": 32
-            }
-          },
-          {
-            "name": "algo",
-            "type": {
-              "type-name": "Enum",
-              "name": "MPCSignatureAlgorithm",
-              "elements": [
-                "ecdsa",
-                "reserved"
-              ]
-            }
-          },
-          {
-            "name": "dest",
-            "type": {
-              "type-name": "Enum",
-              "name": "MPCDestination",
-              "elements": [
-                "unused",
-                "reserved"
-              ]
-            }
-          },
-          {
-            "name": "params",
-            "type": {
-              "type-name": "Bytes",
-              "length": 64
-            }
-          },
-          {
-            "name": "txParamType",
-            "type": {
-              "type-name": "Enum",
-              "name": "TxParamType",
-              "elements": [
-                "evmType2",
-                "reserved"
-              ]
-            }
-          },
-          {
-            "name": "txParams",
-            "type": {
-              "type-name": "Struct",
-              "name": "EvmType2TxParams",
-              "elements": [
-                {
-                  "name": "chainId",
-                  "type": {
-                    "type-name": "Uint",
-                    "maxval": 18446744073709551615
-                  }
-                },
-                {
-                  "name": "nonce",
-                  "type": {
-                    "type-name": "Uint",
-                    "maxval": 18446744073709551615
-                  }
-                },
-                {
-                  "name": "maxPriorityFeePerGas",
-                  "type": {
-                    "type-name": "Uint",
-                    "maxval": 340282366920938463463374607431768211455
-                  }
-                },
-                {
-                  "name": "maxFeePerGas",
-                  "type": {
-                    "type-name": "Uint",
-                    "maxval": 340282366920938463463374607431768211455
-                  }
-                },
-                {
-                  "name": "gasLimit",
-                  "type": {
-                    "type-name": "Uint",
-                    "maxval": 18446744073709551615
-                  }
-                },
-                {
-                  "name": "to",
-                  "type": {
-                    "type-name": "Bytes",
-                    "length": 20
-                  }
-                },
-                {
-                  "name": "value",
-                  "type": {
-                    "type-name": "Uint",
-                    "maxval": 340282366920938463463374607431768211455
-                  }
-                },
-                {
-                  "name": "calldata",
-                  "type": {
-                    "type-name": "Struct",
-                    "name": "Maybe",
-                    "elements": [
-                      {
-                        "name": "is_some",
-                        "type": {
-                          "type-name": "Boolean"
-                        }
-                      },
-                      {
-                        "name": "value",
-                        "type": {
-                          "type-name": "Struct",
-                          "name": "EvmCalldata",
-                          "elements": [
-                            {
-                              "name": "selector",
-                              "type": {
-                                "type-name": "Bytes",
-                                "length": 4
-                              }
-                            },
-                            {
-                              "name": "noWords",
-                              "type": {
-                                "type-name": "Uint",
-                                "maxval": 65535
-                              }
-                            },
-                            {
-                              "name": "words",
-                              "type": {
-                                "type-name": "Vector",
-                                "length": 2,
-                                "type": {
-                                  "type-name": "Bytes",
-                                  "length": 32
-                                }
-                              }
-                            }
-                          ]
-                        }
-                      }
-                    ]
-                  }
-                },
-                {
-                  "name": "accessListEntryCount",
-                  "type": {
-                    "type-name": "Uint",
-                    "maxval": 255
-                  }
-                },
-                {
-                  "name": "accessList",
-                  "type": {
-                    "type-name": "Vector",
-                    "length": 0,
-                    "type": {
-                      "type-name": "Struct",
-                      "name": "EvmAccessListEntry",
-                      "elements": [
-                        {
-                          "name": "address",
-                          "type": {
-                            "type-name": "Bytes",
-                            "length": 20
-                          }
-                        },
-                        {
-                          "name": "storageKeyCount",
-                          "type": {
-                            "type-name": "Uint",
-                            "maxval": 255
-                          }
-                        },
-                        {
-                          "name": "storageKeys",
-                          "type": {
-                            "type-name": "Vector",
-                            "length": 0,
-                            "type": {
-                              "type-name": "Bytes",
-                              "length": 32
-                            }
-                          }
-                        }
-                      ]
-                    }
-                  }
-                }
-              ]
-            }
-          },
-          {
-            "name": "caip2Id",
-            "type": {
-              "type-name": "Bytes",
-              "length": 32
-            }
-          },
-          {
-            "name": "outputDeserializationSchema",
-            "type": {
-              "type-name": "Bytes",
-              "length": 34
-            }
-          },
-          {
-            "name": "respondSerializationSchema",
-            "type": {
-              "type-name": "Bytes",
-              "length": 34
-            }
-          }
-        ]
-      }
-    },
-    {
       "name": "signetSigner",
       "index": [
         0,
-        1
+        0
       ],
       "exported": false,
       "storage": "Cell",
@@ -1944,7 +1839,7 @@
       "name": "mpcResponseKey",
       "index": [
         0,
-        2
+        1
       ],
       "exported": true,
       "storage": "Cell",
@@ -1953,28 +1848,98 @@
       }
     },
     {
-      "name": "signetRequestNonce",
+      "name": "vaultMaxFeePerGas",
+      "index": [
+        0,
+        2
+      ],
+      "exported": true,
+      "storage": "Cell",
+      "type": {
+        "type-name": "Uint",
+        "maxval": 340282366920938463463374607431768211455
+      }
+    },
+    {
+      "name": "vaultMaxPriorityFeePerGas",
       "index": [
         0,
         3
       ],
       "exported": true,
-      "storage": "Counter"
+      "storage": "Cell",
+      "type": {
+        "type-name": "Uint",
+        "maxval": 340282366920938463463374607431768211455
+      }
     },
     {
-      "name": "initialised",
+      "name": "vaultGasLimits",
       "index": [
         0,
         4
       ],
       "exported": true,
-      "storage": "Counter"
+      "storage": "Cell",
+      "type": {
+        "type-name": "Struct",
+        "name": "VaultGasLimits",
+        "elements": [
+          {
+            "name": "withdraw",
+            "type": {
+              "type-name": "Uint",
+              "maxval": 18446744073709551615
+            }
+          },
+          {
+            "name": "approve",
+            "type": {
+              "type-name": "Uint",
+              "maxval": 18446744073709551615
+            }
+          },
+          {
+            "name": "swap",
+            "type": {
+              "type-name": "Uint",
+              "maxval": 18446744073709551615
+            }
+          },
+          {
+            "name": "supply",
+            "type": {
+              "type-name": "Uint",
+              "maxval": 18446744073709551615
+            }
+          },
+          {
+            "name": "redeem",
+            "type": {
+              "type-name": "Uint",
+              "maxval": 18446744073709551615
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "initialised",
+      "index": [
+        1,
+        0
+      ],
+      "exported": true,
+      "storage": "Cell",
+      "type": {
+        "type-name": "Boolean"
+      }
     },
     {
       "name": "vaultEvmAddress",
       "index": [
-        0,
-        5
+        1,
+        1
       ],
       "exported": true,
       "storage": "Cell",
@@ -1987,7 +1952,7 @@
       "name": "evmChainId",
       "index": [
         1,
-        0
+        2
       ],
       "exported": true,
       "storage": "Cell",
@@ -1997,23 +1962,23 @@
       }
     },
     {
-      "name": "caip2Id",
+      "name": "mpcKeyVersion",
       "index": [
         1,
-        1
+        3
       ],
       "exported": true,
       "storage": "Cell",
       "type": {
-        "type-name": "Bytes",
-        "length": 32
+        "type-name": "Uint",
+        "maxval": 255
       }
     },
     {
       "name": "deployer",
       "index": [
         1,
-        2
+        4
       ],
       "exported": false,
       "storage": "Cell",
@@ -2023,10 +1988,242 @@
       }
     },
     {
-      "name": "depositEventMap",
+      "name": "uniswapRouter",
       "index": [
         1,
-        3
+        5
+      ],
+      "exported": true,
+      "storage": "Cell",
+      "type": {
+        "type-name": "Bytes",
+        "length": 20
+      }
+    },
+    {
+      "name": "stataUnderlying",
+      "index": [
+        1,
+        6
+      ],
+      "exported": true,
+      "storage": "Cell",
+      "type": {
+        "type-name": "Bytes",
+        "length": 20
+      }
+    },
+    {
+      "name": "stataToken",
+      "index": [
+        1,
+        7
+      ],
+      "exported": true,
+      "storage": "Cell",
+      "type": {
+        "type-name": "Bytes",
+        "length": 20
+      }
+    },
+    {
+      "name": "allowedTokens",
+      "index": [
+        1,
+        8
+      ],
+      "exported": true,
+      "storage": "Set",
+      "type": {
+        "type-name": "Bytes",
+        "length": 20
+      }
+    },
+    {
+      "name": "globalLastSeen",
+      "index": [
+        1,
+        9
+      ],
+      "exported": true,
+      "storage": "Cell",
+      "type": {
+        "type-name": "Uint",
+        "maxval": 18446744073709551615
+      }
+    },
+    {
+      "name": "vaultAccountNonce",
+      "index": [
+        1,
+        10
+      ],
+      "exported": true,
+      "storage": "Cell",
+      "type": {
+        "type-name": "Uint",
+        "maxval": 18446744073709551615
+      }
+    },
+    {
+      "name": "inputRequestBuffer",
+      "index": [
+        1,
+        11
+      ],
+      "exported": true,
+      "storage": "Map",
+      "key": {
+        "type-name": "Uint",
+        "maxval": 18446744073709551615
+      },
+      "value": {
+        "type-name": "Struct",
+        "name": "RequestBufferEntry",
+        "elements": [
+          {
+            "name": "action",
+            "type": {
+              "type-name": "Enum",
+              "name": "Action",
+              "elements": [
+                "deposit",
+                "withdraw",
+                "swap",
+                "supply",
+                "redeem",
+                "approve",
+                "replaceNonce"
+              ]
+            }
+          },
+          {
+            "name": "useNextVaultAccountNonce",
+            "type": {
+              "type-name": "Boolean"
+            }
+          },
+          {
+            "name": "evmNonce",
+            "type": {
+              "type-name": "Uint",
+              "maxval": 18446744073709551615
+            }
+          },
+          {
+            "name": "inIndex",
+            "type": {
+              "type-name": "Uint",
+              "maxval": 18446744073709551615
+            }
+          },
+          {
+            "name": "commitment",
+            "type": {
+              "type-name": "Bytes",
+              "length": 32
+            }
+          },
+          {
+            "name": "argsHash",
+            "type": {
+              "type-name": "Bytes",
+              "length": 32
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "outputRequestBuffer",
+      "index": [
+        1,
+        12
+      ],
+      "exported": true,
+      "storage": "Map",
+      "key": {
+        "type-name": "Bytes",
+        "length": 32
+      },
+      "value": {
+        "type-name": "Struct",
+        "name": "OutputRequestEntry",
+        "elements": [
+          {
+            "name": "entry",
+            "type": {
+              "type-name": "Struct",
+              "name": "RequestBufferEntry",
+              "elements": [
+                {
+                  "name": "action",
+                  "type": {
+                    "type-name": "Enum",
+                    "name": "Action",
+                    "elements": [
+                      "deposit",
+                      "withdraw",
+                      "swap",
+                      "supply",
+                      "redeem",
+                      "approve",
+                      "replaceNonce"
+                    ]
+                  }
+                },
+                {
+                  "name": "useNextVaultAccountNonce",
+                  "type": {
+                    "type-name": "Boolean"
+                  }
+                },
+                {
+                  "name": "evmNonce",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 18446744073709551615
+                  }
+                },
+                {
+                  "name": "inIndex",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 18446744073709551615
+                  }
+                },
+                {
+                  "name": "commitment",
+                  "type": {
+                    "type-name": "Bytes",
+                    "length": 32
+                  }
+                },
+                {
+                  "name": "argsHash",
+                  "type": {
+                    "type-name": "Bytes",
+                    "length": 32
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "name": "lastSeen",
+            "type": {
+              "type-name": "Uint",
+              "maxval": 18446744073709551615
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "inputAttestationBuffer",
+      "index": [
+        1,
+        13
       ],
       "exported": true,
       "storage": "Map",
@@ -2040,8 +2237,134 @@
       },
       "value": {
         "type-name": "Struct",
-        "name": "SignBidirectionalEvent",
+        "name": "AttestationRecord",
         "elements": [
+          {
+            "name": "blockHeight",
+            "type": {
+              "type-name": "Uint",
+              "maxval": 18446744073709551615
+            }
+          },
+          {
+            "name": "outputKind",
+            "type": {
+              "type-name": "Enum",
+              "name": "OutputKind",
+              "elements": [
+                "executed",
+                "failed",
+                "unviable"
+              ]
+            }
+          },
+          {
+            "name": "digest",
+            "type": {
+              "type-name": "Bytes",
+              "length": 32
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "outputAttestationBuffer",
+      "index": [
+        1,
+        14
+      ],
+      "exported": true,
+      "storage": "Map",
+      "key": {
+        "type-name": "Alias",
+        "name": "RequestId",
+        "type": {
+          "type-name": "Bytes",
+          "length": 32
+        }
+      },
+      "value": {
+        "type-name": "Struct",
+        "name": "AttestationRecord",
+        "elements": [
+          {
+            "name": "blockHeight",
+            "type": {
+              "type-name": "Uint",
+              "maxval": 18446744073709551615
+            }
+          },
+          {
+            "name": "outputKind",
+            "type": {
+              "type-name": "Enum",
+              "name": "OutputKind",
+              "elements": [
+                "executed",
+                "failed",
+                "unviable"
+              ]
+            }
+          },
+          {
+            "name": "digest",
+            "type": {
+              "type-name": "Bytes",
+              "length": 32
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "evictionMap",
+      "index": [
+        2,
+        0
+      ],
+      "exported": true,
+      "storage": "Map",
+      "key": {
+        "type-name": "Alias",
+        "name": "RequestId",
+        "type": {
+          "type-name": "Bytes",
+          "length": 32
+        }
+      },
+      "value": {
+        "type-name": "Bytes",
+        "length": 32
+      }
+    },
+    {
+      "name": "bidirectionalReplaceNonceMap",
+      "index": [
+        2,
+        1
+      ],
+      "exported": true,
+      "storage": "Map",
+      "key": {
+        "type-name": "Alias",
+        "name": "RequestId",
+        "type": {
+          "type-name": "Bytes",
+          "length": 32
+        }
+      },
+      "value": {
+        "type-name": "Struct",
+        "name": "SignBidirectionalEventV1",
+        "elements": [
+          {
+            "name": "keyVersion",
+            "type": {
+              "type-name": "Uint",
+              "maxval": 255
+            }
+          },
           {
             "name": "sender",
             "type": {
@@ -2056,20 +2379,6 @@
                   }
                 }
               ]
-            }
-          },
-          {
-            "name": "requestNonce",
-            "type": {
-              "type-name": "Uint",
-              "maxval": 18446744073709551615
-            }
-          },
-          {
-            "name": "keyVersion",
-            "type": {
-              "type-name": "Uint",
-              "maxval": 255
             }
           },
           {
@@ -2088,24 +2397,6 @@
                 "ecdsa",
                 "reserved"
               ]
-            }
-          },
-          {
-            "name": "dest",
-            "type": {
-              "type-name": "Enum",
-              "name": "MPCDestination",
-              "elements": [
-                "unused",
-                "reserved"
-              ]
-            }
-          },
-          {
-            "name": "params",
-            "type": {
-              "type-name": "Bytes",
-              "length": 64
             }
           },
           {
@@ -2272,34 +2563,101 @@
             }
           },
           {
-            "name": "caip2Id",
+            "name": "executionDest",
             "type": {
               "type-name": "Bytes",
               "length": 32
+            }
+          },
+          {
+            "name": "signatureDest",
+            "type": {
+              "type-name": "Enum",
+              "name": "MPCDestination",
+              "elements": [
+                "unused",
+                "reserved"
+              ]
+            }
+          },
+          {
+            "name": "params",
+            "type": {
+              "type-name": "Bytes",
+              "length": 64
             }
           },
           {
             "name": "outputDeserializationSchema",
             "type": {
               "type-name": "Bytes",
-              "length": 34
+              "length": 2
             }
           },
           {
             "name": "respondSerializationSchema",
             "type": {
               "type-name": "Bytes",
-              "length": 34
+              "length": 0
             }
           }
         ]
       }
     },
     {
-      "name": "depositSettleViews",
+      "name": "replaceNonceArgsMap",
       "index": [
-        1,
-        4
+        2,
+        2
+      ],
+      "exported": true,
+      "storage": "Map",
+      "key": {
+        "type-name": "Uint",
+        "maxval": 18446744073709551615
+      },
+      "value": {
+        "type-name": "Struct",
+        "name": "ReplaceNonceArgs",
+        "elements": [
+          {
+            "name": "gas",
+            "type": {
+              "type-name": "Struct",
+              "name": "GasParams",
+              "elements": [
+                {
+                  "name": "gasLimit",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 18446744073709551615
+                  }
+                },
+                {
+                  "name": "maxFeePerGas",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 340282366920938463463374607431768211455
+                  }
+                },
+                {
+                  "name": "maxPriorityFeePerGas",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 340282366920938463463374607431768211455
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "bidirectionalApproveMap",
+      "index": [
+        2,
+        3
       ],
       "exported": true,
       "storage": "Map",
@@ -2313,109 +2671,15 @@
       },
       "value": {
         "type-name": "Struct",
-        "name": "DepositSettleView",
+        "name": "SignBidirectionalEventV1",
         "elements": [
           {
-            "name": "commitment",
-            "type": {
-              "type-name": "Bytes",
-              "length": 32
-            }
-          },
-          {
-            "name": "erc20",
-            "type": {
-              "type-name": "Bytes",
-              "length": 20
-            }
-          },
-          {
-            "name": "amount",
+            "name": "keyVersion",
             "type": {
               "type-name": "Uint",
-              "maxval": 18446744073709551615
-            }
-          }
-        ]
-      }
-    },
-    {
-      "name": "withdrawSettleViews",
-      "index": [
-        1,
-        5
-      ],
-      "exported": true,
-      "storage": "Map",
-      "key": {
-        "type-name": "Alias",
-        "name": "RequestId",
-        "type": {
-          "type-name": "Bytes",
-          "length": 32
-        }
-      },
-      "value": {
-        "type-name": "Struct",
-        "name": "WithdrawSettleView",
-        "elements": [
-          {
-            "name": "commitment",
-            "type": {
-              "type-name": "Bytes",
-              "length": 32
+              "maxval": 255
             }
           },
-          {
-            "name": "erc20",
-            "type": {
-              "type-name": "Bytes",
-              "length": 20
-            }
-          },
-          {
-            "name": "amount",
-            "type": {
-              "type-name": "Uint",
-              "maxval": 18446744073709551615
-            }
-          }
-        ]
-      }
-    },
-    {
-      "name": "uniswapRouter",
-      "index": [
-        1,
-        6
-      ],
-      "exported": true,
-      "storage": "Cell",
-      "type": {
-        "type-name": "Bytes",
-        "length": 20
-      }
-    },
-    {
-      "name": "swapEventMap",
-      "index": [
-        1,
-        7
-      ],
-      "exported": true,
-      "storage": "Map",
-      "key": {
-        "type-name": "Alias",
-        "name": "RequestId",
-        "type": {
-          "type-name": "Bytes",
-          "length": 32
-        }
-      },
-      "value": {
-        "type-name": "Struct",
-        "name": "SignBidirectionalEvent",
-        "elements": [
           {
             "name": "sender",
             "type": {
@@ -2430,20 +2694,6 @@
                   }
                 }
               ]
-            }
-          },
-          {
-            "name": "requestNonce",
-            "type": {
-              "type-name": "Uint",
-              "maxval": 18446744073709551615
-            }
-          },
-          {
-            "name": "keyVersion",
-            "type": {
-              "type-name": "Uint",
-              "maxval": 255
             }
           },
           {
@@ -2465,7 +2715,177 @@
             }
           },
           {
-            "name": "dest",
+            "name": "txParamType",
+            "type": {
+              "type-name": "Enum",
+              "name": "TxParamType",
+              "elements": [
+                "evmType2",
+                "reserved"
+              ]
+            }
+          },
+          {
+            "name": "txParams",
+            "type": {
+              "type-name": "Struct",
+              "name": "EvmType2TxParams",
+              "elements": [
+                {
+                  "name": "chainId",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 18446744073709551615
+                  }
+                },
+                {
+                  "name": "nonce",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 18446744073709551615
+                  }
+                },
+                {
+                  "name": "maxPriorityFeePerGas",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 340282366920938463463374607431768211455
+                  }
+                },
+                {
+                  "name": "maxFeePerGas",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 340282366920938463463374607431768211455
+                  }
+                },
+                {
+                  "name": "gasLimit",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 18446744073709551615
+                  }
+                },
+                {
+                  "name": "to",
+                  "type": {
+                    "type-name": "Bytes",
+                    "length": 20
+                  }
+                },
+                {
+                  "name": "value",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 340282366920938463463374607431768211455
+                  }
+                },
+                {
+                  "name": "calldata",
+                  "type": {
+                    "type-name": "Struct",
+                    "name": "Maybe",
+                    "elements": [
+                      {
+                        "name": "is_some",
+                        "type": {
+                          "type-name": "Boolean"
+                        }
+                      },
+                      {
+                        "name": "value",
+                        "type": {
+                          "type-name": "Struct",
+                          "name": "EvmCalldata",
+                          "elements": [
+                            {
+                              "name": "selector",
+                              "type": {
+                                "type-name": "Bytes",
+                                "length": 4
+                              }
+                            },
+                            {
+                              "name": "noWords",
+                              "type": {
+                                "type-name": "Uint",
+                                "maxval": 65535
+                              }
+                            },
+                            {
+                              "name": "words",
+                              "type": {
+                                "type-name": "Vector",
+                                "length": 2,
+                                "type": {
+                                  "type-name": "Bytes",
+                                  "length": 32
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "name": "accessListEntryCount",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 255
+                  }
+                },
+                {
+                  "name": "accessList",
+                  "type": {
+                    "type-name": "Vector",
+                    "length": 0,
+                    "type": {
+                      "type-name": "Struct",
+                      "name": "EvmAccessListEntry",
+                      "elements": [
+                        {
+                          "name": "address",
+                          "type": {
+                            "type-name": "Bytes",
+                            "length": 20
+                          }
+                        },
+                        {
+                          "name": "storageKeyCount",
+                          "type": {
+                            "type-name": "Uint",
+                            "maxval": 255
+                          }
+                        },
+                        {
+                          "name": "storageKeys",
+                          "type": {
+                            "type-name": "Vector",
+                            "length": 0,
+                            "type": {
+                              "type-name": "Bytes",
+                              "length": 32
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "name": "executionDest",
+            "type": {
+              "type-name": "Bytes",
+              "length": 32
+            }
+          },
+          {
+            "name": "signatureDest",
             "type": {
               "type-name": "Enum",
               "name": "MPCDestination",
@@ -2480,6 +2900,846 @@
             "type": {
               "type-name": "Bytes",
               "length": 64
+            }
+          },
+          {
+            "name": "outputDeserializationSchema",
+            "type": {
+              "type-name": "Bytes",
+              "length": 34
+            }
+          },
+          {
+            "name": "respondSerializationSchema",
+            "type": {
+              "type-name": "Bytes",
+              "length": 0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "approveArgsMap",
+      "index": [
+        2,
+        4
+      ],
+      "exported": true,
+      "storage": "Map",
+      "key": {
+        "type-name": "Uint",
+        "maxval": 18446744073709551615
+      },
+      "value": {
+        "type-name": "Struct",
+        "name": "ApproveArgs",
+        "elements": [
+          {
+            "name": "request",
+            "type": {
+              "type-name": "Struct",
+              "name": "ApproveRequest",
+              "elements": [
+                {
+                  "name": "erc20Address",
+                  "type": {
+                    "type-name": "Bytes",
+                    "length": 20
+                  }
+                },
+                {
+                  "name": "spender",
+                  "type": {
+                    "type-name": "Bytes",
+                    "length": 20
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "name": "gas",
+            "type": {
+              "type-name": "Struct",
+              "name": "GasParams",
+              "elements": [
+                {
+                  "name": "gasLimit",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 18446744073709551615
+                  }
+                },
+                {
+                  "name": "maxFeePerGas",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 340282366920938463463374607431768211455
+                  }
+                },
+                {
+                  "name": "maxPriorityFeePerGas",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 340282366920938463463374607431768211455
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "bidirectionalDepositMap",
+      "index": [
+        2,
+        5
+      ],
+      "exported": true,
+      "storage": "Map",
+      "key": {
+        "type-name": "Alias",
+        "name": "RequestId",
+        "type": {
+          "type-name": "Bytes",
+          "length": 32
+        }
+      },
+      "value": {
+        "type-name": "Struct",
+        "name": "SignBidirectionalEventV1",
+        "elements": [
+          {
+            "name": "keyVersion",
+            "type": {
+              "type-name": "Uint",
+              "maxval": 255
+            }
+          },
+          {
+            "name": "sender",
+            "type": {
+              "type-name": "Struct",
+              "name": "ContractAddress",
+              "elements": [
+                {
+                  "name": "bytes",
+                  "type": {
+                    "type-name": "Bytes",
+                    "length": 32
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "name": "path",
+            "type": {
+              "type-name": "Bytes",
+              "length": 32
+            }
+          },
+          {
+            "name": "algo",
+            "type": {
+              "type-name": "Enum",
+              "name": "MPCSignatureAlgorithm",
+              "elements": [
+                "ecdsa",
+                "reserved"
+              ]
+            }
+          },
+          {
+            "name": "txParamType",
+            "type": {
+              "type-name": "Enum",
+              "name": "TxParamType",
+              "elements": [
+                "evmType2",
+                "reserved"
+              ]
+            }
+          },
+          {
+            "name": "txParams",
+            "type": {
+              "type-name": "Struct",
+              "name": "EvmType2TxParams",
+              "elements": [
+                {
+                  "name": "chainId",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 18446744073709551615
+                  }
+                },
+                {
+                  "name": "nonce",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 18446744073709551615
+                  }
+                },
+                {
+                  "name": "maxPriorityFeePerGas",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 340282366920938463463374607431768211455
+                  }
+                },
+                {
+                  "name": "maxFeePerGas",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 340282366920938463463374607431768211455
+                  }
+                },
+                {
+                  "name": "gasLimit",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 18446744073709551615
+                  }
+                },
+                {
+                  "name": "to",
+                  "type": {
+                    "type-name": "Bytes",
+                    "length": 20
+                  }
+                },
+                {
+                  "name": "value",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 340282366920938463463374607431768211455
+                  }
+                },
+                {
+                  "name": "calldata",
+                  "type": {
+                    "type-name": "Struct",
+                    "name": "Maybe",
+                    "elements": [
+                      {
+                        "name": "is_some",
+                        "type": {
+                          "type-name": "Boolean"
+                        }
+                      },
+                      {
+                        "name": "value",
+                        "type": {
+                          "type-name": "Struct",
+                          "name": "EvmCalldata",
+                          "elements": [
+                            {
+                              "name": "selector",
+                              "type": {
+                                "type-name": "Bytes",
+                                "length": 4
+                              }
+                            },
+                            {
+                              "name": "noWords",
+                              "type": {
+                                "type-name": "Uint",
+                                "maxval": 65535
+                              }
+                            },
+                            {
+                              "name": "words",
+                              "type": {
+                                "type-name": "Vector",
+                                "length": 2,
+                                "type": {
+                                  "type-name": "Bytes",
+                                  "length": 32
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "name": "accessListEntryCount",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 255
+                  }
+                },
+                {
+                  "name": "accessList",
+                  "type": {
+                    "type-name": "Vector",
+                    "length": 0,
+                    "type": {
+                      "type-name": "Struct",
+                      "name": "EvmAccessListEntry",
+                      "elements": [
+                        {
+                          "name": "address",
+                          "type": {
+                            "type-name": "Bytes",
+                            "length": 20
+                          }
+                        },
+                        {
+                          "name": "storageKeyCount",
+                          "type": {
+                            "type-name": "Uint",
+                            "maxval": 255
+                          }
+                        },
+                        {
+                          "name": "storageKeys",
+                          "type": {
+                            "type-name": "Vector",
+                            "length": 0,
+                            "type": {
+                              "type-name": "Bytes",
+                              "length": 32
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "name": "executionDest",
+            "type": {
+              "type-name": "Bytes",
+              "length": 32
+            }
+          },
+          {
+            "name": "signatureDest",
+            "type": {
+              "type-name": "Enum",
+              "name": "MPCDestination",
+              "elements": [
+                "unused",
+                "reserved"
+              ]
+            }
+          },
+          {
+            "name": "params",
+            "type": {
+              "type-name": "Bytes",
+              "length": 64
+            }
+          },
+          {
+            "name": "outputDeserializationSchema",
+            "type": {
+              "type-name": "Bytes",
+              "length": 34
+            }
+          },
+          {
+            "name": "respondSerializationSchema",
+            "type": {
+              "type-name": "Bytes",
+              "length": 0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "depositArgsMap",
+      "index": [
+        2,
+        6
+      ],
+      "exported": true,
+      "storage": "Map",
+      "key": {
+        "type-name": "Uint",
+        "maxval": 18446744073709551615
+      },
+      "value": {
+        "type-name": "Struct",
+        "name": "DepositArgs",
+        "elements": [
+          {
+            "name": "request",
+            "type": {
+              "type-name": "Struct",
+              "name": "DepositRequest",
+              "elements": [
+                {
+                  "name": "erc20Address",
+                  "type": {
+                    "type-name": "Bytes",
+                    "length": 20
+                  }
+                },
+                {
+                  "name": "amount",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 340282366920938463463374607431768211455
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "name": "path",
+            "type": {
+              "type-name": "Bytes",
+              "length": 32
+            }
+          },
+          {
+            "name": "gas",
+            "type": {
+              "type-name": "Struct",
+              "name": "GasParams",
+              "elements": [
+                {
+                  "name": "gasLimit",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 18446744073709551615
+                  }
+                },
+                {
+                  "name": "maxFeePerGas",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 340282366920938463463374607431768211455
+                  }
+                },
+                {
+                  "name": "maxPriorityFeePerGas",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 340282366920938463463374607431768211455
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "bidirectionalWithdrawMap",
+      "index": [
+        2,
+        7
+      ],
+      "exported": true,
+      "storage": "Map",
+      "key": {
+        "type-name": "Alias",
+        "name": "RequestId",
+        "type": {
+          "type-name": "Bytes",
+          "length": 32
+        }
+      },
+      "value": {
+        "type-name": "Struct",
+        "name": "SignBidirectionalEventV1",
+        "elements": [
+          {
+            "name": "keyVersion",
+            "type": {
+              "type-name": "Uint",
+              "maxval": 255
+            }
+          },
+          {
+            "name": "sender",
+            "type": {
+              "type-name": "Struct",
+              "name": "ContractAddress",
+              "elements": [
+                {
+                  "name": "bytes",
+                  "type": {
+                    "type-name": "Bytes",
+                    "length": 32
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "name": "path",
+            "type": {
+              "type-name": "Bytes",
+              "length": 32
+            }
+          },
+          {
+            "name": "algo",
+            "type": {
+              "type-name": "Enum",
+              "name": "MPCSignatureAlgorithm",
+              "elements": [
+                "ecdsa",
+                "reserved"
+              ]
+            }
+          },
+          {
+            "name": "txParamType",
+            "type": {
+              "type-name": "Enum",
+              "name": "TxParamType",
+              "elements": [
+                "evmType2",
+                "reserved"
+              ]
+            }
+          },
+          {
+            "name": "txParams",
+            "type": {
+              "type-name": "Struct",
+              "name": "EvmType2TxParams",
+              "elements": [
+                {
+                  "name": "chainId",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 18446744073709551615
+                  }
+                },
+                {
+                  "name": "nonce",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 18446744073709551615
+                  }
+                },
+                {
+                  "name": "maxPriorityFeePerGas",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 340282366920938463463374607431768211455
+                  }
+                },
+                {
+                  "name": "maxFeePerGas",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 340282366920938463463374607431768211455
+                  }
+                },
+                {
+                  "name": "gasLimit",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 18446744073709551615
+                  }
+                },
+                {
+                  "name": "to",
+                  "type": {
+                    "type-name": "Bytes",
+                    "length": 20
+                  }
+                },
+                {
+                  "name": "value",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 340282366920938463463374607431768211455
+                  }
+                },
+                {
+                  "name": "calldata",
+                  "type": {
+                    "type-name": "Struct",
+                    "name": "Maybe",
+                    "elements": [
+                      {
+                        "name": "is_some",
+                        "type": {
+                          "type-name": "Boolean"
+                        }
+                      },
+                      {
+                        "name": "value",
+                        "type": {
+                          "type-name": "Struct",
+                          "name": "EvmCalldata",
+                          "elements": [
+                            {
+                              "name": "selector",
+                              "type": {
+                                "type-name": "Bytes",
+                                "length": 4
+                              }
+                            },
+                            {
+                              "name": "noWords",
+                              "type": {
+                                "type-name": "Uint",
+                                "maxval": 65535
+                              }
+                            },
+                            {
+                              "name": "words",
+                              "type": {
+                                "type-name": "Vector",
+                                "length": 2,
+                                "type": {
+                                  "type-name": "Bytes",
+                                  "length": 32
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "name": "accessListEntryCount",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 255
+                  }
+                },
+                {
+                  "name": "accessList",
+                  "type": {
+                    "type-name": "Vector",
+                    "length": 0,
+                    "type": {
+                      "type-name": "Struct",
+                      "name": "EvmAccessListEntry",
+                      "elements": [
+                        {
+                          "name": "address",
+                          "type": {
+                            "type-name": "Bytes",
+                            "length": 20
+                          }
+                        },
+                        {
+                          "name": "storageKeyCount",
+                          "type": {
+                            "type-name": "Uint",
+                            "maxval": 255
+                          }
+                        },
+                        {
+                          "name": "storageKeys",
+                          "type": {
+                            "type-name": "Vector",
+                            "length": 0,
+                            "type": {
+                              "type-name": "Bytes",
+                              "length": 32
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "name": "executionDest",
+            "type": {
+              "type-name": "Bytes",
+              "length": 32
+            }
+          },
+          {
+            "name": "signatureDest",
+            "type": {
+              "type-name": "Enum",
+              "name": "MPCDestination",
+              "elements": [
+                "unused",
+                "reserved"
+              ]
+            }
+          },
+          {
+            "name": "params",
+            "type": {
+              "type-name": "Bytes",
+              "length": 64
+            }
+          },
+          {
+            "name": "outputDeserializationSchema",
+            "type": {
+              "type-name": "Bytes",
+              "length": 34
+            }
+          },
+          {
+            "name": "respondSerializationSchema",
+            "type": {
+              "type-name": "Bytes",
+              "length": 0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "withdrawArgsMap",
+      "index": [
+        2,
+        8
+      ],
+      "exported": true,
+      "storage": "Map",
+      "key": {
+        "type-name": "Uint",
+        "maxval": 18446744073709551615
+      },
+      "value": {
+        "type-name": "Struct",
+        "name": "WithdrawArgs",
+        "elements": [
+          {
+            "name": "request",
+            "type": {
+              "type-name": "Struct",
+              "name": "WithdrawRequest",
+              "elements": [
+                {
+                  "name": "erc20Address",
+                  "type": {
+                    "type-name": "Bytes",
+                    "length": 20
+                  }
+                },
+                {
+                  "name": "amount",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 340282366920938463463374607431768211455
+                  }
+                },
+                {
+                  "name": "destEvmAddress",
+                  "type": {
+                    "type-name": "Bytes",
+                    "length": 20
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "name": "gas",
+            "type": {
+              "type-name": "Struct",
+              "name": "GasParams",
+              "elements": [
+                {
+                  "name": "gasLimit",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 18446744073709551615
+                  }
+                },
+                {
+                  "name": "maxFeePerGas",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 340282366920938463463374607431768211455
+                  }
+                },
+                {
+                  "name": "maxPriorityFeePerGas",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 340282366920938463463374607431768211455
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "bidirectionalSwapMap",
+      "index": [
+        2,
+        9
+      ],
+      "exported": true,
+      "storage": "Map",
+      "key": {
+        "type-name": "Alias",
+        "name": "RequestId",
+        "type": {
+          "type-name": "Bytes",
+          "length": 32
+        }
+      },
+      "value": {
+        "type-name": "Struct",
+        "name": "SignBidirectionalEventV1",
+        "elements": [
+          {
+            "name": "keyVersion",
+            "type": {
+              "type-name": "Uint",
+              "maxval": 255
+            }
+          },
+          {
+            "name": "sender",
+            "type": {
+              "type-name": "Struct",
+              "name": "ContractAddress",
+              "elements": [
+                {
+                  "name": "bytes",
+                  "type": {
+                    "type-name": "Bytes",
+                    "length": 32
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "name": "path",
+            "type": {
+              "type-name": "Bytes",
+              "length": 32
+            }
+          },
+          {
+            "name": "algo",
+            "type": {
+              "type-name": "Enum",
+              "name": "MPCSignatureAlgorithm",
+              "elements": [
+                "ecdsa",
+                "reserved"
+              ]
             }
           },
           {
@@ -2646,10 +3906,28 @@
             }
           },
           {
-            "name": "caip2Id",
+            "name": "executionDest",
             "type": {
               "type-name": "Bytes",
               "length": 32
+            }
+          },
+          {
+            "name": "signatureDest",
+            "type": {
+              "type-name": "Enum",
+              "name": "MPCDestination",
+              "elements": [
+                "unused",
+                "reserved"
+              ]
+            }
+          },
+          {
+            "name": "params",
+            "type": {
+              "type-name": "Bytes",
+              "length": 64
             }
           },
           {
@@ -2663,100 +3941,109 @@
             "name": "respondSerializationSchema",
             "type": {
               "type-name": "Bytes",
-              "length": 37
+              "length": 0
             }
           }
         ]
       }
     },
     {
-      "name": "swapSettleViews",
+      "name": "swapArgsMap",
       "index": [
-        1,
-        8
+        2,
+        10
       ],
       "exported": true,
       "storage": "Map",
       "key": {
-        "type-name": "Alias",
-        "name": "RequestId",
-        "type": {
-          "type-name": "Bytes",
-          "length": 32
-        }
+        "type-name": "Uint",
+        "maxval": 18446744073709551615
       },
       "value": {
         "type-name": "Struct",
-        "name": "SwapSettleView",
+        "name": "SwapArgs",
         "elements": [
           {
-            "name": "commitment",
+            "name": "request",
             "type": {
-              "type-name": "Bytes",
-              "length": 32
+              "type-name": "Struct",
+              "name": "SwapRequest",
+              "elements": [
+                {
+                  "name": "erc20AddressIn",
+                  "type": {
+                    "type-name": "Bytes",
+                    "length": 20
+                  }
+                },
+                {
+                  "name": "erc20AddressOut",
+                  "type": {
+                    "type-name": "Bytes",
+                    "length": 20
+                  }
+                },
+                {
+                  "name": "fee",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 340282366920938463463374607431768211455
+                  }
+                },
+                {
+                  "name": "amountOut",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 340282366920938463463374607431768211455
+                  }
+                },
+                {
+                  "name": "amountInMaximum",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 340282366920938463463374607431768211455
+                  }
+                }
+              ]
             }
           },
           {
-            "name": "tokenIn",
+            "name": "gas",
             "type": {
-              "type-name": "Bytes",
-              "length": 20
-            }
-          },
-          {
-            "name": "tokenOut",
-            "type": {
-              "type-name": "Bytes",
-              "length": 20
-            }
-          },
-          {
-            "name": "amountOut",
-            "type": {
-              "type-name": "Uint",
-              "maxval": 18446744073709551615
-            }
-          },
-          {
-            "name": "amountInMaximum",
-            "type": {
-              "type-name": "Uint",
-              "maxval": 18446744073709551615
+              "type-name": "Struct",
+              "name": "GasParams",
+              "elements": [
+                {
+                  "name": "gasLimit",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 18446744073709551615
+                  }
+                },
+                {
+                  "name": "maxFeePerGas",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 340282366920938463463374607431768211455
+                  }
+                },
+                {
+                  "name": "maxPriorityFeePerGas",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 340282366920938463463374607431768211455
+                  }
+                }
+              ]
             }
           }
         ]
       }
     },
     {
-      "name": "stataUnderlying",
+      "name": "bidirectionalSupplyMap",
       "index": [
-        1,
-        9
-      ],
-      "exported": true,
-      "storage": "Cell",
-      "type": {
-        "type-name": "Bytes",
-        "length": 20
-      }
-    },
-    {
-      "name": "stataToken",
-      "index": [
-        1,
-        10
-      ],
-      "exported": true,
-      "storage": "Cell",
-      "type": {
-        "type-name": "Bytes",
-        "length": 20
-      }
-    },
-    {
-      "name": "supplyEventMap",
-      "index": [
-        1,
+        2,
         11
       ],
       "exported": true,
@@ -2771,8 +4058,15 @@
       },
       "value": {
         "type-name": "Struct",
-        "name": "SignBidirectionalEvent",
+        "name": "SignBidirectionalEventV1",
         "elements": [
+          {
+            "name": "keyVersion",
+            "type": {
+              "type-name": "Uint",
+              "maxval": 255
+            }
+          },
           {
             "name": "sender",
             "type": {
@@ -2787,20 +4081,6 @@
                   }
                 }
               ]
-            }
-          },
-          {
-            "name": "requestNonce",
-            "type": {
-              "type-name": "Uint",
-              "maxval": 18446744073709551615
-            }
-          },
-          {
-            "name": "keyVersion",
-            "type": {
-              "type-name": "Uint",
-              "maxval": 255
             }
           },
           {
@@ -2819,24 +4099,6 @@
                 "ecdsa",
                 "reserved"
               ]
-            }
-          },
-          {
-            "name": "dest",
-            "type": {
-              "type-name": "Enum",
-              "name": "MPCDestination",
-              "elements": [
-                "unused",
-                "reserved"
-              ]
-            }
-          },
-          {
-            "name": "params",
-            "type": {
-              "type-name": "Bytes",
-              "length": 64
             }
           },
           {
@@ -3003,10 +4265,28 @@
             }
           },
           {
-            "name": "caip2Id",
+            "name": "executionDest",
             "type": {
               "type-name": "Bytes",
               "length": 32
+            }
+          },
+          {
+            "name": "signatureDest",
+            "type": {
+              "type-name": "Enum",
+              "name": "MPCDestination",
+              "elements": [
+                "unused",
+                "reserved"
+              ]
+            }
+          },
+          {
+            "name": "params",
+            "type": {
+              "type-name": "Bytes",
+              "length": 64
             }
           },
           {
@@ -3020,53 +4300,81 @@
             "name": "respondSerializationSchema",
             "type": {
               "type-name": "Bytes",
-              "length": 35
+              "length": 0
             }
           }
         ]
       }
     },
     {
-      "name": "supplySettleViews",
+      "name": "supplyArgsMap",
       "index": [
-        1,
+        2,
         12
       ],
       "exported": true,
       "storage": "Map",
       "key": {
-        "type-name": "Alias",
-        "name": "RequestId",
-        "type": {
-          "type-name": "Bytes",
-          "length": 32
-        }
+        "type-name": "Uint",
+        "maxval": 18446744073709551615
       },
       "value": {
         "type-name": "Struct",
-        "name": "SupplySettleView",
+        "name": "SupplyArgs",
         "elements": [
           {
-            "name": "commitment",
+            "name": "request",
             "type": {
-              "type-name": "Bytes",
-              "length": 32
+              "type-name": "Struct",
+              "name": "SupplyRequest",
+              "elements": [
+                {
+                  "name": "amount",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 340282366920938463463374607431768211455
+                  }
+                }
+              ]
             }
           },
           {
-            "name": "amount",
+            "name": "gas",
             "type": {
-              "type-name": "Uint",
-              "maxval": 18446744073709551615
+              "type-name": "Struct",
+              "name": "GasParams",
+              "elements": [
+                {
+                  "name": "gasLimit",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 18446744073709551615
+                  }
+                },
+                {
+                  "name": "maxFeePerGas",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 340282366920938463463374607431768211455
+                  }
+                },
+                {
+                  "name": "maxPriorityFeePerGas",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 340282366920938463463374607431768211455
+                  }
+                }
+              ]
             }
           }
         ]
       }
     },
     {
-      "name": "redeemEventMap",
+      "name": "bidirectionalRedeemMap",
       "index": [
-        1,
+        2,
         13
       ],
       "exported": true,
@@ -3081,8 +4389,15 @@
       },
       "value": {
         "type-name": "Struct",
-        "name": "SignBidirectionalEvent",
+        "name": "SignBidirectionalEventV1",
         "elements": [
+          {
+            "name": "keyVersion",
+            "type": {
+              "type-name": "Uint",
+              "maxval": 255
+            }
+          },
           {
             "name": "sender",
             "type": {
@@ -3097,20 +4412,6 @@
                   }
                 }
               ]
-            }
-          },
-          {
-            "name": "requestNonce",
-            "type": {
-              "type-name": "Uint",
-              "maxval": 18446744073709551615
-            }
-          },
-          {
-            "name": "keyVersion",
-            "type": {
-              "type-name": "Uint",
-              "maxval": 255
             }
           },
           {
@@ -3129,24 +4430,6 @@
                 "ecdsa",
                 "reserved"
               ]
-            }
-          },
-          {
-            "name": "dest",
-            "type": {
-              "type-name": "Enum",
-              "name": "MPCDestination",
-              "elements": [
-                "unused",
-                "reserved"
-              ]
-            }
-          },
-          {
-            "name": "params",
-            "type": {
-              "type-name": "Bytes",
-              "length": 64
             }
           },
           {
@@ -3313,10 +4596,28 @@
             }
           },
           {
-            "name": "caip2Id",
+            "name": "executionDest",
             "type": {
               "type-name": "Bytes",
               "length": 32
+            }
+          },
+          {
+            "name": "signatureDest",
+            "type": {
+              "type-name": "Enum",
+              "name": "MPCDestination",
+              "elements": [
+                "unused",
+                "reserved"
+              ]
+            }
+          },
+          {
+            "name": "params",
+            "type": {
+              "type-name": "Bytes",
+              "length": 64
             }
           },
           {
@@ -3330,44 +4631,72 @@
             "name": "respondSerializationSchema",
             "type": {
               "type-name": "Bytes",
-              "length": 35
+              "length": 0
             }
           }
         ]
       }
     },
     {
-      "name": "redeemSettleViews",
+      "name": "redeemArgsMap",
       "index": [
-        1,
+        2,
         14
       ],
       "exported": true,
       "storage": "Map",
       "key": {
-        "type-name": "Alias",
-        "name": "RequestId",
-        "type": {
-          "type-name": "Bytes",
-          "length": 32
-        }
+        "type-name": "Uint",
+        "maxval": 18446744073709551615
       },
       "value": {
         "type-name": "Struct",
-        "name": "RedeemSettleView",
+        "name": "RedeemArgs",
         "elements": [
           {
-            "name": "commitment",
+            "name": "request",
             "type": {
-              "type-name": "Bytes",
-              "length": 32
+              "type-name": "Struct",
+              "name": "RedeemRequest",
+              "elements": [
+                {
+                  "name": "shares",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 340282366920938463463374607431768211455
+                  }
+                }
+              ]
             }
           },
           {
-            "name": "shares",
+            "name": "gas",
             "type": {
-              "type-name": "Uint",
-              "maxval": 18446744073709551615
+              "type-name": "Struct",
+              "name": "GasParams",
+              "elements": [
+                {
+                  "name": "gasLimit",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 18446744073709551615
+                  }
+                },
+                {
+                  "name": "maxFeePerGas",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 340282366920938463463374607431768211455
+                  }
+                },
+                {
+                  "name": "maxPriorityFeePerGas",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 340282366920938463463374607431768211455
+                  }
+                }
+              ]
             }
           }
         ]

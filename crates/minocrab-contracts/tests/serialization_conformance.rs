@@ -3,11 +3,18 @@
 //!
 //! No circuit changes and no new encoder: every byte string on the DEPLOYED
 //! side of an assertion here is produced by the protocol's own code — the
-//! FAB `binary_repr` the keccak chips consume, the `Misc` envelope the
-//! singleton logs, the reference model M10's differential suite pins to the
+//! FAB `binary_repr` the ledger holds a record as, the `Misc` envelope the
+//! singleton logs, the reference model M44's differential suite pins to the
 //! compactc artifacts. Every byte string on the SPEC side is produced by
 //! borsh's and serde+bincode's derives over the declarations in
 //! `serialization::spec_types`.
+//!
+//! TWO FORMATS are checked, and they are not alternatives: the deployed
+//! SIGNET V1 records and outputs (`@sig-net/midnight` 0.24.1, which the
+//! flush-pattern vault imports), and the V2 lineage's own format, which
+//! nothing has deployed. Only the V1 half has a deployed-bytes claim; the V2
+//! half is a specification pinned against borsh's encoder, borsh's schema and
+//! the `Pending` records' own FAB alignments.
 //!
 //! The four properties of the stage, in the order the design of record lists
 //! them:
@@ -17,15 +24,17 @@
 //!    checker; `subset_boundary` below pins the three known-bad shapes and
 //!    which of the two properties catches each.
 //! b. FIXED WIDTH — `borsh::object_length(v) == T::LEN` for all v, and
-//!    `T::LEN` equals the deployed FAB alignment's own `bin_len`. No
+//!    `T::LEN` equals the deployed FAB alignment's own `bin_len`, trailing
+//!    `Bytes<0>` atom included (`the_trailing_b0_atom_is_free`). No
 //!    value-dependent branching, so every offset is a compile-time constant.
 //! c. THE HEADLINE — byte-equality against the deployed protocol's actual
-//!    bytes: the request records, the attestation digest preimages, and the
-//!    singleton's three Misc payloads, the last checked by handing the bytes
-//!    to the CORPUS ARTIFACT itself. (Since the protocol move — M28 — the
-//!    request id and the signed digest are Poseidon over the FIELD-ALIGNED
-//!    limbs, not a hash of these bytes; the byte claims stand, the hash
-//!    claims live in the vault model.)
+//!    bytes: the five V1 request records, the three V1 attested-output
+//!    widths, and the singleton's Misc payloads, the last checked by handing
+//!    the bytes to the CORPUS ARTIFACT itself. NEITHER the request id NOR the
+//!    attestation digest is a hash of these bytes: both are Poseidon over
+//!    FIELD elements, which is why there is no V1 preimage spec type and why
+//!    `v1_attestation_digest_commits_to_the_kind_and_the_width` states the
+//!    V1 digest in limbs instead.
 //! d. SCHEMA DRIFT — the Borsh schema walked into a frozen `(path, kind,
 //!    offset, width)` table, the seed of stage 8's published offset tables.
 //!
@@ -36,7 +45,8 @@ mod support;
 mod vault;
 
 use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
-use minocrab::Fr;
+use minocrab::{AlignmentAtom, Fr};
+use minocrab_contracts::signet_v1::{hash_domain, output_kind};
 use minocrab_contracts::{erc20_vault, signet_contract};
 use minocrab_sim::v3::simulate;
 use proptest::prelude::*;
@@ -49,7 +59,8 @@ use serialization::records;
 use serialization::spec_types;
 use serialization::spec_types::*;
 use vault::gen;
-use vault::prims::b32_slots;
+use vault::model::{Args, Env, Gas, Req, Sent};
+use vault::prims::{attestation_digest, b32_slots, transient_upgrade, user_commitment};
 
 // ---- (a) + (b): the dual oracle and the fixed width --------------------------
 
@@ -193,10 +204,79 @@ fn tx_params3() -> impl Strategy<Value = EvmType2TxParams3> {
     )
 }
 
-/// The record header every instantiation shares.
-type RecordHeader = ([u8; 32], u64, u8, [u8; 32], u8, u8, [u8; 64], u8, [u8; 32]);
+// ---- the spec types' own strategies ------------------------------------------
 
-fn record_header() -> impl Strategy<Value = RecordHeader> {
+/// The V1 record's shared fields: everything before `txParams` and everything
+/// after it but the output schema. Generated, not fixed, at every one — the
+/// conformance properties are about the ENCODING, so they must hold at every
+/// value the type admits and not only at the values the protocol writes.
+type RecordHeaderV1 = (u8, [u8; 32], [u8; 32], u8, u8, [u8; 32], u8, [u8; 64]);
+
+fn record_header_v1() -> impl Strategy<Value = RecordHeaderV1> {
+    (
+        any::<u8>(),
+        byte_array::<32>(),
+        byte_array::<32>(),
+        any::<u8>(),
+        any::<u8>(),
+        byte_array::<32>(),
+        any::<u8>(),
+        byte_array::<64>(),
+    )
+}
+
+/// The five V1 record strategies. A macro rather than five copies because the
+/// five differ in exactly two places — the `txParams` instantiation and the
+/// output schema's width — and a copy is a place for them to differ in a
+/// third.
+macro_rules! v1_record_strategy {
+    ($name:ident -> $ty:ident, $params:ident, $schema:literal) => {
+        fn $name() -> impl Strategy<Value = $ty> {
+            (record_header_v1(), $params(), byte_array::<$schema>()).prop_map(
+                |(
+                    (
+                        key_version,
+                        sender,
+                        path,
+                        algo,
+                        tx_param_type,
+                        execution_dest,
+                        signature_dest,
+                        params,
+                    ),
+                    tx_params,
+                    out_schema,
+                )| $ty {
+                    key_version,
+                    sender,
+                    path,
+                    algo,
+                    tx_param_type,
+                    tx_params,
+                    execution_dest,
+                    signature_dest,
+                    params: ByteArray(params),
+                    output_deserialization_schema: ByteArray(out_schema),
+                    // `Bytes<0>`: there is no value to generate.
+                    respond_serialization_schema: ByteArray::default(),
+                },
+            )
+        }
+    };
+}
+
+v1_record_strategy!(vault_event_v1 -> VaultEventV1, tx_params2, 34);
+v1_record_strategy!(replace_nonce_event_v1 -> ReplaceNonceEventV1, tx_params2, 2);
+v1_record_strategy!(swap_event_v1 -> SwapEventV1, tx_params7, 38);
+v1_record_strategy!(supply_event_v1 -> SupplyEventV1, tx_params2, 36);
+v1_record_strategy!(redeem_event_v1 -> RedeemEventV1, tx_params3, 36);
+
+/// The V2 record's header — the `fff3421c` field order the V2 format keeps,
+/// which is NOT the V1 order ([`record_header_v1`]): the sender first, the
+/// request nonce after it, `params` before `txParamType`.
+type RecordHeaderV2 = ([u8; 32], u64, u8, [u8; 32], u8, u8, [u8; 64], u8, [u8; 32]);
+
+fn record_header_v2() -> impl Strategy<Value = RecordHeaderV2> {
     (
         byte_array::<32>(),
         any::<u64>(),
@@ -210,120 +290,8 @@ fn record_header() -> impl Strategy<Value = RecordHeader> {
     )
 }
 
-fn vault_event() -> impl Strategy<Value = VaultEvent> {
-    (
-        record_header(),
-        tx_params2(),
-        byte_array::<34>(),
-        byte_array::<34>(),
-    )
-        .prop_map(
-            |((sender, request_nonce, key_version, path, algo, dest, params, tx_param_type, caip2_id),
-              tx_params,
-              out_schema,
-              respond_schema)| VaultEvent {
-                sender,
-                request_nonce,
-                key_version,
-                path,
-                algo,
-                dest,
-                params: ByteArray(params),
-                tx_param_type,
-                tx_params,
-                caip2_id,
-                output_deserialization_schema: ByteArray(out_schema),
-                respond_serialization_schema: ByteArray(respond_schema),
-            },
-        )
-}
-
-fn swap_event() -> impl Strategy<Value = SwapEvent> {
-    (
-        record_header(),
-        tx_params7(),
-        byte_array::<38>(),
-        byte_array::<37>(),
-    )
-        .prop_map(
-            |((sender, request_nonce, key_version, path, algo, dest, params, tx_param_type, caip2_id),
-              tx_params,
-              out_schema,
-              respond_schema)| SwapEvent {
-                sender,
-                request_nonce,
-                key_version,
-                path,
-                algo,
-                dest,
-                params: ByteArray(params),
-                tx_param_type,
-                tx_params,
-                caip2_id,
-                output_deserialization_schema: ByteArray(out_schema),
-                respond_serialization_schema: ByteArray(respond_schema),
-            },
-        )
-}
-
-fn supply_event() -> impl Strategy<Value = SupplyEvent> {
-    (
-        record_header(),
-        tx_params2(),
-        byte_array::<36>(),
-        byte_array::<35>(),
-    )
-        .prop_map(
-            |((sender, request_nonce, key_version, path, algo, dest, params, tx_param_type, caip2_id),
-              tx_params,
-              out_schema,
-              respond_schema)| SupplyEvent {
-                sender,
-                request_nonce,
-                key_version,
-                path,
-                algo,
-                dest,
-                params: ByteArray(params),
-                tx_param_type,
-                tx_params,
-                caip2_id,
-                output_deserialization_schema: ByteArray(out_schema),
-                respond_serialization_schema: ByteArray(respond_schema),
-            },
-        )
-}
-
-fn redeem_event() -> impl Strategy<Value = RedeemEvent> {
-    (
-        record_header(),
-        tx_params3(),
-        byte_array::<36>(),
-        byte_array::<35>(),
-    )
-        .prop_map(
-            |((sender, request_nonce, key_version, path, algo, dest, params, tx_param_type, caip2_id),
-              tx_params,
-              out_schema,
-              respond_schema)| RedeemEvent {
-                sender,
-                request_nonce,
-                key_version,
-                path,
-                algo,
-                dest,
-                params: ByteArray(params),
-                tx_param_type,
-                tx_params,
-                caip2_id,
-                output_deserialization_schema: ByteArray(out_schema),
-                respond_serialization_schema: ByteArray(respond_schema),
-            },
-        )
-}
-
 fn redeem_event_v2() -> impl Strategy<Value = RedeemEventV2> {
-    (record_header(), tx_params3(), any::<u8>()).prop_map(
+    (record_header_v2(), tx_params3(), any::<u8>()).prop_map(
         |((sender, request_nonce, key_version, path, algo, dest, params, tx_param_type, caip2_id),
           tx_params,
           response_kind)| RedeemEventV2 {
@@ -343,12 +311,10 @@ fn redeem_event_v2() -> impl Strategy<Value = RedeemEventV2> {
     )
 }
 
-/// M11 stage 7's 2-word record: the same generated middle, a version byte and
-/// a kind byte. Generated, not fixed, at both ends — the conformance
-/// properties are about the ENCODING, so they must hold at every value the
-/// type admits, not only at the two the protocol writes.
+/// The V2 2-word record: the same generated middle, a version byte and a kind
+/// byte, both generated — see [`record_header_v1`] on why.
 fn vault_event_v2() -> impl Strategy<Value = VaultEventV2> {
-    (record_header(), tx_params2(), any::<u8>(), any::<u8>()).prop_map(
+    (record_header_v2(), tx_params2(), any::<u8>(), any::<u8>()).prop_map(
         |((sender, request_nonce, key_version, path, algo, dest, params, tx_param_type, caip2_id),
           tx_params,
           format_version,
@@ -369,9 +335,9 @@ fn vault_event_v2() -> impl Strategy<Value = VaultEventV2> {
     )
 }
 
-/// M11 stage 7's 7-word record. See [`vault_event_v2`].
+/// The V2 7-word record. See [`vault_event_v2`].
 fn swap_event_v2() -> impl Strategy<Value = SwapEventV2> {
-    (record_header(), tx_params7(), any::<u8>(), any::<u8>()).prop_map(
+    (record_header_v2(), tx_params7(), any::<u8>(), any::<u8>()).prop_map(
         |((sender, request_nonce, key_version, path, algo, dest, params, tx_param_type, caip2_id),
           tx_params,
           format_version,
@@ -419,26 +385,147 @@ fn respond_misc() -> impl Strategy<Value = RespondMisc> {
         })
 }
 
+// ---- the deployed side: generated requests -----------------------------------
+//
+// `vault::gen`'s scenario strategies went with the seventeen-circuit vault
+// (M44), so the generators here are LOCAL and small: they take one of the
+// model's canonical requests — `Sent::deposit()` and its siblings, each a
+// request followed through the flush queue — and replace the values a caller
+// controls. The model then assembles the record from them (`Sent::req()`), the
+// bridge in `serialization::records` assembles the spec type from them, and
+// the property is that the two agree.
+
+/// The caller-controlled values of a request: the sender and the requester's
+/// secret, five EVM addresses, the chain id / key version / EVM nonce, the gas
+/// parameters, and three amounts.
+type RequestValues = (
+    [u8; 32],
+    [u8; 32],
+    Vec<[u8; 20]>,
+    (u64, u8, u64),
+    (u64, u128, u128),
+    (u128, u128, u128),
+);
+
+fn request_values() -> impl Strategy<Value = RequestValues> {
+    (
+        byte_array::<32>(),
+        byte_array::<32>(),
+        // Five DISTINCT slots rather than one address reused, so a record that
+        // puts the right kind of value in the wrong field still fails.
+        proptest::collection::vec(byte_array::<20>(), 5),
+        // `keyVersion >= 1` is guarded by `constructSignBidirectionalEventV1`.
+        (any::<u64>(), 1u8..=u8::MAX, any::<u64>()),
+        (any::<u64>(), any::<u128>(), any::<u128>()),
+        (any::<u128>(), any::<u128>(), any::<u128>()),
+    )
+}
+
+/// One of the model's canonical requests with [`request_values`] substituted
+/// in — the amounts, addresses, nonces and gas a caller or the configuration
+/// supplies, at every value the record's fields admit.
+fn sent(base: fn() -> Sent) -> impl Strategy<Value = Sent> {
+    request_values().prop_map(
+        move |(
+            self_addr,
+            sk,
+            addr,
+            (chain_id, key_version, evm_nonce),
+            (limit, max_fee, priority_fee),
+            (first, second, third),
+        )| {
+            let mut s = base();
+            s.env.self_addr = self_addr;
+            s.env.chain_id = chain_id;
+            s.env.key_version = key_version;
+            s.env.vault_evm = addr[0];
+            s.env.router = addr[1];
+            s.env.stata_token = addr[2];
+            s.sk = sk;
+            s.evm_nonce = evm_nonce;
+            let gas = Gas {
+                limit,
+                max_fee,
+                priority_fee,
+            };
+            match &mut s.args {
+                Args::ReplaceNonce { gas: g } => *g = gas,
+                Args::Approve { erc20, spender, gas: g } => {
+                    *erc20 = addr[3];
+                    *spender = addr[4];
+                    *g = gas;
+                }
+                Args::Deposit { erc20, amount, path, gas: g } => {
+                    *erc20 = addr[3];
+                    *amount = first;
+                    // The deposit's path IS the requester's commitment; the
+                    // bridge recomputes it from `sk`, so the two must agree.
+                    *path = user_commitment(&sk);
+                    *g = gas;
+                }
+                Args::Withdraw { erc20, amount, dest, gas: g } => {
+                    *erc20 = addr[3];
+                    *amount = first;
+                    *dest = addr[4];
+                    *g = gas;
+                }
+                Args::Swap {
+                    token_in,
+                    token_out,
+                    fee,
+                    amount_out,
+                    amount_in_max,
+                    gas: g,
+                } => {
+                    *token_in = addr[3];
+                    *token_out = addr[4];
+                    *fee = first;
+                    *amount_out = second;
+                    *amount_in_max = third;
+                    *g = gas;
+                }
+                Args::Supply { amount, gas: g } => {
+                    *amount = first;
+                    *g = gas;
+                }
+                Args::Redeem { shares, gas: g } => {
+                    *shares = first;
+                    *g = gas;
+                }
+            }
+            s
+        },
+    )
+}
+
+/// `Sent::replace_nonce` needs the request it replaces, so it is not a bare
+/// `fn() -> Sent` like the others.
+fn replace_nonce_base() -> Sent {
+    Sent::replace_nonce(&Sent::withdraw())
+}
+
 proptest! {
     #![proptest_config(gen::config())]
 
-    /// (a) + (b) for the four deployed request records.
+    /// (a) + (b) for the five deployed V1 request records.
     #[test]
     fn records_are_conformant(
-        vault in vault_event(),
-        swap in swap_event(),
-        supply in supply_event(),
-        redeem in redeem_event(),
+        vault in vault_event_v1(),
+        replace_nonce in replace_nonce_event_v1(),
+        swap in swap_event_v1(),
+        supply in supply_event_v1(),
+        redeem in redeem_event_v1(),
     ) {
         assert_conformant(&vault);
+        assert_conformant(&replace_nonce);
         assert_conformant(&swap);
         assert_conformant(&supply);
         assert_conformant(&redeem);
     }
 
-    /// (a) + (b) for M11 stage 7's three request records.
+    /// (a) + (b) for the V2 lineage's three request records.
     #[test]
-    fn stage7_records_are_conformant(
+    fn v2_records_are_conformant(
         vault in vault_event_v2(),
         swap in swap_event_v2(),
         redeem in redeem_event_v2(),
@@ -448,26 +535,44 @@ proptest! {
         assert_conformant(&redeem);
     }
 
-    /// (a) + (b) for the four attested outputs and their digest preimages.
+    /// (a) + (b) for the three V1 attested-output widths.
+    ///
+    /// [`EmptyOutput`] has no value to generate — zero bytes is its only
+    /// value — which is itself the fixed-width property at its limit.
     #[test]
     fn attested_outputs_are_conformant(
-        request_id in byte_array::<32>(),
         success in any::<u8>(),
-        failure in byte_array::<5>(),
-        amount_in in any::<u64>(),
+        word in byte_array::<32>(),
     ) {
-        let claim = ClaimOutput { success };
-        let complete_withdraw = CompleteWithdrawOutput { success };
-        let refund = RefundOutput { failure };
-        let complete_swap = CompleteSwapOutput { amount_in };
-        assert_conformant(&claim);
-        assert_conformant(&complete_withdraw);
-        assert_conformant(&refund);
-        assert_conformant(&complete_swap);
-        assert_conformant(&AttestationPreimage { request_id, output: claim });
-        assert_conformant(&AttestationPreimage { request_id, output: complete_withdraw });
-        assert_conformant(&AttestationPreimage { request_id, output: refund });
-        assert_conformant(&AttestationPreimage { request_id, output: complete_swap });
+        assert_conformant(&empty_output());
+        assert_conformant(&BoolOutput { success });
+        assert_conformant(&WordOutput { word });
+    }
+
+    /// (a) + (b) for the V2 lineage's kind-tagged outputs and their digest
+    /// preimages.
+    #[test]
+    fn v2_attested_outputs_are_conformant(
+        request_id in byte_array::<32>(),
+        success in any::<bool>(),
+        amount in any::<u64>(),
+        kind in any::<u8>(),
+    ) {
+        let vault = VaultResponse { kind, success };
+        let swap = SwapResponse { kind, amount_in: amount };
+        let supply = SupplyResponse { kind, shares: amount };
+        let redeem = RedeemResponse { kind, assets: amount };
+        let failure = FailureResponse { kind };
+        assert_conformant(&vault);
+        assert_conformant(&swap);
+        assert_conformant(&supply);
+        assert_conformant(&redeem);
+        assert_conformant(&failure);
+        assert_conformant(&AttestationPreimage { request_id, output: vault });
+        assert_conformant(&AttestationPreimage { request_id, output: swap });
+        assert_conformant(&AttestationPreimage { request_id, output: supply });
+        assert_conformant(&AttestationPreimage { request_id, output: redeem });
+        assert_conformant(&AttestationPreimage { request_id, output: failure });
     }
 
     /// (a) + (b) for the singleton's three Misc payloads (`respond` and
@@ -482,87 +587,104 @@ proptest! {
     }
 }
 
+/// The only [`EmptyOutput`] there is.
+fn empty_output() -> EmptyOutput {
+    EmptyOutput {
+        output: ByteArray::default(),
+    }
+}
+
 /// (b), the other half: each `LEN` is the DEPLOYED shape's own width, not an
 /// arithmetic claim of ours. `Alignment::bin_len` is what the ledger and the
-/// hash chips size the preimage by.
+/// hash chips size a record by.
 #[test]
 fn lens_match_the_deployed_alignments() {
+    // The five deployed V1 records. `fab_len` sums the atom list INCLUDING the
+    // trailing `Bytes<0>` — so this equality is also the claim the zero-width
+    // `respond_serialization_schema` field makes, and `the_trailing_b0_atom_is_free`
+    // below isolates it.
     assert_eq!(
-        VaultEvent::LEN,
+        VaultEventV1::LEN,
         deployed::fab_len(&records::vault_record_atoms()),
         "vault record width"
     );
     assert_eq!(
-        SwapEvent::LEN,
+        ReplaceNonceEventV1::LEN,
+        deployed::fab_len(&records::replace_nonce_record_atoms()),
+        "nonce-replacement record width"
+    );
+    assert_eq!(
+        SwapEventV1::LEN,
         deployed::fab_len(&records::swap_record_atoms()),
         "swap record width"
     );
-    // The design of record's stage-7 arithmetic is built on this number.
-    assert_eq!(SwapEvent::LEN, 571);
-    assert_eq!(VaultEvent::LEN, 404);
-    // The lending pair: the vault record's shape with schema strings two and
-    // one bytes longer (407), and its 3-word sibling (one more ABI word, 439).
     assert_eq!(
-        SupplyEvent::LEN,
+        SupplyEventV1::LEN,
         deployed::fab_len(&records::supply_record_atoms()),
         "supply record width"
     );
     assert_eq!(
-        RedeemEvent::LEN,
+        RedeemEventV1::LEN,
         deployed::fab_len(&records::redeem_record_atoms()),
         "redeem record width"
     );
-    assert_eq!(SupplyEvent::LEN, 404 + 2 + 1);
-    assert_eq!(RedeemEvent::LEN, 404 + 32 + 2 + 1);
 
-    // M11 STAGE 7, and the same statement about the SHIPPING alignment: the
-    // widths are the borsh artifacts' own atom lists, not our arithmetic.
+    // The numbers, so a shape change is a number in a diff. The siblings are
+    // written as the vault record plus their own difference: one more ABI word
+    // (32) and a schema two bytes longer, or the `[]` schema of a nonce
+    // replacement.
+    assert_eq!(VaultEventV1::LEN, 362);
+    assert_eq!(erc20_vault::VAULT_SCHEMA_LEN, 34);
+    assert_eq!(SupplyEventV1::LEN, 362 + 2);
+    assert_eq!(RedeemEventV1::LEN, 362 + 32 + 2);
+    assert_eq!(
+        ReplaceNonceEventV1::LEN,
+        362 - erc20_vault::VAULT_SCHEMA_LEN + erc20_vault::REPLACE_NONCE_SCHEMA_LEN
+    );
+    assert_eq!(SwapEventV1::LEN, 526);
+
+    // The keccak blocks those widths buy, counted by the ROW MODEL's own
+    // `keccak_blocks` (rate 136, at least one padding byte) rather than by a
+    // second copy of the padding rule. The V1 swap record is FOUR blocks where
+    // the `fff3421c` one was five: pinning `respondSerializationSchema` to
+    // `Bytes<0>` took 571 bytes to 526, under the 544-byte boundary — the
+    // block the V2 format was going to save, saved by the protocol instead.
+    use minocrab_sim::v3::rowcost::keccak_blocks as blocks;
+    assert_eq!(blocks(VaultEventV1::LEN), 3);
+    assert_eq!(blocks(SwapEventV1::LEN), 4);
+    assert_eq!((blocks(VaultEventV2::LEN), blocks(SwapEventV2::LEN)), (3, 4));
+
+    // The three V1 attested-output widths, which are the three
+    // `queueAttestation*` circuits.
+    assert_eq!(EmptyOutput::LEN, 0);
+    assert_eq!(BoolOutput::LEN, 1);
+    assert_eq!(WordOutput::LEN, 32);
+
+    // THE V2 LINEAGE, and the same statement about a SHIPPING alignment: the
+    // widths are the `Pending` records' own atom lists, not our arithmetic.
     assert_eq!(
         VaultEventV2::LEN,
         deployed::fab_len(&records::vault_record_v2_atoms()),
-        "stage-7 vault record width"
+        "V2 vault record width"
     );
     assert_eq!(
         SwapEventV2::LEN,
         deployed::fab_len(&records::swap_record_v2_atoms()),
-        "stage-7 swap record width"
+        "V2 swap record width"
     );
-    // 404 → 338 and 571 → 498: +1 version byte, −68/−75 of schema, +1 kind.
-    assert_eq!(VaultEventV2::LEN, 404 + 1 - 2 * 34 + 1);
-    assert_eq!(VaultEventV2::LEN, 338);
-    assert_eq!(SwapEventV2::LEN, 571 + 1 - 38 - 37 + 1);
-    assert_eq!(SwapEventV2::LEN, 498);
-    // The V2 redeem record: 439 → 370 by the same two edits; the V2 supply
-    // record is `VaultEventV2` itself (the schema strings were the only
-    // difference, and V2 has none).
     assert_eq!(
         RedeemEventV2::LEN,
         deployed::fab_len(&records::redeem_record_v2_atoms()),
         "V2 redeem record width"
     );
-    assert_eq!(RedeemEventV2::LEN, 439 + 1 - 36 - 35 + 1);
+    assert_eq!(VaultEventV2::LEN, 338);
+    assert_eq!(SwapEventV2::LEN, 498);
     assert_eq!(RedeemEventV2::LEN, 370);
-    // The keccak block counts those widths buy: 3 → 3 for the vault record,
-    // 5 → 4 for the swap record — the block that takes `swap` from k16 to
-    // k15. Counted by the ROW MODEL's own `keccak_blocks` (rate 136, at least
-    // one padding byte) rather than by a second copy of the padding rule
-    // here: the block this saves is the block the cost model charges for, and
-    // that is the claim.
-    use minocrab_sim::v3::rowcost::keccak_blocks as blocks;
-    assert_eq!((blocks(VaultEvent::LEN), blocks(VaultEventV2::LEN)), (3, 3));
-    assert_eq!((blocks(SwapEvent::LEN), blocks(SwapEventV2::LEN)), (5, 4));
 
-    assert_eq!(ClaimOutput::LEN, 1);
-    assert_eq!(CompleteWithdrawOutput::LEN, 1);
-    assert_eq!(RefundOutput::LEN, erc20_vault::MPC_FAILURE_OUTPUT.len());
-    assert_eq!(CompleteSwapOutput::LEN, 8);
-    assert_eq!(AttestationPreimage::<ClaimOutput>::LEN, 33);
-    assert_eq!(AttestationPreimage::<CompleteSwapOutput>::LEN, 40);
-
-    // M11 stage 5's shapes, and the digest preimages they define. These are
-    // THE SPEC — the MPC has never settled on Midnight, so there is nothing
-    // deployed to compare them against; what pins them is borsh's own
-    // encoder, borsh's own schema, and the circuit that hashes them.
+    // The V2 lineage's shapes, and the digest preimages they define. These are
+    // THE SPEC — nothing has settled in this format — so what pins them is
+    // borsh's own encoder, borsh's own schema, and the circuit that hashes
+    // them.
     assert_eq!(VaultResponse::LEN, 2);
     assert_eq!(SwapResponse::LEN, 9);
     assert_eq!(FailureResponse::LEN, 1);
@@ -581,32 +703,63 @@ fn lens_match_the_deployed_alignments() {
     const { assert!(RespondMisc::LEN + 32 <= minocrab_contracts::events::MISC_SIZE) };
 }
 
+/// The trailing `respondSerializationSchema: Bytes<0>` is an ATOM that costs
+/// nothing — which is what licenses spelling it as a zero-width
+/// [`ByteArray<0>`] rather than leaving it out of the spec type.
+///
+/// Three statements, one per thing a reader could doubt: the atom is really
+/// there and really zero-length; dropping it from the alignment changes no
+/// width; and it consumes no limb, so the record's limb count is the same with
+/// it as without.
+#[test]
+fn the_trailing_b0_atom_is_free() {
+    for (name, atoms, len, limbs) in [
+        ("vault", records::vault_record_atoms(), VaultEventV1::LEN, records::VAULT_RECORD_LIMBS),
+        (
+            "replaceNonce",
+            records::replace_nonce_record_atoms(),
+            ReplaceNonceEventV1::LEN,
+            records::REPLACE_NONCE_RECORD_LIMBS,
+        ),
+        ("swap", records::swap_record_atoms(), SwapEventV1::LEN, records::SWAP_RECORD_LIMBS),
+        ("supply", records::supply_record_atoms(), SupplyEventV1::LEN, records::SUPPLY_RECORD_LIMBS),
+        ("redeem", records::redeem_record_atoms(), RedeemEventV1::LEN, records::REDEEM_RECORD_LIMBS),
+    ] {
+        assert_eq!(
+            atoms.last(),
+            Some(&AlignmentAtom::Bytes { length: 0 }),
+            "{name}: the last atom is not the Bytes<0>"
+        );
+        assert_eq!(
+            deployed::fab_len(&atoms[..atoms.len() - 1]),
+            len,
+            "{name}: the Bytes<0> atom carries bytes"
+        );
+        // One atom per field, and the b0 is the one with no limb: the limb
+        // count is the field count less the multi-limb fields' extras, and
+        // taking the b0 off the END changes nothing a limb index points at.
+        let value = deployed::fab_len(&atoms);
+        assert_eq!(value, len, "{name}: declared width");
+        assert!(limbs > 0, "{name}: a record has limbs");
+    }
+}
+
 /// (b), the third half: the schema walk's own width agrees with `LEN`, so
 /// the frozen offset table and the encoder cannot drift apart.
 #[test]
 fn schema_widths_match_the_lens() {
     let expected: Vec<(&str, usize)> = vec![
-        ("VaultEvent", VaultEvent::LEN),
-        ("SwapEvent", SwapEvent::LEN),
-        ("SupplyEvent", SupplyEvent::LEN),
-        ("RedeemEvent", RedeemEvent::LEN),
+        ("VaultEventV1", VaultEventV1::LEN),
+        ("ReplaceNonceEventV1", ReplaceNonceEventV1::LEN),
+        ("SwapEventV1", SwapEventV1::LEN),
+        ("SupplyEventV1", SupplyEventV1::LEN),
+        ("RedeemEventV1", RedeemEventV1::LEN),
+        ("EmptyOutput", EmptyOutput::LEN),
+        ("BoolOutput", BoolOutput::LEN),
+        ("WordOutput", WordOutput::LEN),
         ("VaultEventV2", VaultEventV2::LEN),
         ("SwapEventV2", SwapEventV2::LEN),
         ("RedeemEventV2", RedeemEventV2::LEN),
-        ("ClaimOutput", ClaimOutput::LEN),
-        ("CompleteWithdrawOutput", CompleteWithdrawOutput::LEN),
-        ("RefundOutput", RefundOutput::LEN),
-        ("CompleteSwapOutput", CompleteSwapOutput::LEN),
-        ("AttestationPreimage<ClaimOutput>", AttestationPreimage::<ClaimOutput>::LEN),
-        (
-            "AttestationPreimage<CompleteWithdrawOutput>",
-            AttestationPreimage::<CompleteWithdrawOutput>::LEN,
-        ),
-        ("AttestationPreimage<RefundOutput>", AttestationPreimage::<RefundOutput>::LEN),
-        (
-            "AttestationPreimage<CompleteSwapOutput>",
-            AttestationPreimage::<CompleteSwapOutput>::LEN,
-        ),
         ("VaultResponse", VaultResponse::LEN),
         ("SwapResponse", SwapResponse::LEN),
         ("FailureResponse", FailureResponse::LEN),
@@ -645,214 +798,313 @@ fn schema_widths_match_the_lens() {
 
 // ---- (c) THE HEADLINE: the deployed bytes ------------------------------------
 
-/// A V2 (M11 stage 7) record's limbs from the deployed record's: the
-/// format-version byte in front, the two schema strings (four limbs) traded
-/// for the response kind at the end. The middle is untouched — which is the
-/// point of building it this way rather than restating it.
-fn v2_limbs(deployed: &[Fr], kind: u8) -> Vec<Fr> {
-    let mut limbs = vec![Fr::from(u64::from(spec_types::RECORD_FORMAT_VERSION))];
-    limbs.extend_from_slice(&deployed[..deployed.len() - 4]);
-    limbs.push(Fr::from(u64::from(kind)));
-    limbs
+/// A V2 record's limbs from the model's V1 request: the same field VALUES, in
+/// the V2 slot order.
+///
+/// V2 is a specification, so there is no model to take its limbs from; what
+/// there is, is the V1 record the vault actually writes. This reorders those
+/// limbs — the version byte in front, the request nonce restored after the
+/// sender, `params` before `txParamType`, the response kind where the output
+/// schema was — and changes nothing else. The VALUES stay the model's, which
+/// is what keeps the byte claim below two independent statements rather than
+/// one restated.
+fn v2_limbs(req: &Req, env: &Env, request_nonce: u64, kind: u8) -> Vec<Fr> {
+    use minocrab_contracts::signet_v1::layout as v1;
+    use minocrab_std::v3::bytes_limbs;
+
+    let l = req.limbs(env);
+    let words = req.tx.capacity;
+    let params = v1::params(words);
+    let execution_dest = v1::execution_dest(words);
+    let mut out = vec![Fr::from(u64::from(spec_types::RECORD_FORMAT_VERSION))];
+    out.extend([l[v1::SENDER], l[v1::SENDER + 1]]);
+    out.push(Fr::from(request_nonce));
+    out.push(l[v1::KEY_VERSION]);
+    out.extend([l[v1::PATH], l[v1::PATH + 1]]);
+    out.push(l[v1::ALGO]);
+    out.push(l[v1::signature_dest(words)]);
+    out.extend_from_slice(&l[params..params + bytes_limbs(64)]);
+    out.push(l[v1::TX_PARAM_TYPE]);
+    out.extend_from_slice(&l[v1::CHAIN_ID..=v1::access_list_entry_count(words)]);
+    out.extend([l[execution_dest], l[execution_dest + 1]]);
+    out.push(Fr::from(u64::from(kind)));
+    out
+}
+
+/// One record's two byte strings, asserted equal: the deployed FAB packing of
+/// the model's limbs, and canonical Borsh of the spec type. The second oracle
+/// runs here too, so a spec type that strayed out of the subset would be
+/// caught at a deployed value and not only at a generated one.
+fn assert_record_bytes<T>(name: &str, atoms: &[AlignmentAtom], limbs: &[Fr], expected_limbs: usize, spec: &T)
+where
+    T: BorshSerialize + Serialize + FixedLen,
+{
+    assert_eq!(limbs.len(), expected_limbs, "{name}: limb count");
+    let on_chain = deployed::fab_bytes(atoms, limbs);
+    assert_eq!(on_chain.len(), T::LEN, "{name}: deployed width vs LEN");
+    assert_eq!(on_chain, borsh_bytes(spec), "{name}: record bytes differ");
+    assert_eq!(on_chain, bincode_fixint_bytes(spec), "{name}: bincode disagrees");
 }
 
 proptest! {
     #![proptest_config(gen::config())]
 
-    /// The 2-word request record — `startDeposit`, `approveRouter` and
-    /// `startWithdraw` all write this shape.
+    /// The 2-word request record — `sendDeposit`, `sendWithdraw` and both
+    /// approval routes (`sendApprove` for the router and for the stata token)
+    /// write this shape.
     ///
-    /// LEFT: the bytes the deployed record holds. The reference model's
-    /// limbs under `erc20_vault::VaultEvent::atoms()`, packed by the FAB
-    /// rule (`parse_field_repr` + `binary_repr`) — the record M28's
-    /// differential suite pins to compactc's artifact.
+    /// LEFT: the bytes the deployed record holds. The reference model's limbs
+    /// under `erc20_vault::VaultRecord`'s atoms, packed by the FAB rule
+    /// (`parse_field_repr` + `binary_repr`) — the record M44's differential
+    /// suite pins to compactc's artifact.
     ///
     /// RIGHT: `borsh::to_vec` of the spec type at the same field values.
     #[test]
     fn vault_record_bytes_are_canonical_borsh(
-        deposit in gen::start_deposit(),
-        approve in gen::approve_router(),
-        withdraw in gen::start_withdraw(),
+        deposit in sent(Sent::deposit),
+        withdraw in sent(Sent::withdraw),
+        router in sent(Sent::approve_router),
+        stata in sent(Sent::approve_stata),
     ) {
         let atoms = records::vault_record_atoms();
-        for (name, limbs, spec) in [
-            ("startDeposit", deposit.req().limbs(&deposit.env), records::deposit_event(&deposit)),
-            ("approveRouter", approve.req().limbs(&approve.env), records::approve_event(&approve)),
-            ("startWithdraw", withdraw.req().limbs(&withdraw.env), records::withdraw_event(&withdraw)),
+        for (name, s, spec) in [
+            ("sendDeposit", &deposit, records::deposit_event(&deposit)),
+            ("sendWithdraw", &withdraw, records::withdraw_event(&withdraw)),
+            ("sendApprove (router)", &router, records::approve_event(&router)),
+            ("sendApprove (stata)", &stata, records::approve_event(&stata)),
         ] {
-            prop_assert_eq!(limbs.len(), records::VAULT_RECORD_LIMBS);
-            let on_chain = deployed::fab_bytes(&atoms, &limbs);
-            let spec_bytes = borsh_bytes(&spec);
-            prop_assert_eq!(&on_chain, &spec_bytes, "{}: record bytes differ", name);
-            prop_assert_eq!(bincode_fixint_bytes(&spec), on_chain.clone(), "{}", name);
+            assert_record_bytes(
+                name,
+                &atoms,
+                &s.req().limbs(&s.env),
+                records::VAULT_RECORD_LIMBS,
+                &spec,
+            );
         }
+    }
+
+    /// The nonce-replacement record: the one V1 record with NO calldata, so
+    /// `calldata.is_some` is 0 and the word slots the alignment still reserves
+    /// are zero — the `Maybe ↦ Flagged` rule at the value that distinguishes
+    /// it from `Option`.
+    #[test]
+    fn replace_nonce_record_bytes_are_canonical_borsh(s in sent(replace_nonce_base)) {
+        let spec = records::replace_nonce_event(&s);
+        assert_record_bytes(
+            "sendReplaceNonce",
+            &records::replace_nonce_record_atoms(),
+            &s.req().limbs(&s.env),
+            records::REPLACE_NONCE_RECORD_LIMBS,
+            &spec,
+        );
+        prop_assert!(!spec.tx_params.calldata.is_some);
     }
 
     /// The 7-word swap record.
     #[test]
-    fn swap_record_bytes_are_canonical_borsh(swap in gen::start_swap()) {
-        let limbs = swap.req().limbs(&swap.env);
-        prop_assert_eq!(limbs.len(), records::SWAP_RECORD_LIMBS);
-        let on_chain = deployed::fab_bytes(&records::swap_record_atoms(), &limbs);
-        let spec = records::swap_event(&swap);
-        prop_assert_eq!(&on_chain, &borsh_bytes(&spec));
-        prop_assert_eq!(bincode_fixint_bytes(&spec), on_chain.clone());
+    fn swap_record_bytes_are_canonical_borsh(s in sent(Sent::swap)) {
+        assert_record_bytes(
+            "sendSwap",
+            &records::swap_record_atoms(),
+            &s.req().limbs(&s.env),
+            records::SWAP_RECORD_LIMBS,
+            &records::swap_event(&s),
+        );
     }
 
-    /// The lending pair: `startSupply`'s 2-word record with the lending
-    /// schemas, and `startRedeem`'s 3-word record.
+    /// The lending pair: `sendSupply`'s 2-word record with the lending schema,
+    /// and `sendRedeem`'s 3-word record.
     #[test]
     fn lending_record_bytes_are_canonical_borsh(
-        supply in gen::start_supply(),
-        redeem in gen::start_redeem(),
+        supply in sent(Sent::supply),
+        redeem in sent(Sent::redeem),
     ) {
-        let limbs = supply.req().limbs(&supply.env);
-        prop_assert_eq!(limbs.len(), records::SUPPLY_RECORD_LIMBS);
-        let on_chain = deployed::fab_bytes(&records::supply_record_atoms(), &limbs);
-        let spec = records::supply_event(&supply);
-        prop_assert_eq!(on_chain.len(), SupplyEvent::LEN);
-        prop_assert_eq!(&on_chain, &borsh_bytes(&spec));
-        prop_assert_eq!(bincode_fixint_bytes(&spec), on_chain.clone());
-
-        let limbs = redeem.req().limbs(&redeem.env);
-        prop_assert_eq!(limbs.len(), records::REDEEM_RECORD_LIMBS);
-        let on_chain = deployed::fab_bytes(&records::redeem_record_atoms(), &limbs);
-        let spec = records::redeem_event(&redeem);
-        prop_assert_eq!(on_chain.len(), RedeemEvent::LEN);
-        prop_assert_eq!(&on_chain, &borsh_bytes(&spec));
-        prop_assert_eq!(bincode_fixint_bytes(&spec), on_chain.clone());
+        assert_record_bytes(
+            "sendSupply",
+            &records::supply_record_atoms(),
+            &supply.req().limbs(&supply.env),
+            records::SUPPLY_RECORD_LIMBS,
+            &records::supply_event(&supply),
+        );
+        assert_record_bytes(
+            "sendRedeem",
+            &records::redeem_record_atoms(),
+            &redeem.req().limbs(&redeem.env),
+            records::REDEEM_RECORD_LIMBS,
+            &records::redeem_event(&redeem),
+        );
     }
 
-    /// The lending pair in V2: supply lands in `VaultEventV2` (kind 5), redeem
-    /// in its own 3-word type (kind 6).
-    #[test]
-    fn stage7_lending_record_bytes_are_canonical_borsh(
-        supply in gen::start_supply(),
-        redeem in gen::start_redeem(),
-    ) {
-        use minocrab_contracts::erc20_vault_pending::{RESPONSE_KIND_REDEEM, RESPONSE_KIND_SUPPLY};
-        let limbs = v2_limbs(&supply.req().limbs(&supply.env), records::kind(RESPONSE_KIND_SUPPLY));
-        prop_assert_eq!(limbs.len(), records::VAULT_RECORD_V2_LIMBS);
-        let on_chain = deployed::fab_bytes(&records::vault_record_v2_atoms(), &limbs);
-        let spec = records::supply_event_v2(&supply);
-        prop_assert_eq!(on_chain.len(), VaultEventV2::LEN);
-        prop_assert_eq!(&on_chain, &borsh_bytes(&spec));
-        prop_assert_eq!(bincode_fixint_bytes(&spec), on_chain.clone());
-
-        let limbs = v2_limbs(&redeem.req().limbs(&redeem.env), records::kind(RESPONSE_KIND_REDEEM));
-        prop_assert_eq!(limbs.len(), records::REDEEM_RECORD_V2_LIMBS);
-        let on_chain = deployed::fab_bytes(&records::redeem_record_v2_atoms(), &limbs);
-        let spec = records::redeem_event_v2(&redeem);
-        prop_assert_eq!(on_chain.len(), RedeemEventV2::LEN);
-        prop_assert_eq!(&on_chain, &borsh_bytes(&spec));
-        prop_assert_eq!(bincode_fixint_bytes(&spec), on_chain.clone());
-        prop_assert_eq!(on_chain[0], spec_types::RECORD_FORMAT_VERSION);
-    }
-
-    /// M11 STAGE 7: the record the V2 format writes (the `Pending`
-    /// lineage's records).
+    /// THE V2 LINEAGE: the record the `Pending` format writes.
     ///
-    /// The deployed properties above are untouched; this is the same
-    /// statement about the V2 format, with the same two independent sides.
-    /// LEFT: the V2 limbs under `VaultEventV2::atoms()` — the deployed
-    /// record's limbs with the version byte in front and the kind where the
-    /// schema strings were ([`v2_limbs`]). RIGHT: `borsh::to_vec` of the
-    /// spec twin.
+    /// The V1 properties above are untouched; this is the same statement about
+    /// the V2 format, with the same two independent sides. LEFT: the V2 limbs
+    /// under `VaultEventV2::atoms()` ([`v2_limbs`]). RIGHT: `borsh::to_vec` of
+    /// the spec twin.
     #[test]
-    fn stage7_record_bytes_are_canonical_borsh(
-        deposit in gen::start_deposit(),
-        approve in gen::approve_router(),
-        withdraw in gen::start_withdraw(),
-        swap in gen::start_swap(),
+    fn v2_record_bytes_are_canonical_borsh(
+        deposit in sent(Sent::deposit),
+        withdraw in sent(Sent::withdraw),
+        approve in sent(Sent::approve_router),
+        swap in sent(Sent::swap),
+        supply in sent(Sent::supply),
+        redeem in sent(Sent::redeem),
+        request_nonce in any::<u64>(),
     ) {
         use minocrab_contracts::erc20_vault_pending::{
-            RESPONSE_KIND_APPROVE, RESPONSE_KIND_CLAIM, RESPONSE_KIND_SWAP, RESPONSE_KIND_WITHDRAW,
+            RESPONSE_KIND_APPROVE, RESPONSE_KIND_CLAIM, RESPONSE_KIND_REDEEM, RESPONSE_KIND_SUPPLY,
+            RESPONSE_KIND_SWAP, RESPONSE_KIND_WITHDRAW,
         };
         let atoms = records::vault_record_v2_atoms();
-        for (name, limbs, spec) in [
+        for (name, s, kind, spec) in [
             (
-                "startDeposit",
-                v2_limbs(&deposit.req().limbs(&deposit.env), records::kind(RESPONSE_KIND_CLAIM)),
-                records::deposit_event_v2(&deposit),
+                "deposit",
+                &deposit,
+                RESPONSE_KIND_CLAIM,
+                records::deposit_event_v2(&deposit, request_nonce),
+            ),
+            (
+                "withdraw",
+                &withdraw,
+                RESPONSE_KIND_WITHDRAW,
+                records::withdraw_event_v2(&withdraw, request_nonce),
             ),
             (
                 "approveRouter",
-                v2_limbs(&approve.req().limbs(&approve.env), records::kind(RESPONSE_KIND_APPROVE)),
-                records::approve_event_v2(&approve),
+                &approve,
+                RESPONSE_KIND_APPROVE,
+                records::approve_event_v2(&approve, request_nonce),
             ),
             (
-                "startWithdraw",
-                v2_limbs(&withdraw.req().limbs(&withdraw.env), records::kind(RESPONSE_KIND_WITHDRAW)),
-                records::withdraw_event_v2(&withdraw),
+                "supply",
+                &supply,
+                RESPONSE_KIND_SUPPLY,
+                records::supply_event_v2(&supply, request_nonce),
             ),
         ] {
-            prop_assert_eq!(limbs.len(), records::VAULT_RECORD_V2_LIMBS);
-            let on_chain = deployed::fab_bytes(&atoms, &limbs);
-            prop_assert_eq!(on_chain.len(), VaultEventV2::LEN);
-            let spec_bytes = borsh_bytes(&spec);
-            prop_assert_eq!(&on_chain, &spec_bytes, "{}: stage-7 record bytes differ", name);
-            prop_assert_eq!(bincode_fixint_bytes(&spec), on_chain.clone(), "{}", name);
+            let limbs = v2_limbs(&s.req(), &s.env, request_nonce, records::kind(kind));
+            assert_record_bytes(name, &atoms, &limbs, records::VAULT_RECORD_V2_LIMBS, &spec);
             // The version byte is the first byte, before anything else.
-            prop_assert_eq!(on_chain[0], spec_types::RECORD_FORMAT_VERSION);
+            prop_assert_eq!(borsh_bytes(&spec)[0], spec_types::RECORD_FORMAT_VERSION);
         }
 
-        let limbs = v2_limbs(&swap.req().limbs(&swap.env), records::kind(RESPONSE_KIND_SWAP));
-        prop_assert_eq!(limbs.len(), records::SWAP_RECORD_V2_LIMBS);
-        let on_chain = deployed::fab_bytes(&records::swap_record_v2_atoms(), &limbs);
-        let spec = records::swap_event_v2(&swap);
-        prop_assert_eq!(on_chain.len(), SwapEventV2::LEN);
-        prop_assert_eq!(&on_chain, &borsh_bytes(&spec));
-        prop_assert_eq!(bincode_fixint_bytes(&spec), on_chain.clone());
+        let limbs = v2_limbs(&swap.req(), &swap.env, request_nonce, records::kind(RESPONSE_KIND_SWAP));
+        assert_record_bytes(
+            "swap",
+            &records::swap_record_v2_atoms(),
+            &limbs,
+            records::SWAP_RECORD_V2_LIMBS,
+            &records::swap_event_v2(&swap, request_nonce),
+        );
+
+        let limbs = v2_limbs(&redeem.req(), &redeem.env, request_nonce, records::kind(RESPONSE_KIND_REDEEM));
+        assert_record_bytes(
+            "redeem",
+            &records::redeem_record_v2_atoms(),
+            &limbs,
+            records::REDEEM_RECORD_V2_LIMBS,
+            &records::redeem_event_v2(&redeem, request_nonce),
+        );
     }
 
-    /// The attestation digest preimages of the settle circuits, one per
-    /// output width.
+    /// The V1 attested outputs, at the three widths the three
+    /// `queueAttestation*` circuits take.
     ///
-    /// LEFT: `calculateSignetAttestationDigest`'s own alignment,
-    /// `[Bytes<32>, Bytes<LEN_OUTPUT>]`, over the request id's slot pair
-    /// and the output's limbs — the BYTES; the digest itself is Poseidon
-    /// over those limbs since the protocol move, checked in the vault
-    /// model against compactc's artifacts.
+    /// LEFT: `Bytes<LEN>`'s FAB binary over the limbs the circuit discloses —
+    /// a `Bytes<1>`'s single limb, a `Bytes<32>`'s `[hi, lo]` slot pair, and
+    /// the empty output's nothing. RIGHT: `borsh::to_vec` of the spec type.
     #[test]
-    fn attestation_preimages_are_canonical_borsh(
-        claim in gen::complete_deposit(),
-        complete_withdraw in gen::complete_withdraw(),
-        refund in gen::refund_withdraw(),
-        complete_swap in gen::complete_swap(),
+    fn attested_output_bytes_are_canonical_borsh(
+        success in any::<u8>(),
+        word in byte_array::<32>(),
     ) {
-        // completeDeposit: Bytes<1>
-        let rid = claim.d.request_id();
-        let spec = AttestationPreimage { request_id: rid, output: ClaimOutput { success: claim.serialized_output } };
-        let on_chain = deployed::attestation_preimage_bytes(&rid, 1, &claim.output_limbs());
-        prop_assert_eq!(&on_chain, &borsh_bytes(&spec));
+        let empty = empty_output();
+        prop_assert!(deployed::output_bytes(0, &[]).is_empty());
+        prop_assert_eq!(deployed::output_bytes(0, &[]), borsh_bytes(&empty));
+        prop_assert_eq!(bincode_fixint_bytes(&empty), borsh_bytes(&empty));
 
-        // completeWithdraw: Bytes<1>
-        let rid = complete_withdraw.w.request_id();
-        let spec = AttestationPreimage {
-            request_id: rid,
-            output: CompleteWithdrawOutput { success: complete_withdraw.outcome },
-        };
-        let on_chain = deployed::attestation_preimage_bytes(&rid, 1, &complete_withdraw.output_limbs());
+        let spec = BoolOutput { success };
+        let on_chain = deployed::output_bytes(1, &[Fr::from(u64::from(success))]);
         prop_assert_eq!(&on_chain, &borsh_bytes(&spec));
+        prop_assert_eq!(on_chain.len(), BoolOutput::LEN);
 
-        // refundWithdraw: Bytes<5>
-        let rid = refund.w.request_id();
-        let spec = AttestationPreimage {
-            request_id: rid,
-            output: RefundOutput { failure: refund.serialized_output },
-        };
-        let on_chain = deployed::attestation_preimage_bytes(&rid, 5, &refund.output_limbs());
+        let (hi, lo) = b32_slots(&word);
+        let spec = WordOutput { word };
+        let on_chain = deployed::output_bytes(32, &[hi, lo]);
         prop_assert_eq!(&on_chain, &borsh_bytes(&spec));
-
-        // completeSwap: Bytes<8>, already a Borsh u64.
-        let rid = complete_swap.s.request_id();
-        let spec = AttestationPreimage {
-            request_id: rid,
-            output: CompleteSwapOutput { amount_in: complete_swap.amount_in },
-        };
-        let on_chain = deployed::attestation_preimage_bytes(&rid, 8, &complete_swap.output_limbs());
-        prop_assert_eq!(&on_chain, &borsh_bytes(&spec));
+        prop_assert_eq!(on_chain.len(), WordOutput::LEN);
     }
+}
+
+/// The V1 attestation digest's preimage, and the two facts that replaced the
+/// retired `0xdeadbeef01` failure output.
+///
+/// a. THE PREIMAGE IS FIELD ELEMENTS, not bytes: Poseidon over
+///    `[HashDomain.attestationDigest, requestId.hi, requestId.lo, blockHeight,
+///    outputKind, LEN, ..output]`. That is why there is no
+///    `AttestationPreimageV1` spec type to put in the offset tables — there is
+///    no byte string for one to describe. The order is restated here against
+///    `prims::attestation_digest`, which the vault's differential suite pins
+///    to compactc's artifact.
+/// b. A FAILED OR UNVIABLE VERDICT CARRIES AN EMPTY OUTPUT. There is no
+///    sentinel value to assert equal in-circuit any more; what a refund path
+///    goes on is the verdict and the width, which is exactly why V1 signs both
+///    of them. The three `assert_ne!`s are that claim: the same empty output
+///    under two verdicts, and the empty output against a one-byte zero, are
+///    different digests.
+#[test]
+fn v1_attestation_digest_commits_to_the_kind_and_the_width() {
+    let request_id: [u8; 32] = std::array::from_fn(|i| (i as u8).wrapping_mul(7).wrapping_add(3));
+    let height = 7_000_123u64;
+    let word: [u8; 32] = std::array::from_fn(|i| 0xa0u8.wrapping_add(i as u8));
+    let (w_hi, w_lo) = b32_slots(&word);
+    let (r_hi, r_lo) = b32_slots(&request_id);
+
+    let digest = |kind: u64, len: usize, output: &[Fr]| attestation_digest(&request_id, height, kind, len, output);
+
+    // (a) the preimage, limb for limb.
+    for (kind, len, output) in [
+        (output_kind::EXECUTED, EmptyOutput::LEN, vec![]),
+        (output_kind::EXECUTED, BoolOutput::LEN, vec![Fr::from(1u64)]),
+        (output_kind::EXECUTED, WordOutput::LEN, vec![w_hi, w_lo]),
+        (output_kind::FAILED, EmptyOutput::LEN, vec![]),
+        (output_kind::UNVIABLE, EmptyOutput::LEN, vec![]),
+    ] {
+        let mut preimage = vec![
+            Fr::from(hash_domain::ATTESTATION_DIGEST),
+            r_hi,
+            r_lo,
+            Fr::from(height),
+            Fr::from(kind),
+            Fr::from(len as u64),
+        ];
+        preimage.extend_from_slice(&output);
+        assert_eq!(
+            digest(kind, len, &output),
+            transient_upgrade(&preimage),
+            "the V1 attestation preimage is not [tag, requestId, height, kind, LEN, ..output]"
+        );
+    }
+
+    // (b) the empty output, and what the digest still distinguishes without it.
+    assert_eq!(EmptyOutput::LEN, 0);
+    assert!(borsh_bytes(&empty_output()).is_empty());
+    assert!(deployed::output_bytes(0, &[]).is_empty());
+    assert_ne!(
+        digest(output_kind::FAILED, 0, &[]),
+        digest(output_kind::UNVIABLE, 0, &[]),
+        "the verdict is not in the digest"
+    );
+    assert_ne!(
+        digest(output_kind::EXECUTED, 0, &[]),
+        digest(output_kind::FAILED, 0, &[]),
+        "an execution and a failure sign the same digest"
+    );
+    assert_ne!(
+        digest(output_kind::EXECUTED, 1, &[Fr::from(0u64)]),
+        digest(output_kind::EXECUTED, 0, &[]),
+        "the width is not in the digest — a one-byte output replays as an empty one"
+    );
 }
 
 /// The Signet singleton's `signBidirectional` Misc payload.
@@ -907,24 +1159,20 @@ fn sign_bidirectional_misc_bytes_are_canonical_borsh() {
         .expect("signBidirectional's Misc payload is canonical Borsh");
 }
 
-/// `respond` and `respondBidirectional` — the same payload shape under two
-/// event names, each checked against its own corpus artifact.
+/// `respond` — requestId ‖ signature, checked against its corpus artifact.
+/// Until midnight-integration PR #127 `respondBidirectional` shared this
+/// payload under its own event name and sat in the same table; its payload
+/// now carries the attestation (height, kind, width, digest) between the id
+/// and the signature, a different Borsh record, and its byte-level tamper
+/// coverage lives in `signet_construction.rs` (M43 B).
 #[test]
 fn respond_misc_bytes_are_canonical_borsh() {
-    let circuits = [
-        (
-            "respond",
-            signet_contract::SIGNATURE_RESPONDED_EVENT,
-            signet_contract::SignetContract::respond().ir,
-            deployed::corpus_signet_zkir("respond"),
-        ),
-        (
-            "respondBidirectional",
-            signet_contract::RESPOND_BIDIRECTIONAL_EVENT,
-            signet_contract::SignetContract::respond_bidirectional().ir,
-            deployed::corpus_signet_zkir("respondBidirectional"),
-        ),
-    ];
+    let circuits = [(
+        "respond",
+        signet_contract::SIGNATURE_RESPONDED_EVENT,
+        signet_contract::SignetContract::respond().ir,
+        deployed::corpus_signet_zkir("respond"),
+    )];
     let strategy = (respond_misc(), 0usize..minocrab_contracts::events::MISC_SIZE);
     TestRunner::new(gen::config())
         .run(&strategy, |(payload, tamper)| {
@@ -958,7 +1206,7 @@ fn respond_misc_bytes_are_canonical_borsh() {
             }
             Ok(())
         })
-        .expect("the respond circuits' Misc payloads are canonical Borsh");
+        .expect("respond's Misc payload is canonical Borsh");
 }
 
 // ---- the wrapper's transparency ----------------------------------------------
@@ -1060,108 +1308,130 @@ mod subset_boundary {
 /// `cargo test --release -p minocrab-contracts --test serialization_conformance -- \
 ///      --ignored --nocapture print_layout_snapshot`
 const LAYOUT_SNAPSHOT: &[(&str, &str, &str, usize, usize)] = &[
-    ("VaultEvent", "sender", "[u8; 32]", 0, 32),
-    ("VaultEvent", "request_nonce", "u64", 32, 8),
-    ("VaultEvent", "key_version", "u8", 40, 1),
-    ("VaultEvent", "path", "[u8; 32]", 41, 32),
-    ("VaultEvent", "algo", "u8", 73, 1),
-    ("VaultEvent", "dest", "u8", 74, 1),
-    ("VaultEvent", "params", "[u8; 64]", 75, 64),
-    ("VaultEvent", "tx_param_type", "u8", 139, 1),
-    ("VaultEvent", "tx_params.chain_id", "u64", 140, 8),
-    ("VaultEvent", "tx_params.nonce", "u64", 148, 8),
-    ("VaultEvent", "tx_params.max_priority_fee_per_gas", "u128", 156, 16),
-    ("VaultEvent", "tx_params.max_fee_per_gas", "u128", 172, 16),
-    ("VaultEvent", "tx_params.gas_limit", "u64", 188, 8),
-    ("VaultEvent", "tx_params.to", "[u8; 20]", 196, 20),
-    ("VaultEvent", "tx_params.value", "u128", 216, 16),
-    ("VaultEvent", "tx_params.calldata.is_some", "bool", 232, 1),
-    ("VaultEvent", "tx_params.calldata.value.selector", "[u8; 4]", 233, 4),
-    ("VaultEvent", "tx_params.calldata.value.no_words", "u16", 237, 2),
-    ("VaultEvent", "tx_params.calldata.value.words[0]", "[u8; 32]", 239, 32),
-    ("VaultEvent", "tx_params.calldata.value.words[1]", "[u8; 32]", 271, 32),
-    ("VaultEvent", "tx_params.access_list_entry_count", "u8", 303, 1),
-    ("VaultEvent", "caip2_id", "[u8; 32]", 304, 32),
-    ("VaultEvent", "output_deserialization_schema", "[u8; 34]", 336, 34),
-    ("VaultEvent", "respond_serialization_schema", "[u8; 34]", 370, 34),
-    ("SwapEvent", "sender", "[u8; 32]", 0, 32),
-    ("SwapEvent", "request_nonce", "u64", 32, 8),
-    ("SwapEvent", "key_version", "u8", 40, 1),
-    ("SwapEvent", "path", "[u8; 32]", 41, 32),
-    ("SwapEvent", "algo", "u8", 73, 1),
-    ("SwapEvent", "dest", "u8", 74, 1),
-    ("SwapEvent", "params", "[u8; 64]", 75, 64),
-    ("SwapEvent", "tx_param_type", "u8", 139, 1),
-    ("SwapEvent", "tx_params.chain_id", "u64", 140, 8),
-    ("SwapEvent", "tx_params.nonce", "u64", 148, 8),
-    ("SwapEvent", "tx_params.max_priority_fee_per_gas", "u128", 156, 16),
-    ("SwapEvent", "tx_params.max_fee_per_gas", "u128", 172, 16),
-    ("SwapEvent", "tx_params.gas_limit", "u64", 188, 8),
-    ("SwapEvent", "tx_params.to", "[u8; 20]", 196, 20),
-    ("SwapEvent", "tx_params.value", "u128", 216, 16),
-    ("SwapEvent", "tx_params.calldata.is_some", "bool", 232, 1),
-    ("SwapEvent", "tx_params.calldata.value.selector", "[u8; 4]", 233, 4),
-    ("SwapEvent", "tx_params.calldata.value.no_words", "u16", 237, 2),
-    ("SwapEvent", "tx_params.calldata.value.words[0]", "[u8; 32]", 239, 32),
-    ("SwapEvent", "tx_params.calldata.value.words[1]", "[u8; 32]", 271, 32),
-    ("SwapEvent", "tx_params.calldata.value.words[2]", "[u8; 32]", 303, 32),
-    ("SwapEvent", "tx_params.calldata.value.words[3]", "[u8; 32]", 335, 32),
-    ("SwapEvent", "tx_params.calldata.value.words[4]", "[u8; 32]", 367, 32),
-    ("SwapEvent", "tx_params.calldata.value.words[5]", "[u8; 32]", 399, 32),
-    ("SwapEvent", "tx_params.calldata.value.words[6]", "[u8; 32]", 431, 32),
-    ("SwapEvent", "tx_params.access_list_entry_count", "u8", 463, 1),
-    ("SwapEvent", "caip2_id", "[u8; 32]", 464, 32),
-    ("SwapEvent", "output_deserialization_schema", "[u8; 38]", 496, 38),
-    ("SwapEvent", "respond_serialization_schema", "[u8; 37]", 534, 37),
-    ("SupplyEvent", "sender", "[u8; 32]", 0, 32),
-    ("SupplyEvent", "request_nonce", "u64", 32, 8),
-    ("SupplyEvent", "key_version", "u8", 40, 1),
-    ("SupplyEvent", "path", "[u8; 32]", 41, 32),
-    ("SupplyEvent", "algo", "u8", 73, 1),
-    ("SupplyEvent", "dest", "u8", 74, 1),
-    ("SupplyEvent", "params", "[u8; 64]", 75, 64),
-    ("SupplyEvent", "tx_param_type", "u8", 139, 1),
-    ("SupplyEvent", "tx_params.chain_id", "u64", 140, 8),
-    ("SupplyEvent", "tx_params.nonce", "u64", 148, 8),
-    ("SupplyEvent", "tx_params.max_priority_fee_per_gas", "u128", 156, 16),
-    ("SupplyEvent", "tx_params.max_fee_per_gas", "u128", 172, 16),
-    ("SupplyEvent", "tx_params.gas_limit", "u64", 188, 8),
-    ("SupplyEvent", "tx_params.to", "[u8; 20]", 196, 20),
-    ("SupplyEvent", "tx_params.value", "u128", 216, 16),
-    ("SupplyEvent", "tx_params.calldata.is_some", "bool", 232, 1),
-    ("SupplyEvent", "tx_params.calldata.value.selector", "[u8; 4]", 233, 4),
-    ("SupplyEvent", "tx_params.calldata.value.no_words", "u16", 237, 2),
-    ("SupplyEvent", "tx_params.calldata.value.words[0]", "[u8; 32]", 239, 32),
-    ("SupplyEvent", "tx_params.calldata.value.words[1]", "[u8; 32]", 271, 32),
-    ("SupplyEvent", "tx_params.access_list_entry_count", "u8", 303, 1),
-    ("SupplyEvent", "caip2_id", "[u8; 32]", 304, 32),
-    ("SupplyEvent", "output_deserialization_schema", "[u8; 36]", 336, 36),
-    ("SupplyEvent", "respond_serialization_schema", "[u8; 35]", 372, 35),
-    ("RedeemEvent", "sender", "[u8; 32]", 0, 32),
-    ("RedeemEvent", "request_nonce", "u64", 32, 8),
-    ("RedeemEvent", "key_version", "u8", 40, 1),
-    ("RedeemEvent", "path", "[u8; 32]", 41, 32),
-    ("RedeemEvent", "algo", "u8", 73, 1),
-    ("RedeemEvent", "dest", "u8", 74, 1),
-    ("RedeemEvent", "params", "[u8; 64]", 75, 64),
-    ("RedeemEvent", "tx_param_type", "u8", 139, 1),
-    ("RedeemEvent", "tx_params.chain_id", "u64", 140, 8),
-    ("RedeemEvent", "tx_params.nonce", "u64", 148, 8),
-    ("RedeemEvent", "tx_params.max_priority_fee_per_gas", "u128", 156, 16),
-    ("RedeemEvent", "tx_params.max_fee_per_gas", "u128", 172, 16),
-    ("RedeemEvent", "tx_params.gas_limit", "u64", 188, 8),
-    ("RedeemEvent", "tx_params.to", "[u8; 20]", 196, 20),
-    ("RedeemEvent", "tx_params.value", "u128", 216, 16),
-    ("RedeemEvent", "tx_params.calldata.is_some", "bool", 232, 1),
-    ("RedeemEvent", "tx_params.calldata.value.selector", "[u8; 4]", 233, 4),
-    ("RedeemEvent", "tx_params.calldata.value.no_words", "u16", 237, 2),
-    ("RedeemEvent", "tx_params.calldata.value.words[0]", "[u8; 32]", 239, 32),
-    ("RedeemEvent", "tx_params.calldata.value.words[1]", "[u8; 32]", 271, 32),
-    ("RedeemEvent", "tx_params.calldata.value.words[2]", "[u8; 32]", 303, 32),
-    ("RedeemEvent", "tx_params.access_list_entry_count", "u8", 335, 1),
-    ("RedeemEvent", "caip2_id", "[u8; 32]", 336, 32),
-    ("RedeemEvent", "output_deserialization_schema", "[u8; 36]", 368, 36),
-    ("RedeemEvent", "respond_serialization_schema", "[u8; 35]", 404, 35),
+    ("VaultEventV1", "key_version", "u8", 0, 1),
+    ("VaultEventV1", "sender", "[u8; 32]", 1, 32),
+    ("VaultEventV1", "path", "[u8; 32]", 33, 32),
+    ("VaultEventV1", "algo", "u8", 65, 1),
+    ("VaultEventV1", "tx_param_type", "u8", 66, 1),
+    ("VaultEventV1", "tx_params.chain_id", "u64", 67, 8),
+    ("VaultEventV1", "tx_params.nonce", "u64", 75, 8),
+    ("VaultEventV1", "tx_params.max_priority_fee_per_gas", "u128", 83, 16),
+    ("VaultEventV1", "tx_params.max_fee_per_gas", "u128", 99, 16),
+    ("VaultEventV1", "tx_params.gas_limit", "u64", 115, 8),
+    ("VaultEventV1", "tx_params.to", "[u8; 20]", 123, 20),
+    ("VaultEventV1", "tx_params.value", "u128", 143, 16),
+    ("VaultEventV1", "tx_params.calldata.is_some", "bool", 159, 1),
+    ("VaultEventV1", "tx_params.calldata.value.selector", "[u8; 4]", 160, 4),
+    ("VaultEventV1", "tx_params.calldata.value.no_words", "u16", 164, 2),
+    ("VaultEventV1", "tx_params.calldata.value.words[0]", "[u8; 32]", 166, 32),
+    ("VaultEventV1", "tx_params.calldata.value.words[1]", "[u8; 32]", 198, 32),
+    ("VaultEventV1", "tx_params.access_list_entry_count", "u8", 230, 1),
+    ("VaultEventV1", "execution_dest", "[u8; 32]", 231, 32),
+    ("VaultEventV1", "signature_dest", "u8", 263, 1),
+    ("VaultEventV1", "params", "[u8; 64]", 264, 64),
+    ("VaultEventV1", "output_deserialization_schema", "[u8; 34]", 328, 34),
+    ("VaultEventV1", "respond_serialization_schema", "[u8; 0]", 362, 0),
+    ("ReplaceNonceEventV1", "key_version", "u8", 0, 1),
+    ("ReplaceNonceEventV1", "sender", "[u8; 32]", 1, 32),
+    ("ReplaceNonceEventV1", "path", "[u8; 32]", 33, 32),
+    ("ReplaceNonceEventV1", "algo", "u8", 65, 1),
+    ("ReplaceNonceEventV1", "tx_param_type", "u8", 66, 1),
+    ("ReplaceNonceEventV1", "tx_params.chain_id", "u64", 67, 8),
+    ("ReplaceNonceEventV1", "tx_params.nonce", "u64", 75, 8),
+    ("ReplaceNonceEventV1", "tx_params.max_priority_fee_per_gas", "u128", 83, 16),
+    ("ReplaceNonceEventV1", "tx_params.max_fee_per_gas", "u128", 99, 16),
+    ("ReplaceNonceEventV1", "tx_params.gas_limit", "u64", 115, 8),
+    ("ReplaceNonceEventV1", "tx_params.to", "[u8; 20]", 123, 20),
+    ("ReplaceNonceEventV1", "tx_params.value", "u128", 143, 16),
+    ("ReplaceNonceEventV1", "tx_params.calldata.is_some", "bool", 159, 1),
+    ("ReplaceNonceEventV1", "tx_params.calldata.value.selector", "[u8; 4]", 160, 4),
+    ("ReplaceNonceEventV1", "tx_params.calldata.value.no_words", "u16", 164, 2),
+    ("ReplaceNonceEventV1", "tx_params.calldata.value.words[0]", "[u8; 32]", 166, 32),
+    ("ReplaceNonceEventV1", "tx_params.calldata.value.words[1]", "[u8; 32]", 198, 32),
+    ("ReplaceNonceEventV1", "tx_params.access_list_entry_count", "u8", 230, 1),
+    ("ReplaceNonceEventV1", "execution_dest", "[u8; 32]", 231, 32),
+    ("ReplaceNonceEventV1", "signature_dest", "u8", 263, 1),
+    ("ReplaceNonceEventV1", "params", "[u8; 64]", 264, 64),
+    ("ReplaceNonceEventV1", "output_deserialization_schema", "[u8; 2]", 328, 2),
+    ("ReplaceNonceEventV1", "respond_serialization_schema", "[u8; 0]", 330, 0),
+    ("SwapEventV1", "key_version", "u8", 0, 1),
+    ("SwapEventV1", "sender", "[u8; 32]", 1, 32),
+    ("SwapEventV1", "path", "[u8; 32]", 33, 32),
+    ("SwapEventV1", "algo", "u8", 65, 1),
+    ("SwapEventV1", "tx_param_type", "u8", 66, 1),
+    ("SwapEventV1", "tx_params.chain_id", "u64", 67, 8),
+    ("SwapEventV1", "tx_params.nonce", "u64", 75, 8),
+    ("SwapEventV1", "tx_params.max_priority_fee_per_gas", "u128", 83, 16),
+    ("SwapEventV1", "tx_params.max_fee_per_gas", "u128", 99, 16),
+    ("SwapEventV1", "tx_params.gas_limit", "u64", 115, 8),
+    ("SwapEventV1", "tx_params.to", "[u8; 20]", 123, 20),
+    ("SwapEventV1", "tx_params.value", "u128", 143, 16),
+    ("SwapEventV1", "tx_params.calldata.is_some", "bool", 159, 1),
+    ("SwapEventV1", "tx_params.calldata.value.selector", "[u8; 4]", 160, 4),
+    ("SwapEventV1", "tx_params.calldata.value.no_words", "u16", 164, 2),
+    ("SwapEventV1", "tx_params.calldata.value.words[0]", "[u8; 32]", 166, 32),
+    ("SwapEventV1", "tx_params.calldata.value.words[1]", "[u8; 32]", 198, 32),
+    ("SwapEventV1", "tx_params.calldata.value.words[2]", "[u8; 32]", 230, 32),
+    ("SwapEventV1", "tx_params.calldata.value.words[3]", "[u8; 32]", 262, 32),
+    ("SwapEventV1", "tx_params.calldata.value.words[4]", "[u8; 32]", 294, 32),
+    ("SwapEventV1", "tx_params.calldata.value.words[5]", "[u8; 32]", 326, 32),
+    ("SwapEventV1", "tx_params.calldata.value.words[6]", "[u8; 32]", 358, 32),
+    ("SwapEventV1", "tx_params.access_list_entry_count", "u8", 390, 1),
+    ("SwapEventV1", "execution_dest", "[u8; 32]", 391, 32),
+    ("SwapEventV1", "signature_dest", "u8", 423, 1),
+    ("SwapEventV1", "params", "[u8; 64]", 424, 64),
+    ("SwapEventV1", "output_deserialization_schema", "[u8; 38]", 488, 38),
+    ("SwapEventV1", "respond_serialization_schema", "[u8; 0]", 526, 0),
+    ("SupplyEventV1", "key_version", "u8", 0, 1),
+    ("SupplyEventV1", "sender", "[u8; 32]", 1, 32),
+    ("SupplyEventV1", "path", "[u8; 32]", 33, 32),
+    ("SupplyEventV1", "algo", "u8", 65, 1),
+    ("SupplyEventV1", "tx_param_type", "u8", 66, 1),
+    ("SupplyEventV1", "tx_params.chain_id", "u64", 67, 8),
+    ("SupplyEventV1", "tx_params.nonce", "u64", 75, 8),
+    ("SupplyEventV1", "tx_params.max_priority_fee_per_gas", "u128", 83, 16),
+    ("SupplyEventV1", "tx_params.max_fee_per_gas", "u128", 99, 16),
+    ("SupplyEventV1", "tx_params.gas_limit", "u64", 115, 8),
+    ("SupplyEventV1", "tx_params.to", "[u8; 20]", 123, 20),
+    ("SupplyEventV1", "tx_params.value", "u128", 143, 16),
+    ("SupplyEventV1", "tx_params.calldata.is_some", "bool", 159, 1),
+    ("SupplyEventV1", "tx_params.calldata.value.selector", "[u8; 4]", 160, 4),
+    ("SupplyEventV1", "tx_params.calldata.value.no_words", "u16", 164, 2),
+    ("SupplyEventV1", "tx_params.calldata.value.words[0]", "[u8; 32]", 166, 32),
+    ("SupplyEventV1", "tx_params.calldata.value.words[1]", "[u8; 32]", 198, 32),
+    ("SupplyEventV1", "tx_params.access_list_entry_count", "u8", 230, 1),
+    ("SupplyEventV1", "execution_dest", "[u8; 32]", 231, 32),
+    ("SupplyEventV1", "signature_dest", "u8", 263, 1),
+    ("SupplyEventV1", "params", "[u8; 64]", 264, 64),
+    ("SupplyEventV1", "output_deserialization_schema", "[u8; 36]", 328, 36),
+    ("SupplyEventV1", "respond_serialization_schema", "[u8; 0]", 364, 0),
+    ("RedeemEventV1", "key_version", "u8", 0, 1),
+    ("RedeemEventV1", "sender", "[u8; 32]", 1, 32),
+    ("RedeemEventV1", "path", "[u8; 32]", 33, 32),
+    ("RedeemEventV1", "algo", "u8", 65, 1),
+    ("RedeemEventV1", "tx_param_type", "u8", 66, 1),
+    ("RedeemEventV1", "tx_params.chain_id", "u64", 67, 8),
+    ("RedeemEventV1", "tx_params.nonce", "u64", 75, 8),
+    ("RedeemEventV1", "tx_params.max_priority_fee_per_gas", "u128", 83, 16),
+    ("RedeemEventV1", "tx_params.max_fee_per_gas", "u128", 99, 16),
+    ("RedeemEventV1", "tx_params.gas_limit", "u64", 115, 8),
+    ("RedeemEventV1", "tx_params.to", "[u8; 20]", 123, 20),
+    ("RedeemEventV1", "tx_params.value", "u128", 143, 16),
+    ("RedeemEventV1", "tx_params.calldata.is_some", "bool", 159, 1),
+    ("RedeemEventV1", "tx_params.calldata.value.selector", "[u8; 4]", 160, 4),
+    ("RedeemEventV1", "tx_params.calldata.value.no_words", "u16", 164, 2),
+    ("RedeemEventV1", "tx_params.calldata.value.words[0]", "[u8; 32]", 166, 32),
+    ("RedeemEventV1", "tx_params.calldata.value.words[1]", "[u8; 32]", 198, 32),
+    ("RedeemEventV1", "tx_params.calldata.value.words[2]", "[u8; 32]", 230, 32),
+    ("RedeemEventV1", "tx_params.access_list_entry_count", "u8", 262, 1),
+    ("RedeemEventV1", "execution_dest", "[u8; 32]", 263, 32),
+    ("RedeemEventV1", "signature_dest", "u8", 295, 1),
+    ("RedeemEventV1", "params", "[u8; 64]", 296, 64),
+    ("RedeemEventV1", "output_deserialization_schema", "[u8; 36]", 360, 36),
+    ("RedeemEventV1", "respond_serialization_schema", "[u8; 0]", 396, 0),
+    ("EmptyOutput", "output", "[u8; 0]", 0, 0),
+    ("BoolOutput", "success", "u8", 0, 1),
+    ("WordOutput", "word", "[u8; 32]", 0, 32),
     ("VaultEventV2", "format_version", "u8", 0, 1),
     ("VaultEventV2", "sender", "[u8; 32]", 1, 32),
     ("VaultEventV2", "request_nonce", "u64", 33, 8),
@@ -1240,18 +1510,6 @@ const LAYOUT_SNAPSHOT: &[(&str, &str, &str, usize, usize)] = &[
     ("RedeemEventV2", "tx_params.access_list_entry_count", "u8", 336, 1),
     ("RedeemEventV2", "caip2_id", "[u8; 32]", 337, 32),
     ("RedeemEventV2", "response_kind", "u8", 369, 1),
-    ("ClaimOutput", "success", "u8", 0, 1),
-    ("CompleteWithdrawOutput", "success", "u8", 0, 1),
-    ("RefundOutput", "failure", "[u8; 5]", 0, 5),
-    ("CompleteSwapOutput", "amount_in", "u64", 0, 8),
-    ("AttestationPreimage<ClaimOutput>", "request_id", "[u8; 32]", 0, 32),
-    ("AttestationPreimage<ClaimOutput>", "output.success", "u8", 32, 1),
-    ("AttestationPreimage<CompleteWithdrawOutput>", "request_id", "[u8; 32]", 0, 32),
-    ("AttestationPreimage<CompleteWithdrawOutput>", "output.success", "u8", 32, 1),
-    ("AttestationPreimage<RefundOutput>", "request_id", "[u8; 32]", 0, 32),
-    ("AttestationPreimage<RefundOutput>", "output.failure", "[u8; 5]", 32, 5),
-    ("AttestationPreimage<CompleteSwapOutput>", "request_id", "[u8; 32]", 0, 32),
-    ("AttestationPreimage<CompleteSwapOutput>", "output.amount_in", "u64", 32, 8),
     ("VaultResponse", "kind", "u8", 0, 1),
     ("VaultResponse", "success", "bool", 1, 1),
     ("SwapResponse", "kind", "u8", 0, 1),

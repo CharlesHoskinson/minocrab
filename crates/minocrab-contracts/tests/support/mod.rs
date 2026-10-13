@@ -11,6 +11,7 @@
 // The Signet singleton's calls, built through the LEDGER's own
 // `ContractCallPrototype`/`construct_proof` (M29 rung C). Every singleton
 // proof preimage in the suite comes from here.
+pub mod proving;
 pub mod signet_call;
 
 use midnight_transient_crypto::proofs::ProofPreimage;

@@ -14,7 +14,7 @@
 //! `consume_ops`) mechanically, confirmed against the source
 //! (`erc20_vault_pending.rs`) read line for line.
 
-use midnight_base_crypto::fab::{Alignment, AlignmentAtom, AlignmentSegment, AlignedValue};
+use midnight_base_crypto::fab::{Alignment, AlignmentSegment, AlignedValue};
 use midnight_curves::k256;
 use midnight_transient_crypto::fab::AlignmentExt;
 use midnight_transient_crypto::hash::{transient_commit, transient_hash};
@@ -22,14 +22,17 @@ use midnight_transient_crypto::proofs::{KeyLocation, ProofPreimage};
 use midnight_zkir_v3::ir_instructions::ec_mul::ec_mul_offcircuit;
 use minocrab::Fr;
 use minocrab_contracts::erc20_vault::{
-    APPROVE_SELECTOR, DEPOSIT_SELECTOR, EXACT_OUTPUT_SINGLE_SELECTOR, LENDING_GAS, REDEEM_SELECTOR,
-    REDEEM_WORDS, REFUND_PAD, SUPPLY_WORDS, SWAP_WORDS, TRANSFER_SELECTOR, VAULT_PATH, VAULT_WORDS,
+    APPROVE_SELECTOR, DEPOSIT_SELECTOR, EXACT_OUTPUT_SINGLE_SELECTOR, REDEEM_SELECTOR,
+    REDEEM_WORDS, SUPPLY_WORDS, SWAP_WORDS, TRANSFER_SELECTOR, USER_PAD, VAULT_PATH, VAULT_WORDS,
 };
-use minocrab_contracts::erc20_vault_pending::{
-    RESPONSE_KIND_APPROVE, RESPONSE_KIND_CLAIM, RESPONSE_KIND_FAILURE, RESPONSE_KIND_REDEEM,
-    RESPONSE_KIND_SUPPLY, RESPONSE_KIND_SWAP, RESPONSE_KIND_WITHDRAW, VAULT_TOKEN_TAG,
-};
-use minocrab_contracts::signet::RECORD_FORMAT_VERSION;
+use minocrab_contracts::evm::erc4626::CALL_GAS as LENDING_GAS;
+use minocrab_contracts::evm_flow::REFUND_PAD;
+// The `RESPONSE_KIND_*` constants are no longer part of this lineage's wire:
+// V1 records carry an output SCHEMA where they carried a kind byte, and the
+// MPC's verdict is `signet_v1::output_kind`. They survive on
+// `erc20_vault_pending` only as the retired fork's documented numbering.
+use minocrab_contracts::erc20_vault_pending::VAULT_TOKEN_TAG;
+use minocrab_contracts::signet_v1::{output_kind, schema, OutputSchema, ETHEREUM_CAIP2_ID};
 use minocrab_zkir::v3::IrValue;
 
 use super::exec::PreState;
@@ -45,22 +48,54 @@ pub const VAULT_EVM_ADDRESS: u8 = 2;
 pub const UNISWAP_ROUTER: u8 = 3;
 pub const SIGNET_SIGNER: u8 = 4;
 pub const MPC_RESPONSE_KEY: u8 = 5;
-pub const SIGNET_REQUEST_NONCE: u8 = 6;
-pub const CAIP2_ID: u8 = 7;
-pub const EVM_CHAIN_ID: u8 = 8;
-pub const DEPOSITS_RECORDS: u8 = 9;
-pub const DEPOSITS_ENVS: u8 = 10;
-pub const WITHDRAWALS_RECORDS: u8 = 11;
-pub const WITHDRAWALS_ENVS: u8 = 12;
-pub const SWAPS_RECORDS: u8 = 13;
-pub const SWAPS_ENVS: u8 = 14;
-pub const APPROVALS: u8 = 15;
-pub const STATA_UNDERLYING: u8 = 16;
-pub const STATA_TOKEN: u8 = 17;
-pub const SUPPLIES_RECORDS: u8 = 18;
-pub const SUPPLIES_ENVS: u8 = 19;
-pub const REDEEMS_RECORDS: u8 = 20;
-pub const REDEEMS_ENVS: u8 = 21;
+/// `mpcKeyVersion` — a CELL under V1, where V2 had a request-nonce counter
+/// and a caip2 cell in these two positions (notes/vault-flush.org §6). Every
+/// field below it moved down one at M44 rung D.
+pub const MPC_KEY_VERSION: u8 = 6;
+pub const EVM_CHAIN_ID: u8 = 7;
+pub const DEPOSITS_RECORDS: u8 = 8;
+pub const DEPOSITS_ENVS: u8 = 9;
+pub const WITHDRAWALS_RECORDS: u8 = 10;
+pub const WITHDRAWALS_ENVS: u8 = 11;
+pub const SWAPS_RECORDS: u8 = 12;
+pub const SWAPS_ENVS: u8 = 13;
+pub const APPROVALS: u8 = 14;
+pub const STATA_UNDERLYING: u8 = 15;
+pub const STATA_TOKEN: u8 = 16;
+pub const SUPPLIES_RECORDS: u8 = 17;
+pub const SUPPLIES_ENVS: u8 = 18;
+pub const REDEEMS_RECORDS: u8 = 19;
+pub const REDEEMS_ENVS: u8 = 20;
+
+// ---- the V1 output vocabulary ---------------------------------------------------
+//
+// Where the Borsh lineage had a response KIND byte per action, V1 has an
+// output SCHEMA per filing and an attested WIDTH per return. The schema is
+// in the record (and so outside the request id, which hashes a transaction
+// digest); the width is inside the signed digest, which is why an output of
+// the wrong width cannot verify.
+
+/// `Deposit`, `Withdrawal` and `Approval` — the ERC-20 flag.
+pub const SUCCESS_SCHEMA: &[u8] = <schema::Success as OutputSchema>::BYTES;
+/// `Swap` — `exactOutputSingle`'s spend.
+pub const AMOUNT_IN_SCHEMA: &[u8] = <schema::AmountIn as OutputSchema>::BYTES;
+/// `Supply` — the ERC-4626 shares minted.
+pub const SHARES_SCHEMA: &[u8] = <schema::Shares as OutputSchema>::BYTES;
+/// `Redeem` — the ERC-4626 assets returned.
+pub const ASSETS_SCHEMA: &[u8] = <schema::Assets as OutputSchema>::BYTES;
+
+/// `AbiReturn::LEN` for a `Bool`: one Borsh byte.
+pub const FLAG_WIDTH: usize = 1;
+/// `AbiReturn::LEN` for every `uint256`: thirty-two.
+pub const WORD_WIDTH: usize = 32;
+
+/// A `uint256` attested output as its two `B32` limbs. A `u64` value sits
+/// entirely in the low 31 bytes of the little-endian word, so the high limb
+/// (byte 31) is zero — which is also why the narrowing's byte-31 check
+/// passes for every value this model attests.
+pub fn word_output_limbs(v: u64) -> Vec<Fr> {
+    vec![Fr::from(0u64), Fr::from(v)]
+}
 
 /// The circuit's own `kernel.self()`.
 pub const SELF_ADDR: [u8; 32] = {
@@ -74,6 +109,19 @@ pub const SELF_ADDR: [u8; 32] = {
     a[31] = 0x31;
     a
 };
+
+/// `userCommitment(sk)` for THIS lineage — `upgradeFromTransient(
+/// transientHash([pad(32, "vault:user:"), sk]))`, the `fff3421c` order
+/// `common::commitment_transient` keeps. The compat port's shared
+/// `prims::user_commitment` moved to secret-first (`[sk, pad]`) with
+/// upstream's flush pattern at `375071b`; the `Pending` lineage is our own
+/// design and still calls `commitment_transient`, so it keeps the pad-first
+/// construction. `USER_PAD` is the one shared constant.
+pub fn pending_user_commitment(sk: &[u8; 32]) -> [u8; 32] {
+    let (p_hi, p_lo) = b32_slots(&pad32(USER_PAD));
+    let (sk_hi, sk_lo) = b32_slots(sk);
+    transient_upgrade(&[p_hi, p_lo, sk_hi, sk_lo])
+}
 
 /// A `[u8; 32]` from a short tag and a distinguishing top byte.
 pub fn tagged32(tag: &[u8], top: u8) -> [u8; 32] {
@@ -103,8 +151,8 @@ pub struct Env {
     /// this contract, whose secret the model does not hold — the settle
     /// then verifies the sim's signature, not one the model made.
     pub mpc_key_xy: Option<([u8; 32], [u8; 32])>,
-    pub request_nonce: u64,
-    pub caip2: [u8; 32],
+    /// `mpcKeyVersion`, a CELL under V1 — no circuit takes one.
+    pub key_version: u8,
     pub chain_id: u64,
     /// The singleton's `signBidirectional` entry-point hash.
     pub ep: [u8; 32],
@@ -118,8 +166,6 @@ impl Default for Env {
 
 impl Env {
     pub fn new() -> Env {
-        let mut caip2 = [0u8; 32];
-        caip2[..15].copy_from_slice(b"eip155:11155111");
         Env {
             initialized: 1,
             deployer_sk: tagged32(b"deployer", 0x11),
@@ -131,8 +177,7 @@ impl Env {
             signer_addr: tagged32(b"signet-addr", 0x32),
             key_seed: 0xf00d_face,
             mpc_key_xy: None,
-            request_nonce: 4,
-            caip2,
+            key_version: 1,
             chain_id: 11_155_111,
             ep: minocrab_ledger::ep_hash("signBidirectional"),
         }
@@ -153,11 +198,10 @@ impl Env {
         point_av(&self.mpc_key())
     }
 
-    /// `userCommitment(deployer_sk)` — the `deployer` cell (the SAME
-    /// Poseidon construction the compat lineage's `user_commitment` is:
-    /// `USER_PAD` is one shared constant).
+    /// `userCommitment(deployer_sk)` — the `deployer` cell, in this
+    /// lineage's pad-first order (see `pending_user_commitment`).
     pub fn deployer(&self) -> [u8; 32] {
-        user_commitment(&self.deployer_sk)
+        pending_user_commitment(&self.deployer_sk)
     }
 
     pub fn pre_state(&self) -> PreState {
@@ -167,8 +211,7 @@ impl Env {
             uniswap_router: self.router,
             signer: self.signer_addr,
             mpc_response_key: Some(self.mpc_key_av()),
-            request_nonce: self.request_nonce,
-            caip2: self.caip2,
+            key_version: self.key_version,
             evm_chain_id: self.chain_id,
             initialized: self.initialized,
             stata_underlying: self.stata_underlying,
@@ -205,11 +248,8 @@ impl Env {
     pub fn read_signer(&self) -> Vec<VmOp> {
         ops::read(SIGNET_SIGNER, false, bytesn_value(32, &self.signer_addr))
     }
-    pub fn read_nonce(&self) -> Vec<VmOp> {
-        ops::read(SIGNET_REQUEST_NONCE, true, bytesn_value(8, &self.request_nonce.to_le_bytes()))
-    }
-    pub fn read_caip2(&self) -> Vec<VmOp> {
-        ops::read(CAIP2_ID, false, bytesn_value(32, &self.caip2))
+    pub fn read_key_version(&self) -> Vec<VmOp> {
+        ops::read(MPC_KEY_VERSION, false, bytesn_value(1, &[self.key_version]))
     }
     pub fn read_chain_id(&self) -> Vec<VmOp> {
         ops::read(EVM_CHAIN_ID, false, bytesn_value(8, &self.chain_id.to_le_bytes()))
@@ -313,38 +353,40 @@ pub struct Tx<const WORDS: usize> {
     pub words: [[u8; 32]; WORDS],
 }
 
-/// A `SignBidirectionalEventV2<_, WORDS>`, off-circuit: what a request
-/// circuit files and a settle circuit reads back.
+/// A `SignBidirectionalEventV1<_, WORDS, Schema>`, off-circuit: what a
+/// request circuit files and a settle circuit reads back.
+///
+/// V1 SINCE M44 RUNG D. The format-version byte, the request-nonce field and
+/// the configurable caip2 are gone; `keyVersion` leads (read off the cell,
+/// so it comes from [`Env`] rather than from the request), the destination is
+/// the constant `pad(32, "eip155:1")`, and the record ENDS with
+/// `signatureDest`, `params` and the OUTPUT SCHEMA, which is where the
+/// response kind byte's job went.
 #[derive(Clone, Debug)]
 pub struct Req<const WORDS: usize> {
-    pub key_version: u8,
     /// The signing path: the depositor's identity commitment (`deposit`),
     /// or `pad(32, "vault")` (every other request).
     pub path: [u8; 32],
-    /// The response kind this request declares (`RESPONSE_KIND_*`).
-    pub kind: u8,
+    /// The output schema this request files, as the record carries it —
+    /// `Filing::Schema`'s bytes.
+    pub out_schema: &'static [u8],
     pub tx: Tx<WORDS>,
 }
 
 impl<const WORDS: usize> Req<WORDS> {
-    /// `SignBidirectionalEventV2::limbs()`'s order, off-circuit.
+    /// `SignBidirectionalEventV1::limbs()`'s order, off-circuit.
     pub fn limbs(&self, env: &Env) -> Vec<Fr> {
         let (sender_hi, sender_lo) = b32_slots(&env.self_addr);
         let (path_hi, path_lo) = b32_slots(&self.path);
+        let (dest_hi, dest_lo) = b32_slots(&pad32(ETHEREUM_CAIP2_ID));
         let mut l = vec![
-            Fr::from(u64::from(RECORD_FORMAT_VERSION)),
+            Fr::from(u64::from(env.key_version)),
             sender_hi,
             sender_lo,
-            Fr::from(env.request_nonce),
-            Fr::from(u64::from(self.key_version)),
             path_hi,
             path_lo,
-            Fr::from(0u64), // algo
-            Fr::from(0u64), // dest
-            Fr::from(0u64),
-            Fr::from(0u64),
-            Fr::from(0u64), // params: 3 zero limbs
-            Fr::from(0u64), // tx_param_type
+            Fr::from(0u64), // algo: ecdsa
+            Fr::from(0u64), // txParamType: evmType2
             Fr::from(env.chain_id),
             Fr::from(self.tx.nonce),
             u128_limb(self.tx.priority_fee),
@@ -361,24 +403,48 @@ impl<const WORDS: usize> Req<WORDS> {
             l.push(hi);
             l.push(lo);
         }
-        l.push(Fr::from(0u64)); // access_list_entry_count
-        let (caip2_hi, caip2_lo) = b32_slots(&env.caip2);
-        l.push(caip2_hi);
-        l.push(caip2_lo);
-        l.push(Fr::from(u64::from(self.kind)));
+        l.push(Fr::from(0u64)); // accessListEntryCount
+        l.push(dest_hi); // executionDest
+        l.push(dest_lo);
+        l.push(Fr::from(0u64)); // signatureDest: unused
+        l.extend([Fr::from(0u64); 3]); // params: pad(64, "")
+        l.extend(schema_limbs(self.out_schema));
         l
     }
 
-    pub fn atoms() -> Vec<AlignmentAtom> {
-        minocrab_contracts::signet::SignBidirectionalEventV2::<minocrab::Public, WORDS>::atoms()
+    /// The record's FAB atom widths — the trailing `Bytes<0>`
+    /// (`respondSerializationSchema`, present in the alignment and absent
+    /// from the limbs) included.
+    pub fn widths(&self) -> Vec<u32> {
+        let mut a = vec![1, 32, 32, 1, 1, 8, 8, 16, 16, 8, 20, 16, 1, 4, 2];
+        a.extend(std::iter::repeat_n(32u32, WORDS));
+        a.extend([1, 32, 1, 64, self.out_schema.len() as u32, 0]);
+        a
     }
 
     pub fn av(&self, env: &Env) -> AlignedValue {
-        aligned_atoms(&Self::atoms(), &self.limbs(env))
+        aligned(&self.widths(), &self.limbs(env))
     }
 
+    /// `calculateEvmType2TxParamsDigestV1` over the USED words.
+    pub fn tx_digest(&self, env: &Env) -> [u8; 32] {
+        tx_params_digest(
+            env.chain_id,
+            self.tx.nonce,
+            self.tx.priority_fee,
+            self.tx.max_fee,
+            self.tx.gas,
+            &self.tx.to,
+            Some((&self.tx.selector, &self.tx.words)),
+        )
+    }
+
+    /// The id is no longer a hash of the whole record but of
+    /// `RequestIdPreimageV1`, whose transaction enters as a digest — so the
+    /// schema and the stored words are OUTSIDE the id, and the gas numbers
+    /// are inside it.
     pub fn request_id(&self, env: &Env) -> [u8; 32] {
-        request_id_of(&self.limbs(env))
+        request_id_v1(env.key_version, &env.self_addr, &self.path, &self.tx_digest(env))
     }
 }
 
@@ -420,11 +486,15 @@ pub fn call_witnesses(env: &Env, cc_rand: Fr) -> Vec<Fr> {
 
 /// The op stream `signet_flow::file_request` emits for EVERY request
 /// circuit (`Pending::request` and `Fired::request` alike), in order:
-/// `kernel.self()` (via `cache_self_address`), nonce, caip2, chain id
-/// (all `Signet`'s own fields), `records.member`, the nonce increment,
+/// `kernel.self()` (via `cache_self_address`), the chain id into the
+/// transaction, then `mpcKeyVersion` into the record, `records.member`,
 /// the record insert, the env insert (`Pending` only — `envs_field` is
 /// `None` for a `Fired` slot), `signer.pin` (a fresh read), the
 /// `claimContractCall`.
+///
+/// TWO OPS FEWER SINCE M44 RUNG D: the caip2 read and the nonce
+/// read-modify-write both went, and `mpcKeyVersion` arrived — so this is the
+/// one place the V1 vocabulary's contention win is visible as a count.
 ///
 /// Confirmed instruction-for-instruction against `withdraw.zkir` (with an
 /// env insert) and `approve_router.zkir` (without one).
@@ -440,11 +510,9 @@ pub fn file_request_ops(
     cc_rand: Fr,
 ) -> Vec<VmOp> {
     let mut o = env.kernel_self();
-    o.extend(env.read_nonce());
-    o.extend(env.read_caip2());
     o.extend(env.read_chain_id());
+    o.extend(env.read_key_version());
     o.extend(ops::member(records_field, request_id, request_exists));
-    o.extend(ops::counter_inc(SIGNET_REQUEST_NONCE));
     o.extend(ops::insert(records_field, request_id, record_av));
     if let (Some(f), Some(av)) = (envs_field, env_av) {
         o.extend(ops::insert(f, request_id, av));
@@ -455,93 +523,121 @@ pub fn file_request_ops(
     o
 }
 
-/// The op stream `Pending::consume` (shared by `complete` and `refund`) emits for
-/// EVERY settle circuit, in order: the MPC key read, `records.member`,
-/// `records.lookup`, `records.remove`, `envs.lookup`, `envs.remove`.
+/// The op stream `Pending::consume` (shared by `complete` and `refund`)
+/// emits for EVERY settle circuit, in order: the MPC key read,
+/// `records.member`, `records.remove`, `envs.lookup`, `envs.remove`.
 ///
-/// Confirmed instruction-for-instruction against `claim.zkir` and
-/// `complete_swap.zkir`.
+/// NO RECORD LOOKUP since M44 rung D: the V2 settle read the stored record
+/// back, because the request id was a hash of it and the attestation had to
+/// be tied to those bytes. A V1 id is a hash of `RequestIdPreimageV1`, and
+/// the id itself is the ticket's key — so the entry's PRESENCE is the whole
+/// of what the record has to say, and four ops go with the lookup
+/// (`record_av` is kept as an argument because the pre-state still has to
+/// hold the entry the member check finds).
+///
+/// Confirmed instruction-for-instruction against `complete_withdraw`'s
+/// Impact stream.
 pub fn consume_ops(
     env: &Env,
     records_field: u8,
     envs_field: u8,
     request_id: &[u8; 32],
     pending: bool,
-    record_av: AlignedValue,
+    _record_av: AlignedValue,
     env_av: AlignedValue,
 ) -> Vec<VmOp> {
     let mut o = env.read_mpc_key();
     o.extend(ops::member(records_field, request_id, pending));
-    o.extend(ops::lookup(records_field, request_id, record_av));
     o.extend(ops::remove(records_field, request_id));
     o.extend(ops::lookup(envs_field, request_id, env_av));
     o.extend(ops::remove(envs_field, request_id));
     o
 }
 
-/// `calculateAttestationDigestBorsh(requestId, Attested{kind, output})` —
-/// Poseidon over `[id.hi, id.lo, packed]`, upgraded (`hi` forced to 0 —
-/// this one IS `upgradeFromTransient`, unlike `Commit`), where `packed` is
-/// the serialized output `kind ‖ borsh(output)` as ONE byte string in FAB's
-/// 31-byte little-endian limbing — the MPC's `compute_response_hash` rule
-/// (`signet_sim::hashing`), which `signet_round_trip.rs` pins this against.
+/// The settle ticket's leading argument slots, computed from a fresh
+/// signature over the V1 attestation digest
+/// (`prims::attestation_digest`: tag, id, height, VERDICT, WIDTH, output).
 ///
-/// The vault's outputs are one leaf of at most eight bytes (a `Bool` or a
-/// `U64`), so the string is at most nine bytes and one limb: the kind byte
-/// in the low position and the leaf's little-endian bytes above it, i.e.
-/// `kind + 256·leaf` — the same value whatever the leaf's declared width,
-/// which is why this model needs no width. A wider or multi-leaf output
-/// would need the leaves' widths to pack; the assert keeps that honest.
-pub fn attestation_digest_v2(request_id: &[u8; 32], kind: u8, output_limbs: &[Fr]) -> [u8; 32] {
-    let (hi, lo) = b32_slots(request_id);
-    assert!(output_limbs.len() <= 1, "the vault model packs a single leaf");
-    let packed = match output_limbs.first() {
-        None => Fr::from(u64::from(kind)),
-        Some(leaf) => Fr::from(u64::from(kind)) + *leaf * Fr::from(256u64),
-    };
-    transient_upgrade(&[hi, lo, packed])
-}
-
-/// The settle ticket's leading argument slots (`requestId`, `respond`,
-/// `serializedOutput`), computed from a fresh signature over the
-/// attestation digest — the SAME wire order the compat lineage's
-/// `Settle::head_inputs` uses (`bigR.y` and `recoveryId` are unread, kept
-/// zero; the signature is circuit-input LITTLE-endian).
-pub fn settle_head_inputs(key_seed: u64, nonce_seed: u64, request_id: &[u8; 32], kind: u8, output_limbs: &[Fr]) -> Vec<Fr> {
-    let digest = attestation_digest_v2(request_id, kind, output_limbs);
+/// Slot order is the derive's: `requestId` (two), `blockHeight`,
+/// `outputKind`, `serializedOutputLength`, `digest` (two), `signature`
+/// (`bigR.x` two, `bigR.y` two, `s` two, `recoveryId`), then the output.
+/// `bigR.y` and `recoveryId` are unread and kept zero; the signature is
+/// circuit-input LITTLE-endian.
+///
+/// V1 SINCE M44 RUNG D: where the Borsh lineage hashed `requestId` with a
+/// packed `kind ‖ output` byte string, the V1 digest names the verdict and
+/// the attested WIDTH as separate field elements — so an output of the wrong
+/// width cannot verify, which the `kind + 256·leaf` packing could not say.
+#[allow(clippy::too_many_arguments)]
+pub fn settle_head_inputs(
+    key_seed: u64,
+    nonce_seed: u64,
+    request_id: &[u8; 32],
+    block_height: u64,
+    output_kind: u64,
+    signed_width: usize,
+    output_limbs: &[Fr],
+) -> Vec<Fr> {
+    let digest = attestation_digest(request_id, block_height, output_kind, signed_width, output_limbs);
     let (rx_le, s_le, _pk) = sign(&digest, &scalar(key_seed), &scalar(nonce_seed));
     let (rid_hi, rid_lo) = b32_slots(request_id);
+    let (d_hi, d_lo) = b32_slots(&digest);
     let (rx_hi, rx_lo) = b32_slots(&rx_le);
     let (s_hi, s_lo) = b32_slots(&s_le);
     let mut v = vec![
-        rid_hi, rid_lo, rx_hi, rx_lo,
-        Fr::from(0u64), Fr::from(0u64), // bigR.y (unread)
-        s_hi, s_lo,
+        rid_hi,
+        rid_lo,
+        Fr::from(block_height),
+        Fr::from(output_kind),
+        Fr::from(signed_width as u64),
+        // `digest` on the event is for off-chain readers; nothing in the
+        // circuit reads it, so the honest value is the real one.
+        d_hi,
+        d_lo,
+        rx_hi,
+        rx_lo,
+        Fr::from(0u64),
+        Fr::from(0u64), // bigR.y (unread)
+        s_hi,
+        s_lo,
         Fr::from(0u64), // recoveryId (unread)
     ];
-    v.push(Fr::from(u64::from(kind)));
     v.extend_from_slice(output_limbs);
     v
 }
+
+/// The `outputKind` argument slot of a ticket — index 3, by the order above.
+pub const OUTPUT_KIND_SLOT: usize = 3;
 
 /// [`settle_head_inputs`] where the SIGNED preimage and the circuit's
 /// ARGUMENT SLOTS differ — the shape a `Failed` ticket has (M37 rung D).
 ///
 /// The ticket's wire block is one shape whatever the MPC attested, so the
-/// attested-value slot is always there; but when the kind is the MPC's
-/// FAILURE the signed preimage is the request id and the kind byte alone
-/// (`FailureResponse { kind: u8 }`, spec/borsh-subset.md §5) and the slot
-/// carries prover-chosen padding. `Pending::refund` hashes the preimage both
-/// ways and selects by the kind byte, which is exactly what this models.
+/// attested-value slot is always there; but when the verdict is a
+/// NON-EXECUTION the signed preimage has width zero and no output limbs, and
+/// the slot carries prover-chosen padding. `Pending::refund` hashes the
+/// preimage both ways — at the call's width and at zero — and selects by the
+/// verdict, which is exactly what this models.
+#[allow(clippy::too_many_arguments)]
 pub fn settle_head_inputs_padded(
     key_seed: u64,
     nonce_seed: u64,
     request_id: &[u8; 32],
-    kind: u8,
+    block_height: u64,
+    output_kind: u64,
+    signed_width: usize,
     signed_limbs: &[Fr],
     slot_limbs: &[Fr],
 ) -> Vec<Fr> {
-    let mut v = settle_head_inputs(key_seed, nonce_seed, request_id, kind, signed_limbs);
+    let mut v = settle_head_inputs(
+        key_seed,
+        nonce_seed,
+        request_id,
+        block_height,
+        output_kind,
+        signed_width,
+        signed_limbs,
+    );
     // `settle_head_inputs` appended the SIGNED limbs to the slots; replace
     // them with what the argument slots actually carry.
     v.truncate(v.len() - signed_limbs.len());
@@ -558,36 +654,58 @@ pub fn settle_head_inputs_padded(
 /// SUCCESS must reject, which is the case this enum's third shape drives.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Attested {
-    /// `RESPONSE_KIND_FAILURE`, with prover-chosen padding in the output
-    /// slot.
+    /// A NON-EXECUTION (`output_kind::FAILED`), with prover-chosen padding
+    /// in the output slot and width zero in the signed digest.
     Failure { padding: u64 },
-    /// This call's own kind, carrying the attested return value.
+    /// `output_kind::EXECUTED`, carrying the attested return value at the
+    /// call's own width.
     Executed { value: u64 },
 }
 
 impl Attested {
-    /// The kind byte on the wire.
-    pub fn kind(self, executed_kind: u32) -> u8 {
+    /// The MPC's VERDICT on the wire, where the Borsh lineage had a response
+    /// kind byte.
+    pub fn output_kind(self) -> u64 {
         match self {
-            Attested::Failure { .. } => RESPONSE_KIND_FAILURE as u8,
-            Attested::Executed { .. } => executed_kind as u8,
+            Attested::Failure { .. } => output_kind::FAILED,
+            Attested::Executed { .. } => output_kind::EXECUTED,
         }
     }
 
-    /// The limbs inside the signed preimage.
-    pub fn signed_limbs(self) -> Vec<Fr> {
+    /// The attested WIDTH inside the digest: the call's own for an
+    /// execution, zero for a non-execution.
+    pub fn signed_width(self, executed_width: usize) -> usize {
+        match self {
+            Attested::Failure { .. } => 0,
+            Attested::Executed { .. } => executed_width,
+        }
+    }
+
+    /// The limbs inside the signed preimage, at the call's attested width.
+    pub fn signed_limbs(self, executed_width: usize) -> Vec<Fr> {
         match self {
             Attested::Failure { .. } => vec![],
-            Attested::Executed { value } => vec![Fr::from(value)],
+            Attested::Executed { value } => Self::limbs_at(executed_width, value),
         }
     }
 
-    /// The limbs in the ticket's argument slots — always one, whatever the
-    /// kind.
-    pub fn slot_limbs(self) -> Vec<Fr> {
+    /// The limbs in the ticket's ARGUMENT slots — always the call's own
+    /// width, whatever the verdict: the wire block is one shape, and a
+    /// non-execution fills it with prover-chosen padding.
+    pub fn slot_limbs(self, executed_width: usize) -> Vec<Fr> {
         match self {
-            Attested::Failure { padding } => vec![Fr::from(padding)],
-            Attested::Executed { value } => vec![Fr::from(value)],
+            Attested::Failure { padding } => Self::limbs_at(executed_width, padding),
+            Attested::Executed { value } => Self::limbs_at(executed_width, value),
+        }
+    }
+
+    /// A `u64` as the slots of an attested output of `width` bytes: one limb
+    /// for the ERC-20 flag's `Bytes<1>`, two for a `uint256`'s `B32`.
+    fn limbs_at(width: usize, v: u64) -> Vec<Fr> {
+        match width {
+            FLAG_WIDTH => vec![Fr::from(v)],
+            WORD_WIDTH => word_output_limbs(v),
+            other => panic!("no attested output of {other} bytes in this lineage"),
         }
     }
 
@@ -618,6 +736,9 @@ pub struct Settle {
     /// gate passes); `Some(other)` drives the "Not the …" guard.
     pub claimant_sk: Option<[u8; 32]>,
     pub nonce_seed: u64,
+    /// The height the MPC attests, inside the V1 digest and disclosed by
+    /// every settle. It had no place in the Borsh lineage's preimage.
+    pub block_height: u64,
 }
 
 impl Settle {
@@ -628,6 +749,7 @@ impl Settle {
             own_pk: tagged32(b"own-pk", 0x43),
             claimant_sk: None,
             nonce_seed: 0x0dd_b17,
+            block_height: 21_000_000,
         }
     }
     pub fn sk(&self, requester: &[u8; 32]) -> [u8; 32] {
@@ -647,8 +769,6 @@ impl Default for Settle {
 
 // ==== initialize ============================================================================
 
-pub const INITIALIZE_KIND_UNUSED: u32 = RESPONSE_KIND_APPROVE; // silence unused-import lints on some feature sets
-
 #[derive(Clone, Debug)]
 pub struct InitializeScenario {
     pub env: Env,
@@ -658,7 +778,10 @@ pub struct InitializeScenario {
     pub stata_underlying: [u8; 20],
     pub stata_token: [u8; 20],
     pub chain_id: u64,
-    pub caip2: [u8; 32],
+    /// `mpcKeyVersion`, where the V2 lineage pinned a caip2 id: the caip2
+    /// went with the V1 vocabulary (`executionDest` is the constant
+    /// `ethereumCaip2Id()`) and the key version took its argument slot.
+    pub key_version: u8,
     pub key_seed: u64,
 }
 
@@ -672,11 +795,7 @@ impl InitializeScenario {
             stata_underlying: *b"stata-underlying-usd",
             stata_token: *b"stata-token-wrapper!",
             chain_id: 11_155_111,
-            caip2: {
-                let mut c = [0u8; 32];
-                c[..15].copy_from_slice(b"eip155:11155111");
-                c
-            },
+            key_version: 1,
             key_seed: 0xbeef_f00d,
         }
     }
@@ -693,8 +812,7 @@ impl InitializeScenario {
             b20(&self.stata_underlying),
             b20(&self.stata_token),
             Fr::from(self.chain_id),
-            b32_slots(&self.caip2).0,
-            b32_slots(&self.caip2).1,
+            Fr::from(u64::from(self.key_version)),
         ]
         .into_iter()
         .chain(natives(&self.point()))
@@ -714,8 +832,9 @@ impl InitializeScenario {
         o.extend(ops::cell_write(UNISWAP_ROUTER, bytesn_value(20, &self.swap_router)));
         o.extend(ops::cell_write(STATA_UNDERLYING, bytesn_value(20, &self.stata_underlying)));
         o.extend(ops::cell_write(STATA_TOKEN, bytesn_value(20, &self.stata_token)));
+        // `Signet::initialize`'s own order: the key, its version, the chain.
         o.extend(ops::cell_write(MPC_RESPONSE_KEY, point_av(&self.point())));
-        o.extend(ops::cell_write(CAIP2_ID, bytesn_value(32, &self.caip2)));
+        o.extend(ops::cell_write(MPC_KEY_VERSION, bytesn_value(1, &[self.key_version])));
         o.extend(ops::cell_write(EVM_CHAIN_ID, bytesn_value(8, &self.chain_id.to_le_bytes())));
         o
     }
@@ -745,7 +864,6 @@ pub struct ApproveRouterScenario {
     pub env: Env,
     pub erc20: [u8; 20],
     pub evm_nonce: u64,
-    pub key_version: u8,
     pub request_exists: bool,
     pub cc_rand: Fr,
 }
@@ -756,7 +874,6 @@ impl ApproveRouterScenario {
             env: Env::new(),
             erc20: *b"erc20-token-contract",
             evm_nonce: 5,
-            key_version: 1,
             request_exists: false,
             cc_rand: Fr::from(0xa1_1a2u64),
         }
@@ -768,9 +885,8 @@ impl ApproveRouterScenario {
 
     pub fn req(&self) -> Req<VAULT_WORDS> {
         Req {
-            key_version: self.key_version,
             path: pad32(VAULT_PATH),
-            kind: RESPONSE_KIND_APPROVE as u8,
+            out_schema: SUCCESS_SCHEMA,
             tx: Tx {
                 nonce: self.evm_nonce,
                 priority_fee: 1_000_000_000,
@@ -788,7 +904,7 @@ impl ApproveRouterScenario {
     }
 
     pub fn inputs(&self) -> Vec<Fr> {
-        vec![b20(&self.erc20), Fr::from(self.evm_nonce), Fr::from(u64::from(self.key_version))]
+        vec![b20(&self.erc20), Fr::from(self.evm_nonce)]
     }
 
     pub fn witnesses(&self) -> Vec<Fr> {
@@ -835,7 +951,6 @@ impl Default for ApproveRouterScenario {
 pub struct ApproveStataScenario {
     pub env: Env,
     pub evm_nonce: u64,
-    pub key_version: u8,
     pub request_exists: bool,
     pub cc_rand: Fr,
 }
@@ -845,7 +960,6 @@ impl ApproveStataScenario {
         ApproveStataScenario {
             env: Env::new(),
             evm_nonce: 6,
-            key_version: 1,
             request_exists: false,
             cc_rand: Fr::from(0xa3_3a3u64),
         }
@@ -853,9 +967,8 @@ impl ApproveStataScenario {
 
     pub fn req(&self) -> Req<VAULT_WORDS> {
         Req {
-            key_version: self.key_version,
             path: pad32(VAULT_PATH),
-            kind: RESPONSE_KIND_APPROVE as u8,
+            out_schema: SUCCESS_SCHEMA,
             tx: Tx {
                 nonce: self.evm_nonce,
                 priority_fee: 1_000_000_000,
@@ -873,7 +986,7 @@ impl ApproveStataScenario {
     }
 
     pub fn inputs(&self) -> Vec<Fr> {
-        vec![Fr::from(self.evm_nonce), Fr::from(u64::from(self.key_version))]
+        vec![Fr::from(self.evm_nonce)]
     }
 
     pub fn witnesses(&self) -> Vec<Fr> {
@@ -927,7 +1040,6 @@ pub struct StartDepositScenario {
     pub gas_limit: u64,
     pub max_fee_per_gas: u128,
     pub max_priority_fee_per_gas: u128,
-    pub key_version: u8,
     pub erc20: [u8; 20],
     pub amount: u128,
     pub request_exists: bool,
@@ -943,7 +1055,6 @@ impl StartDepositScenario {
             gas_limit: 65_000,
             max_fee_per_gas: 30_000_000_000,
             max_priority_fee_per_gas: 1_000_000_000,
-            key_version: 1,
             erc20: *b"erc20-token-contract",
             amount: 123_456,
             request_exists: false,
@@ -952,7 +1063,7 @@ impl StartDepositScenario {
     }
 
     pub fn commitment(&self) -> [u8; 32] {
-        user_commitment(&self.sk)
+        pending_user_commitment(&self.sk)
     }
 
     pub fn amount_u64(&self) -> u64 {
@@ -961,9 +1072,8 @@ impl StartDepositScenario {
 
     pub fn req(&self) -> Req<VAULT_WORDS> {
         Req {
-            key_version: self.key_version,
             path: self.commitment(),
-            kind: RESPONSE_KIND_CLAIM as u8,
+            out_schema: SUCCESS_SCHEMA,
             tx: Tx {
                 nonce: self.evm_nonce,
                 priority_fee: self.max_priority_fee_per_gas,
@@ -996,7 +1106,6 @@ impl StartDepositScenario {
             Fr::from(self.gas_limit),
             u128_limb(self.max_fee_per_gas),
             u128_limb(self.max_priority_fee_per_gas),
-            Fr::from(u64::from(self.key_version)),
             b20(&self.erc20),
             u128_limb(self.amount),
         ]
@@ -1100,7 +1209,7 @@ impl ClaimScenario {
     }
 
     pub fn inputs(&self) -> Vec<Fr> {
-        let mut inputs = settle_head_inputs(self.d.env.key_seed, self.settle.nonce_seed, &self.d.request_id(), RESPONSE_KIND_CLAIM as u8, &self.output_limbs());
+        let mut inputs = settle_head_inputs(self.d.env.key_seed, self.settle.nonce_seed, &self.d.request_id(), self.settle.block_height, output_kind::EXECUTED, FLAG_WIDTH, &self.output_limbs());
         inputs.extend(self.settle.nonce_slots());
         let (is_some, is_left, left, right) = match self.recipient {
             ClaimRecipient::Key(pk) => (1u64, 1u64, pk, [0u8; 32]),
@@ -1167,7 +1276,6 @@ pub struct StartWithdrawScenario {
     pub env: Env,
     pub sk: [u8; 32],
     pub evm_nonce: u64,
-    pub key_version: u8,
     pub erc20: [u8; 20],
     pub amount: u128,
     pub dest: [u8; 20],
@@ -1184,7 +1292,6 @@ impl StartWithdrawScenario {
             env: Env::new(),
             sk: tagged32(b"withdrawer", 0x22),
             evm_nonce: 11,
-            key_version: 1,
             erc20: *b"erc20-token-contract",
             amount: 98_765,
             dest: *b"dest-evm-address-20b",
@@ -1218,9 +1325,8 @@ impl StartWithdrawScenario {
 
     pub fn req(&self) -> Req<VAULT_WORDS> {
         Req {
-            key_version: self.key_version,
             path: pad32(VAULT_PATH),
-            kind: RESPONSE_KIND_WITHDRAW as u8,
+            out_schema: SUCCESS_SCHEMA,
             tx: Tx {
                 nonce: self.evm_nonce,
                 priority_fee: 1_000_000_000,
@@ -1253,7 +1359,6 @@ impl StartWithdrawScenario {
     pub fn inputs(&self) -> Vec<Fr> {
         vec![
             Fr::from(self.evm_nonce),
-            Fr::from(u64::from(self.key_version)),
             b20(&self.erc20),
             u128_limb(self.amount),
             b20(&self.dest),
@@ -1334,7 +1439,7 @@ impl CompleteWithdrawScenario {
     /// withdrawal that SUCCEEDED moved the tokens on the far side — so the
     /// ticket is the whole argument list.
     pub fn inputs(&self) -> Vec<Fr> {
-        settle_head_inputs(self.w.env.key_seed, self.settle.nonce_seed, &self.w.request_id(), RESPONSE_KIND_WITHDRAW as u8, &self.output_limbs())
+        settle_head_inputs(self.w.env.key_seed, self.settle.nonce_seed, &self.w.request_id(), self.settle.block_height, output_kind::EXECUTED, FLAG_WIDTH, &self.output_limbs())
     }
 
     /// EMPTY, and that is the milestone: a completion witnesses no secret,
@@ -1408,9 +1513,13 @@ impl RefundWithdrawalScenario {
             self.w.env.key_seed,
             self.settle.nonce_seed,
             &self.w.request_id(),
-            self.attested.kind(RESPONSE_KIND_WITHDRAW),
-            &self.attested.signed_limbs(),
-            &self.attested.slot_limbs(),
+            self.settle.block_height,
+
+            self.attested.output_kind(),
+
+            self.attested.signed_width(FLAG_WIDTH),
+            &self.attested.signed_limbs(FLAG_WIDTH),
+            &self.attested.slot_limbs(FLAG_WIDTH),
         );
         v.extend(self.settle.nonce_slots());
         v
@@ -1461,7 +1570,6 @@ pub struct StartSwapScenario {
     pub env: Env,
     pub sk: [u8; 32],
     pub evm_nonce: u64,
-    pub key_version: u8,
     pub token_in: [u8; 20],
     pub token_out: [u8; 20],
     pub fee: u32,
@@ -1480,7 +1588,6 @@ impl StartSwapScenario {
             env: Env::new(),
             sk: tagged32(b"swapper", 0x23),
             evm_nonce: 13,
-            key_version: 1,
             token_in: *b"token-in-contract-20",
             token_out: *b"token-out-contract20",
             fee: 3000,
@@ -1522,9 +1629,8 @@ impl StartSwapScenario {
 
     pub fn req(&self) -> Req<SWAP_WORDS> {
         Req {
-            key_version: self.key_version,
             path: pad32(VAULT_PATH),
-            kind: RESPONSE_KIND_SWAP as u8,
+            out_schema: AMOUNT_IN_SCHEMA,
             tx: Tx {
                 nonce: self.evm_nonce,
                 priority_fee: 1_000_000_000,
@@ -1565,7 +1671,6 @@ impl StartSwapScenario {
     pub fn inputs(&self) -> Vec<Fr> {
         vec![
             Fr::from(self.evm_nonce),
-            Fr::from(u64::from(self.key_version)),
             b20(&self.token_in),
             b20(&self.token_out),
             Fr::from(u64::from(self.fee)),
@@ -1654,8 +1759,10 @@ impl CompleteSwapScenario {
         }
     }
 
+    /// The `amountIn` as a V1 attested `uint256`: TWO limbs, not the one
+    /// the Borsh `U64` output had.
     pub fn output_limbs(&self) -> Vec<Fr> {
-        vec![Fr::from(self.amount_in)]
+        word_output_limbs(self.amount_in)
     }
 
     pub fn change(&self) -> Option<u64> {
@@ -1667,7 +1774,7 @@ impl CompleteSwapScenario {
     }
 
     pub fn inputs(&self) -> Vec<Fr> {
-        let mut v = settle_head_inputs(self.s.env.key_seed, self.settle.nonce_seed, &self.s.request_id(), RESPONSE_KIND_SWAP as u8, &self.output_limbs());
+        let mut v = settle_head_inputs(self.s.env.key_seed, self.settle.nonce_seed, &self.s.request_id(), self.settle.block_height, output_kind::EXECUTED, WORD_WIDTH, &self.output_limbs());
         v.extend(self.settle.nonce_slots());
         v
     }
@@ -1744,9 +1851,13 @@ impl RefundSwapScenario {
             self.s.env.key_seed,
             self.settle.nonce_seed,
             &self.s.request_id(),
-            self.attested.kind(RESPONSE_KIND_SWAP),
-            &self.attested.signed_limbs(),
-            &self.attested.slot_limbs(),
+            self.settle.block_height,
+
+            self.attested.output_kind(),
+
+            self.attested.signed_width(WORD_WIDTH),
+            &self.attested.signed_limbs(WORD_WIDTH),
+            &self.attested.slot_limbs(WORD_WIDTH),
         );
         v.extend(self.settle.nonce_slots());
         v
@@ -1797,7 +1908,6 @@ pub struct StartSupplyScenario {
     pub env: Env,
     pub sk: [u8; 32],
     pub evm_nonce: u64,
-    pub key_version: u8,
     pub amount: u128,
     pub coin_nonce: [u8; 32],
     pub coin_color: Option<[u8; 32]>,
@@ -1812,7 +1922,6 @@ impl StartSupplyScenario {
             env: Env::new(),
             sk: tagged32(b"supplier", 0x24),
             evm_nonce: 17,
-            key_version: 1,
             amount: 8_000,
             coin_nonce: tagged32(b"supply-coin", 0x46),
             coin_color: None,
@@ -1842,9 +1951,8 @@ impl StartSupplyScenario {
 
     pub fn req(&self) -> Req<SUPPLY_WORDS> {
         Req {
-            key_version: self.key_version,
             path: pad32(VAULT_PATH),
-            kind: RESPONSE_KIND_SUPPLY as u8,
+            out_schema: SHARES_SCHEMA,
             tx: Tx {
                 nonce: self.evm_nonce,
                 priority_fee: 1_000_000_000,
@@ -1877,7 +1985,6 @@ impl StartSupplyScenario {
     pub fn inputs(&self) -> Vec<Fr> {
         vec![
             Fr::from(self.evm_nonce),
-            Fr::from(u64::from(self.key_version)),
             u128_limb(self.amount),
             b32_slots(&self.coin_nonce).0,
             b32_slots(&self.coin_nonce).1,
@@ -1951,12 +2058,13 @@ impl CompleteSupplyScenario {
         }
     }
 
+    /// The minted `shares` as a V1 attested `uint256`: two limbs.
     pub fn output_limbs(&self) -> Vec<Fr> {
-        vec![Fr::from(self.shares)]
+        word_output_limbs(self.shares)
     }
 
     pub fn inputs(&self) -> Vec<Fr> {
-        let mut v = settle_head_inputs(self.s.env.key_seed, self.settle.nonce_seed, &self.s.request_id(), RESPONSE_KIND_SUPPLY as u8, &self.output_limbs());
+        let mut v = settle_head_inputs(self.s.env.key_seed, self.settle.nonce_seed, &self.s.request_id(), self.settle.block_height, output_kind::EXECUTED, WORD_WIDTH, &self.output_limbs());
         v.extend(self.settle.nonce_slots());
         v
     }
@@ -2028,9 +2136,13 @@ impl RefundSupplyScenario {
             self.s.env.key_seed,
             self.settle.nonce_seed,
             &self.s.request_id(),
-            self.attested.kind(RESPONSE_KIND_SUPPLY),
-            &self.attested.signed_limbs(),
-            &self.attested.slot_limbs(),
+            self.settle.block_height,
+
+            self.attested.output_kind(),
+
+            self.attested.signed_width(WORD_WIDTH),
+            &self.attested.signed_limbs(WORD_WIDTH),
+            &self.attested.slot_limbs(WORD_WIDTH),
         );
         v.extend(self.settle.nonce_slots());
         v
@@ -2082,7 +2194,6 @@ pub struct StartRedeemScenario {
     pub env: Env,
     pub sk: [u8; 32],
     pub evm_nonce: u64,
-    pub key_version: u8,
     pub shares: u128,
     pub coin_nonce: [u8; 32],
     pub coin_color: Option<[u8; 32]>,
@@ -2097,7 +2208,6 @@ impl StartRedeemScenario {
             env: Env::new(),
             sk: tagged32(b"redeemer", 0x25),
             evm_nonce: 19,
-            key_version: 1,
             shares: 3_000,
             coin_nonce: tagged32(b"redeem-coin", 0x47),
             coin_color: None,
@@ -2127,9 +2237,8 @@ impl StartRedeemScenario {
 
     pub fn req(&self) -> Req<REDEEM_WORDS> {
         Req {
-            key_version: self.key_version,
             path: pad32(VAULT_PATH),
-            kind: RESPONSE_KIND_REDEEM as u8,
+            out_schema: ASSETS_SCHEMA,
             tx: Tx {
                 nonce: self.evm_nonce,
                 priority_fee: 1_000_000_000,
@@ -2162,7 +2271,6 @@ impl StartRedeemScenario {
     pub fn inputs(&self) -> Vec<Fr> {
         vec![
             Fr::from(self.evm_nonce),
-            Fr::from(u64::from(self.key_version)),
             u128_limb(self.shares),
             b32_slots(&self.coin_nonce).0,
             b32_slots(&self.coin_nonce).1,
@@ -2235,12 +2343,13 @@ impl CompleteRedeemScenario {
         }
     }
 
+    /// The returned `assets` as a V1 attested `uint256`: two limbs.
     pub fn output_limbs(&self) -> Vec<Fr> {
-        vec![Fr::from(self.assets)]
+        word_output_limbs(self.assets)
     }
 
     pub fn inputs(&self) -> Vec<Fr> {
-        let mut v = settle_head_inputs(self.s.env.key_seed, self.settle.nonce_seed, &self.s.request_id(), RESPONSE_KIND_REDEEM as u8, &self.output_limbs());
+        let mut v = settle_head_inputs(self.s.env.key_seed, self.settle.nonce_seed, &self.s.request_id(), self.settle.block_height, output_kind::EXECUTED, WORD_WIDTH, &self.output_limbs());
         v.extend(self.settle.nonce_slots());
         v
     }
@@ -2312,9 +2421,13 @@ impl RefundRedeemScenario {
             self.s.env.key_seed,
             self.settle.nonce_seed,
             &self.s.request_id(),
-            self.attested.kind(RESPONSE_KIND_REDEEM),
-            &self.attested.signed_limbs(),
-            &self.attested.slot_limbs(),
+            self.settle.block_height,
+
+            self.attested.output_kind(),
+
+            self.attested.signed_width(WORD_WIDTH),
+            &self.attested.signed_limbs(WORD_WIDTH),
+            &self.attested.slot_limbs(WORD_WIDTH),
         );
         v.extend(self.settle.nonce_slots());
         v

@@ -5,12 +5,12 @@
 //! [`crate::evm`] made the CALL a type — its name, its argument list, its
 //! return, the interface that exposes it, its gas limit and the rule by
 //! which its return says "it worked". This module makes the SLOT a type
-//! over a FILING of that call: the call plus the response kind byte this
-//! deployment files it under, which [`Kinded`](crate::evm::Kinded) supplies
-//! in one line.
+//! over a FILING of that call: the call plus the OUTPUT SCHEMA this
+//! deployment files it under, which [`Filed`](crate::evm::Filed) supplies in
+//! one line.
 //!
 //! ```ignore
-//! type Transfer = Kinded<erc20::Transfer, 1>;
+//! type Transfer = Filed<erc20::Transfer, schema::Success>;
 //!
 //! #[derive(Ledger)]
 //! pub struct Treasury {
@@ -20,31 +20,45 @@
 //! ```
 //!
 //! and everything else follows. What a contract author no longer writes:
-//! the selector, the ABI words, the response type, the schema strings, the
-//! gas envelope, the signing path, the notification path, the record format
-//! version, the `&SELF.signet` argument (`#[derive(Ledger)]` threads the
-//! block's Signet offset into every `Pending` field) and — with [`Owned`] —
-//! the owner commitment's construction and opening.
+//! the selector, the ABI words, the attested width and its narrowing, the
+//! schema literal, the gas envelope, the signing path, the notification
+//! path, the MPC key version, the `&SELF.signet` argument
+//! (`#[derive(Ledger)]` threads the block's Signet offset into every
+//! `Pending` field) and — with [`Owned`] — the owner commitment's
+//! construction and opening.
+//!
+//! THE VOCABULARY IS V1 SINCE M44 RUNG D (notes/vault-flush.org §6): the
+//! records are [`crate::signet_v1::EventRecordV1`], the tickets carry a
+//! `RespondBidirectionalEvent` and a flat serialized output, and the
+//! response KIND BYTE is gone from both — `crate::signet_flow`'s header is
+//! the list of what that subtracted.
 //!
 //! # The two tickets are SYMMETRIC
 //!
 //! [`Succeeded<F>`] and [`Failed<F>`], and nothing else settles a request
-//! — and `F` is the FILING, so a ticket for `transfer` at one kind cannot
-//! settle a slot that files `transfer` at another:
+//! — and `F` is the FILING, so a ticket for one slot's filing cannot settle
+//! another's, even when the two file the same Solidity function:
 //!
-//! - [`Pending::complete`] takes a `Succeeded`, asserts the attestation is
-//!   this slot's kind, verifies it, consumes the entry — and then asserts
-//!   the call's own [`EvmCall::succeeded`] predicate. A mined ERC-20 `transfer`
-//!   that returned `false` therefore CANNOT complete, whoever presents it
-//!   (notes/evm-calls.org §3: the spurious-completion hole the deployed
-//!   vault leaves open by putting a refund branch inside its
+//! - [`Pending::complete`] takes a `Succeeded`, verifies the attestation at
+//!   the call's attested width, asserts the MPC's verdict is `executed`,
+//!   consumes the entry — and then asserts the call's own
+//!   [`EvmCall::succeeded`] predicate over the decoded output. A mined ERC-20
+//!   `transfer` that returned `false` therefore CANNOT complete, whoever
+//!   presents it (notes/evm-calls.org §3: the spurious-completion hole the
+//!   deployed vault leaves open by putting a refund branch inside its
 //!   `completeWithdraw`).
-//! - [`Pending::refund`] takes a `Failed`, and accepts EITHER the MPC's
-//!   failure kind (reverted, never mined, or an undecodable return — §3.1)
-//!   OR this slot's own kind with the success predicate false.
+//! - [`Pending::refund`] takes a `Failed`, and accepts EITHER a `failed` /
+//!   `unviable` verdict (reverted, never mined, or an undecodable return —
+//!   §3.1) OR `executed` with the success predicate false.
 //!
 //! So the two non-successes are one ticket, the success is the other, and
 //! neither stands in for the other.
+//!
+//! WHAT BINDS AN ATTESTATION TO A SLOT, now that there is no kind byte: the
+//! slot's own record map. `complete` and `refund` consume the entry the
+//! request filed, and the signed digest commits to the id that entry is
+//! keyed by — so an attestation for a request another slot filed finds
+//! nothing to consume in this one (`Pending::consume`).
 //!
 //! # HAZARD, carried forward from §3.1
 //!
@@ -61,17 +75,16 @@
 //!
 //! # What `Failed<F>` costs
 //!
-//! The two accepted attestations have DIFFERENT PREIMAGES: the MPC's
-//! failure output is one byte (the kind alone — `FailureResponse { kind: u8
-//! }`, spec/borsh-subset.md §5), where an executed `transfer`'s is two (the
-//! kind and the flag). Poseidon is not a stream, so one hash cannot cover
-//! both lengths: [`Pending::refund`] hashes the preimage BOTH ways, selects
-//! the field element by the kind byte and verifies ONCE. The extra cost is
-//! one `transient_hash` and one `cond_select` beside the ~30k rows of the
-//! ECDSA verification that follows — measured in
+//! The two accepted attestations have DIFFERENT PREIMAGES, and under V1 they
+//! differ in the WIDTH as well as in the limbs: a `failed` or `unviable`
+//! request has no return to decode, so the MPC attests ZERO bytes and the
+//! digest's `LEN` field is `0`, where an `executed` call's is the return's
+//! own width. Poseidon is not a stream, so one hash cannot cover both:
+//! [`Pending::refund`] hashes the preimage BOTH ways, selects the field
+//! element by the verdict and verifies ONCE. The extra cost is one
+//! `transient_hash` and one `cond_select` beside the ~30k rows of the ECDSA
+//! verification that follows — measured in
 //! `tests/treasury.rs::the_refund_pays_one_extra_digest`.
-//! (notes/evm-calls.org §3 predicted "cost: nil" on the belief that both
-//! payloads are one limb; they are not — §10 records the correction.)
 //!
 //! # What does not compile
 //!
@@ -82,7 +95,8 @@
 //! ```compile_fail
 //! use minocrab::v3::Circuit3;
 //! use minocrab::{Private, Public};
-//! use minocrab_contracts::evm::{erc20, uniswap_v3, Kinded};
+//! use minocrab_contracts::evm::{erc20, uniswap_v3, Filed};
+//! use minocrab_contracts::signet_v1::schema;
 //! use minocrab_contracts::evm_flow::{Contract, Pending};
 //! use minocrab_contracts::signet_flow::Signet;
 //! use minocrab_std::v3::{Bytes, Ledger, LedgerRepr, Uint};
@@ -92,7 +106,7 @@
 //! #[derive(Ledger)]
 //! struct Block {
 //!     signet: Signet,
-//!     transfers: Pending<Kinded<erc20::Transfer, 1>, Amount, 2>,
+//!     transfers: Pending<Filed<erc20::Transfer, schema::Success>, Amount, 2>,
 //! }
 //! const BLOCK: Block = Block::new();
 //!
@@ -102,11 +116,10 @@
 //!     callee: Contract<uniswap_v3::UniswapV3Router>,
 //!     to: Bytes<20, Private>,
 //!     amount: Uint<128, Private>,
-//!     key_version: Uint<8>,
 //!     nonce: Uint<64>,
 //!     env: Amount,
 //! ) {
-//!     BLOCK.transfers.request(c, callee, (to, amount), key_version, nonce, |_, _| env);
+//!     BLOCK.transfers.request(c, callee, (to, amount), nonce, |_, _| env);
 //! }
 //! ```
 //!
@@ -116,7 +129,8 @@
 //! ```
 //! use minocrab::v3::Circuit3;
 //! use minocrab::{Private, Public};
-//! use minocrab_contracts::evm::{erc20, Kinded};
+//! use minocrab_contracts::evm::{erc20, Filed};
+//! use minocrab_contracts::signet_v1::schema;
 //! use minocrab_contracts::evm_flow::{Contract, Pending};
 //! use minocrab_contracts::signet_flow::Signet;
 //! use minocrab_std::v3::{Bytes, Ledger, LedgerRepr, Uint};
@@ -126,7 +140,7 @@
 //! #[derive(Ledger)]
 //! struct Block {
 //!     signet: Signet,
-//!     transfers: Pending<Kinded<erc20::Transfer, 1>, Amount, 2>,
+//!     transfers: Pending<Filed<erc20::Transfer, schema::Success>, Amount, 2>,
 //! }
 //! const BLOCK: Block = Block::new();
 //!
@@ -135,11 +149,10 @@
 //!     callee: Contract<erc20::Erc20>,
 //!     to: Bytes<20, Private>,
 //!     amount: Uint<128, Private>,
-//!     key_version: Uint<8>,
 //!     nonce: Uint<64>,
 //!     env: Amount,
 //! ) {
-//!     BLOCK.transfers.request(c, callee, (to, amount), key_version, nonce, |_, _| env);
+//!     BLOCK.transfers.request(c, callee, (to, amount), nonce, |_, _| env);
 //! }
 //! ```
 //!
@@ -149,7 +162,8 @@
 //!
 //! ```compile_fail
 //! use minocrab::v3::Circuit3;
-//! use minocrab_contracts::evm::{erc20, Kinded};
+//! use minocrab_contracts::evm::{erc20, Filed};
+//! use minocrab_contracts::signet_v1::schema;
 //! use minocrab_contracts::evm_flow::{Owned, Pending, Succeeded};
 //! use minocrab_contracts::signet_flow::Signet;
 //! use minocrab_std::v3::{Ledger, LedgerRepr, Uint};
@@ -160,13 +174,13 @@
 //! #[derive(Ledger)]
 //! struct Block {
 //!     signet: Signet,
-//!     transfers: Pending<Kinded<erc20::Transfer, 1>, Owned<Amount>, 2>,
+//!     transfers: Pending<Filed<erc20::Transfer, schema::Success>, Owned<Amount>, 2>,
 //! }
 //! const BLOCK: Block = Block::new();
 //!
-//! fn settle(c: &mut Circuit3, ticket: Succeeded<Kinded<erc20::Transfer, 2>>) {
-//!     // ERROR: expected `Succeeded<Kinded<Transfer, 1>>`,
-//!     //        found `Succeeded<Kinded<Transfer, 2>>`
+//! fn settle(c: &mut Circuit3, ticket: Succeeded<Filed<erc20::Transfer, schema::NoReturn>>) {
+//!     // ERROR: expected `Succeeded<Filed<Transfer, Success>>`,
+//!     //        found `Succeeded<Filed<Transfer, NoReturn>>`
 //!     BLOCK.transfers.complete(c, ticket);
 //! }
 //! ```
@@ -175,7 +189,8 @@
 //!
 //! ```
 //! use minocrab::v3::Circuit3;
-//! use minocrab_contracts::evm::{erc20, Kinded};
+//! use minocrab_contracts::evm::{erc20, Filed};
+//! use minocrab_contracts::signet_v1::schema;
 //! use minocrab_contracts::evm_flow::{Owned, Pending, Succeeded};
 //! use minocrab_contracts::signet_flow::Signet;
 //! use minocrab_std::v3::{Ledger, LedgerRepr, Uint};
@@ -186,11 +201,11 @@
 //! #[derive(Ledger)]
 //! struct Block {
 //!     signet: Signet,
-//!     transfers: Pending<Kinded<erc20::Transfer, 1>, Owned<Amount>, 2>,
+//!     transfers: Pending<Filed<erc20::Transfer, schema::Success>, Owned<Amount>, 2>,
 //! }
 //! const BLOCK: Block = Block::new();
 //!
-//! fn settle(c: &mut Circuit3, ticket: Succeeded<Kinded<erc20::Transfer, 1>>) {
+//! fn settle(c: &mut Circuit3, ticket: Succeeded<Filed<erc20::Transfer, schema::Success>>) {
 //!     BLOCK.transfers.complete(c, ticket);
 //! }
 //! ```
@@ -199,7 +214,8 @@
 //! from the slot's constructor, which `#[derive(Ledger)]` calls:
 //!
 //! ```compile_fail
-//! use minocrab_contracts::evm::{erc20, Kinded};
+//! use minocrab_contracts::evm::{erc20, Filed};
+//! use minocrab_contracts::signet_v1::schema;
 //! use minocrab_contracts::evm_flow::{Owned, Pending};
 //! use minocrab_contracts::signet_flow::Signet;
 //! use minocrab_std::v3::{Ledger, LedgerRepr, Uint};
@@ -211,53 +227,97 @@
 //! struct Block {
 //!     signet: Signet,
 //!     // error[E0080]: `Pending<F, Env, WORDS>` needs WORDS == …
-//!     transfers: Pending<Kinded<erc20::Transfer, 1>, Owned<Amount>, 3>,
+//!     transfers: Pending<Filed<erc20::Transfer, schema::Success>, Owned<Amount>, 3>,
 //! }
 //! const BLOCK: Block = Block::new();
 //! const _: usize = BLOCK.transfers.record_path().depth() as usize;
 //! ```
 //!
-//! TWO SLOTS OF ONE BLOCK AT ONE RESPONSE KIND — the derive's
-//! `assert_distinct_kinds`, which now reads `Filing::KIND` through
-//! [`LedgerWidth::KINDS`]. The MPC's kind byte could not tell the two
-//! attestations apart, so it is `error[E0080]`:
+//! A RETURN TYPE WHOSE ATTESTED FORM NOBODY HAS WRITTEN DOWN — the rung the
+//! kind-byte doctest used to occupy (two slots of one block at one response
+//! kind was `error[E0080]` from the derive's `assert_distinct_kinds`; V1
+//! records carry no kind, so two slots may now file the same call with the
+//! same schema and the derive has nothing left to check).
+//!
+//! What took its place is a check the `fff3421c` lineage could not make: a
+//! slot's attested output has to have a WIDTH and a NARROWING, and
+//! [`AbiReturn`] is where those live. `Address` is an [`AbiType`] with no
+//! `AbiReturn` impl, so a call declaring it as a return cannot be filed:
 //!
 //! ```compile_fail
-//! use minocrab_contracts::evm::{erc20, Kinded};
-//! use minocrab_contracts::evm_flow::{Owned, Pending};
+//! use minocrab::v3::Circuit3;
+//! use minocrab_contracts::evm::{erc20, always, Address, Check, EvmCall, Filed};
+//! use minocrab_contracts::evm_flow::{Owned, Pending, Succeeded};
 //! use minocrab_contracts::signet_flow::Signet;
-//! use minocrab_std::v3::{Ledger, LedgerRepr, Uint};
-//! use minocrab::Public;
+//! use minocrab_contracts::signet_v1::schema;
+//! use minocrab_std::v3::{Bytes, Ledger, LedgerRepr, Uint};
+//! use minocrab::{Private, Public};
 //!
 //! #[derive(LedgerRepr)] struct Amount { amount: Uint<64, Public> }
+//!
+//! /// A hypothetical `owner()`-shaped call: its return is an address.
+//! struct WhoOwnsIt;
+//! impl EvmCall for WhoOwnsIt {
+//!     type Callee = erc20::Erc20;
+//!     const NAME: &'static str = "owner";
+//!     type Args = ();
+//!     type Return = Address;
+//!     type Success = Bytes<20, Private>;
+//!     const GAS_LIMIT: u64 = erc20::CALL_GAS;
+//!     fn succeeded(c: &mut Circuit3, _: &Bytes<20, Private>) -> Check<Private> {
+//!         always(c)
+//!     }
+//! }
 //!
 //! #[derive(Ledger)]
 //! struct Block {
 //!     signet: Signet,
-//!     // error[E0080]: two slots of this ledger block settle under the same
-//!     //               Signet response kind …
-//!     transfers: Pending<Kinded<erc20::Transfer, 1>, Owned<Amount>, 2>,
-//!     approvals: Pending<Kinded<erc20::Approve, 1>, Owned<Amount>, 2>,
+//!     owners: Pending<Filed<WhoOwnsIt, schema::Success>, Owned<Amount>, 0>,
+//! }
+//! const BLOCK: Block = Block::new();
+//!
+//! // ERROR: the trait bound `Address: AbiReturn` is not satisfied
+//! fn settle(c: &mut Circuit3, ticket: Succeeded<Filed<WhoOwnsIt, schema::Success>>) {
+//!     BLOCK.owners.complete(c, ticket);
 //! }
 //! ```
 //!
-//! THE SAME CODE WITH THE ONE BYTE CHANGED compiles — two filings of two
-//! calls, at two kinds:
+//! THE SAME CALL WITH A RETURN THAT HAS ONE compiles — `U256` is 32 attested
+//! bytes and the narrowing is written once, in [`AbiReturn`]:
 //!
 //! ```
-//! use minocrab_contracts::evm::{erc20, Kinded};
-//! use minocrab_contracts::evm_flow::{Owned, Pending};
+//! use minocrab::v3::Circuit3;
+//! use minocrab_contracts::evm::{erc20, always, EvmCall, Filed, U256};
+//! use minocrab_contracts::evm_flow::{Owned, Pending, Succeeded};
 //! use minocrab_contracts::signet_flow::Signet;
-//! use minocrab_std::v3::{Ledger, LedgerRepr, Uint};
-//! use minocrab::Public;
+//! use minocrab_contracts::signet_v1::schema;
+//! use minocrab_std::v3::{Check, Ledger, LedgerRepr, Uint, B32};
+//! use minocrab::{Private, Public};
 //!
 //! #[derive(LedgerRepr)] struct Amount { amount: Uint<64, Public> }
+//!
+//! struct WhatIsItWorth;
+//! impl EvmCall for WhatIsItWorth {
+//!     type Callee = erc20::Erc20;
+//!     const NAME: &'static str = "price";
+//!     type Args = ();
+//!     type Return = U256;
+//!     type Success = B32<Private>;
+//!     const GAS_LIMIT: u64 = erc20::CALL_GAS;
+//!     fn succeeded(c: &mut Circuit3, _: &B32<Private>) -> Check<Private> {
+//!         always(c)
+//!     }
+//! }
 //!
 //! #[derive(Ledger)]
 //! struct Block {
 //!     signet: Signet,
-//!     transfers: Pending<Kinded<erc20::Transfer, 1>, Owned<Amount>, 2>,
-//!     approvals: Pending<Kinded<erc20::Approve, 4>, Owned<Amount>, 2>,
+//!     prices: Pending<Filed<WhatIsItWorth, schema::AmountIn>, Owned<Amount>, 0>,
+//! }
+//! const BLOCK: Block = Block::new();
+//!
+//! fn settle(c: &mut Circuit3, ticket: Succeeded<Filed<WhatIsItWorth, schema::AmountIn>>) {
+//!     BLOCK.prices.complete(c, ticket);
 //! }
 //! ```
 //!
@@ -266,7 +326,8 @@
 //! the nonce and the chain from:
 //!
 //! ```compile_fail
-//! use minocrab_contracts::evm::{erc20, Kinded};
+//! use minocrab_contracts::evm::{erc20, Filed};
+//! use minocrab_contracts::signet_v1::schema;
 //! use minocrab_contracts::evm_flow::{Owned, Pending};
 //! use minocrab_std::v3::{Ledger, LedgerCounter, LedgerRepr, Uint};
 //! use minocrab::Public;
@@ -277,14 +338,15 @@
 //! struct Block {
 //!     initialized: LedgerCounter,
 //!     // ERROR: a `Pending` slot needs the block's `Signet` field …
-//!     transfers: Pending<Kinded<erc20::Transfer, 1>, Owned<Amount>, 2>,
+//!     transfers: Pending<Filed<erc20::Transfer, schema::Success>, Owned<Amount>, 2>,
 //! }
 //! ```
 //!
 //! TWO `Signet` fields — one contract, one MPC key, one nonce sequence:
 //!
 //! ```compile_fail
-//! use minocrab_contracts::evm::{erc20, Kinded};
+//! use minocrab_contracts::evm::{erc20, Filed};
+//! use minocrab_contracts::signet_v1::schema;
 //! use minocrab_contracts::evm_flow::{Owned, Pending};
 //! use minocrab_contracts::signet_flow::Signet;
 //! use minocrab_std::v3::{Ledger, LedgerRepr, Uint};
@@ -297,7 +359,7 @@
 //!     signet: Signet,
 //!     // ERROR: #[derive(Ledger)] wants EXACTLY ONE `Signet` field per block
 //!     other: Signet,
-//!     transfers: Pending<Kinded<erc20::Transfer, 1>, Owned<Amount>, 2>,
+//!     transfers: Pending<Filed<erc20::Transfer, schema::Success>, Owned<Amount>, 2>,
 //! }
 //! ```
 //!
@@ -309,7 +371,8 @@
 //! ```compile_fail
 //! use minocrab::v3::Circuit3;
 //! use minocrab::{Private, Public};
-//! use minocrab_contracts::evm::{erc20, Kinded};
+//! use minocrab_contracts::evm::{erc20, Filed};
+//! use minocrab_contracts::signet_v1::schema;
 //! use minocrab_contracts::evm_flow::{Contract, Pending};
 //! use minocrab_contracts::signet_flow::Signet;
 //! use minocrab_std::v3::{Bytes, Ledger, LedgerRepr, Uint};
@@ -319,7 +382,7 @@
 //! #[derive(Ledger)]
 //! struct Block {
 //!     signet: Signet,
-//!     transfers: Pending<Kinded<erc20::Transfer, 1>, Amount, 2>,
+//!     transfers: Pending<Filed<erc20::Transfer, schema::Success>, Amount, 2>,
 //! }
 //! const BLOCK: Block = Block::new();
 //!
@@ -328,13 +391,12 @@
 //!     callee: Contract<erc20::Erc20>,
 //!     to: Bytes<20, Private>,
 //!     amount: Uint<128, Private>,
-//!     key_version: Uint<8>,
 //!     nonce: Uint<64>,
 //!     env: Amount,
 //! ) {
 //!     // ERROR: the trait bound `erc20::Transfer: Payable` is not satisfied
 //!     BLOCK.transfers.request_payable(
-//!         c, callee, (to, amount), amount, key_version, nonce, |_, _| env,
+//!         c, callee, (to, amount), amount, nonce, |_, _| env,
 //!     );
 //! }
 //! ```
@@ -346,7 +408,8 @@
 //! ```
 //! use minocrab::v3::Circuit3;
 //! use minocrab::{Private, Public};
-//! use minocrab_contracts::evm::{weth, Kinded};
+//! use minocrab_contracts::evm::{weth, Filed};
+//! use minocrab_contracts::signet_v1::schema;
 //! use minocrab_contracts::evm_flow::{Contract, Pending};
 //! use minocrab_contracts::signet_flow::Signet;
 //! use minocrab_std::v3::{Ledger, LedgerRepr, Uint};
@@ -356,7 +419,7 @@
 //! #[derive(Ledger)]
 //! struct Block {
 //!     signet: Signet,
-//!     wraps: Pending<Kinded<weth::Deposit, 1>, Amount, 0>,
+//!     wraps: Pending<Filed<weth::Deposit, schema::NoReturn>, Amount, 0>,
 //! }
 //! const BLOCK: Block = Block::new();
 //!
@@ -364,12 +427,11 @@
 //!     c: &mut Circuit3,
 //!     callee: Contract<weth::Weth>,
 //!     amount: Uint<128, Private>,
-//!     key_version: Uint<8>,
 //!     nonce: Uint<64>,
 //!     env: Amount,
 //! ) {
 //!     BLOCK.wraps.request_payable(
-//!         c, callee, (), amount, key_version, nonce, |_, _| env,
+//!         c, callee, (), amount, nonce, |_, _| env,
 //!     );
 //! }
 //! ```
@@ -385,7 +447,8 @@
 //! ```compile_fail
 //! use minocrab::v3::Circuit3;
 //! use minocrab::{Private, Public};
-//! use minocrab_contracts::evm::{erc20, usdt, Kinded};
+//! use minocrab_contracts::evm::{erc20, usdt, Filed};
+//! use minocrab_contracts::signet_v1::schema;
 //! use minocrab_contracts::evm_flow::{Contract, Pending};
 //! use minocrab_contracts::signet_flow::Signet;
 //! use minocrab_std::v3::{Bytes, Ledger, LedgerRepr, Uint};
@@ -395,7 +458,7 @@
 //! #[derive(Ledger)]
 //! struct Block {
 //!     signet: Signet,
-//!     transfers: Pending<Kinded<usdt::Transfer, 1>, Amount, 2>,
+//!     transfers: Pending<Filed<usdt::Transfer, schema::NoReturn>, Amount, 2>,
 //! }
 //! const BLOCK: Block = Block::new();
 //!
@@ -405,18 +468,18 @@
 //!     callee: Contract<erc20::Erc20>,
 //!     to: Bytes<20, Private>,
 //!     amount: Uint<128, Private>,
-//!     key_version: Uint<8>,
 //!     nonce: Uint<64>,
 //!     env: Amount,
 //! ) {
-//!     BLOCK.transfers.request(c, callee, (to, amount), key_version, nonce, |_, _| env);
+//!     BLOCK.transfers.request(c, callee, (to, amount), nonce, |_, _| env);
 //! }
 //! ```
 //!
 //! ```compile_fail
 //! use minocrab::v3::Circuit3;
 //! use minocrab::{Private, Public};
-//! use minocrab_contracts::evm::{erc20, usdt, Kinded};
+//! use minocrab_contracts::evm::{erc20, usdt, Filed};
+//! use minocrab_contracts::signet_v1::schema;
 //! use minocrab_contracts::evm_flow::{Contract, Pending};
 //! use minocrab_contracts::signet_flow::Signet;
 //! use minocrab_std::v3::{Bytes, Ledger, LedgerRepr, Uint};
@@ -426,7 +489,7 @@
 //! #[derive(Ledger)]
 //! struct Block {
 //!     signet: Signet,
-//!     transfers: Pending<Kinded<erc20::Transfer, 1>, Amount, 2>,
+//!     transfers: Pending<Filed<erc20::Transfer, schema::Success>, Amount, 2>,
 //! }
 //! const BLOCK: Block = Block::new();
 //!
@@ -436,11 +499,10 @@
 //!     callee: Contract<usdt::UsdtLike>,
 //!     to: Bytes<20, Private>,
 //!     amount: Uint<128, Private>,
-//!     key_version: Uint<8>,
 //!     nonce: Uint<64>,
 //!     env: Amount,
 //! ) {
-//!     BLOCK.transfers.request(c, callee, (to, amount), key_version, nonce, |_, _| env);
+//!     BLOCK.transfers.request(c, callee, (to, amount), nonce, |_, _| env);
 //! }
 //! ```
 //!
@@ -451,7 +513,8 @@
 //! ```
 //! use minocrab::v3::Circuit3;
 //! use minocrab::{Private, Public};
-//! use minocrab_contracts::evm::{erc20, usdt, Kinded};
+//! use minocrab_contracts::evm::{erc20, usdt, Filed};
+//! use minocrab_contracts::signet_v1::schema;
 //! use minocrab_contracts::evm_flow::{Contract, Pending};
 //! use minocrab_contracts::signet_flow::Signet;
 //! use minocrab_std::v3::{Bytes, Ledger, LedgerRepr, Uint};
@@ -461,8 +524,8 @@
 //! #[derive(Ledger)]
 //! struct Block {
 //!     signet: Signet,
-//!     conforming: Pending<Kinded<erc20::Transfer, 1>, Amount, 2>,
-//!     non_conforming: Pending<Kinded<usdt::Transfer, 2>, Amount, 2>,
+//!     conforming: Pending<Filed<erc20::Transfer, schema::Success>, Amount, 2>,
+//!     non_conforming: Pending<Filed<usdt::Transfer, schema::NoReturn>, Amount, 2>,
 //! }
 //! const BLOCK: Block = Block::new();
 //!
@@ -472,13 +535,12 @@
 //!     tether: Contract<usdt::UsdtLike>,
 //!     to: Bytes<20, Private>,
 //!     amount: Uint<128, Private>,
-//!     key_version: Uint<8>,
 //!     nonce: Uint<64>,
 //!     one: Amount,
 //!     two: Amount,
 //! ) {
-//!     BLOCK.conforming.request(c, token, (to, amount), key_version, nonce, |_, _| one);
-//!     BLOCK.non_conforming.request(c, tether, (to, amount), key_version, nonce, |_, _| two);
+//!     BLOCK.conforming.request(c, token, (to, amount), nonce, |_, _| one);
+//!     BLOCK.non_conforming.request(c, tether, (to, amount), nonce, |_, _| two);
 //! }
 //! ```
 //!
@@ -502,51 +564,53 @@ use core::marker::PhantomData;
 
 use minocrab::v3::{Circuit3, FieldT, Wire3};
 use minocrab::{Private, Public};
-use minocrab_std::v3::borsh::CircuitBorsh;
 use minocrab_std::v3::hash::{transient_hash_compact, upgrade_from_transient};
 use minocrab_std::v3::{
-    eq, is_true, label, not, own_public_key, repr_limbs, ArgPath, Bytes, CircuitAbi, CircuitArg,
-    Assumed, Disclose, DisclosureLabel, FieldPath, LedgerMap, LedgerRepr, LedgerWidth, Prim,
-    ProofWires, Uint, Vis3, ZswapCoinPublicKey, B32,
+    eq, is_true, label, not, own_public_key, repr_limbs, ArgPath, Bool, Bytes, CircuitAbi,
+    CircuitArg, Assumed, Disclose, DisclosureLabel, FieldPath, LedgerMap, LedgerRepr, LedgerWidth,
+    Prim, ProofWires, Uint, Vis3, ZswapCoinPublicKey, B32,
 };
 use minocrab::v3::Val;
-use signet_signer_interface::{RequestId, Signature};
+use signet_signer_interface::{RequestId, RespondBidirectionalEvent};
 
-use crate::common::{self, SecretKey, SigningPath};
-use crate::erc20_vault::REFUND_PAD;
+use crate::common::{self, SecretKey};
 use crate::evm::{
-    build_tx_filed, build_tx_from_words, build_tx_payable_filed, build_tx_with, AbiArgs, AbiTuple,
-    AbiType, Envelope, EvmCall, Extends, Filing, Interface, Payable,
+    build_tx_filed, build_tx_from_words, build_tx_payable_filed, build_tx_with, AbiArgs, AbiReturn,
+    AbiTuple, AbiType, Envelope, EvmCall, Extends, Filing, Interface, Payable,
 };
-use crate::signet::{self, EventRecordV2, Secp256k1SigLimbs, RECORD_FORMAT_VERSION};
+use crate::signet::Secp256k1SigLimbs;
+use crate::signet_v1::{
+    self, output_kind, EventRecordV1, OutputSchema,
+};
 use crate::signet_flow::{
-    file_request, Attested, EvmTx, Outcome, RequestIdSettled, SignRequest, Signet,
+    file_request, BlockHeightSettled, EvmTx, Outcome, RequestIdSettled, SignRequest, Signet,
+    Signing,
 };
 
-/// THE MPC'S FAILURE KIND — byte 0 of the fixed output it attests when a
-/// request reverted, never mined, or came back undecodable
-/// (spec/borsh-subset.md §5, kind 3).
-///
-/// Response-only: no request is ever filed under it, so no slot claims it in
-/// `LedgerWidth::KINDS` and every slot of a block may receive it.
-pub const FAILURE_KIND: u8 = 3;
+/// The refund commitment's domain pad, `pad(32, "vault:refund:")` — the
+/// seventeen-circuit vault's `refundCommitment` tag, which `Owned` keeps
+/// (the flush-pattern vault has no refund commitment: M44).
+pub const REFUND_PAD: &str = "vault:refund:";
 
-/// What an attested value must be: a circuit argument (it arrives on the
-/// ticket) and a Borsh record (its limbs ARE the signed preimage).
-///
-/// `Copy` on top, because [`Pending::refund`] needs the value twice: once
-/// for the outcome rule's predicate and once inside the digest it may or may
-/// not hash it into. Every circuit leaf in this workspace is `Copy` — a wire
-/// is a handle — so the bound costs nothing.
-pub trait Attestable: Copy + CircuitArg + CircuitBorsh<Private> {}
-impl<T: Copy + CircuitArg + CircuitBorsh<Private>> Attestable for T {}
-
-/// A call's attested return value, as a circuit wire.
+/// A call's attested return value DECODED, as a circuit wire.
 pub type Ret<C> = <<C as EvmCall>::Return as AbiType>::Wire<Private>;
 
 /// The CALL a [`Filing`] files — `F::Call`, spelled once so a slot's
 /// signatures read as sentences rather than as projections.
 pub type Called<F> = <F as Filing>::Call;
+
+/// The RETURN TYPE of a filing's call — the leaf whose [`AbiReturn`] says
+/// how wide the attested output is and how it narrows.
+pub type Returned<F> = <Called<F> as EvmCall>::Return;
+
+/// THE SERIALIZED OUTPUT a filing's attestation carries: the MPC's Borsh of
+/// the decoded return at the call's own width (`Bytes0`, `Bytes<1>`, `B32`).
+pub type Serialized<F> = <Returned<F> as AbiReturn>::Serialized;
+
+/// The V1 RECORD a filing's slot stores — the event's limbs under the
+/// filing's own output schema.
+pub type Record<F, const WORDS: usize> =
+    EventRecordV1<WORDS, <<F as Filing>::Schema as OutputSchema>::At<Public>>;
 
 /// The INTERFACE a filing's call must be sent to: the callee of `F`'s call.
 /// A `Contract<I>` reaches it when `I: Extends<Callee<F>>`.
@@ -634,77 +698,67 @@ impl<I: Interface> CircuitArg for Contract<I> {
 
 // ---- the tickets --------------------------------------------------------------
 
-/// Both tickets carry `(requestId, respond, serializedOutput)` — the wire
-/// block `signet_flow::Settle` has, named for the CALL rather than for an
-/// environment/response pair.
+/// Both tickets carry `(respond, serializedOutput)` — the two arguments the
+/// deployed `queueAttestation*` circuits take, named for the CALL rather
+/// than for an environment/response pair.
+///
+/// THE REQUEST ID IS NOT A SEPARATE FIELD any more: V1's
+/// `RespondBidirectionalEvent` carries it, beside the height, the verdict,
+/// the width and the digest, and all of those are inside the signed
+/// preimage — so a ticket cannot name one request and verify another.
 macro_rules! ticket {
     ($name:ident, $doc:expr) => {
         #[doc = $doc]
         pub struct $name<F: Filing>
         where
-            Ret<Called<F>>: Attestable,
+            Returned<F>: AbiReturn,
         {
-            /// The entry being settled.
-            pub request_id: RequestId<Private>,
-            /// The MPC's signature in circuit-input form (`bigR.x` and `s`
-            /// little-endian; the reversal is the transaction builder's).
-            pub respond: Signature<Private>,
-            /// `serializedOutput`: the kind byte, then the attested value.
-            pub output: Attested<Ret<Called<F>>>,
+            /// The MPC's attestation: `{ requestId, blockHeight, outputKind,
+            /// serializedOutputLength, digest, signature }`. The signature is
+            /// in circuit-input form (`bigR.x` and `s` little-endian; the
+            /// reversal is the transaction builder's).
+            pub respond: RespondBidirectionalEvent<Private>,
+            /// `serializedOutput`: the MPC's Borsh of the decoded return at
+            /// the call's own width ([`AbiReturn::LEN`]) — flat bytes, not a
+            /// decoded value, because that is what the digest commits to.
+            pub output: Serialized<F>,
             _filing: PhantomData<fn() -> F>,
         }
 
         impl<F: Filing> CircuitAbi for $name<F>
         where
-            Ret<Called<F>>: Attestable,
+            Returned<F>: AbiReturn,
         {
-            const SLOTS: usize = <RequestId<Private>>::SLOTS
-                + <Signature<Private>>::SLOTS
-                + <Attested<Ret<Called<F>>>>::SLOTS;
+            const SLOTS: usize =
+                <RespondBidirectionalEvent<Private>>::SLOTS + <Serialized<F>>::SLOTS;
 
             fn push_atoms(atoms: &mut Vec<minocrab::AlignmentAtom>) {
-                <RequestId<Private>>::push_atoms(atoms);
-                <Signature<Private>>::push_atoms(atoms);
-                <Attested<Ret<Called<F>>>>::push_atoms(atoms);
+                <RespondBidirectionalEvent<Private>>::push_atoms(atoms);
+                <Serialized<F>>::push_atoms(atoms);
             }
 
             fn push_prims(prims: &mut Vec<Prim>) {
-                <RequestId<Private>>::push_prims(prims);
-                <Signature<Private>>::push_prims(prims);
-                <Attested<Ret<Called<F>>>>::push_prims(prims);
+                <RespondBidirectionalEvent<Private>>::push_prims(prims);
+                <Serialized<F>>::push_prims(prims);
             }
         }
 
         impl<F: Filing> CircuitArg for $name<F>
         where
-            Ret<Called<F>>: Attestable,
+            Returned<F>: AbiReturn,
         {
             fn declare(c: &mut Circuit3, path: &ArgPath) -> Self {
                 $name {
-                    request_id: <RequestId<Private>>::declare(c, &path.field("requestId")),
-                    respond: <Signature<Private>>::declare(c, &path.field("respond")),
-                    output: {
-                        // Spelled out rather than `Attested::declare` so the
-                        // attested value's slot can carry the FILING's own
-                        // `RETURN_FIELD` — `success`, `amountIn`, `shares`,
-                        // `assets` — where the response record names it.
-                        let out = path.field("serializedOutput");
-                        let value = out.field("output");
-                        let value = match F::RETURN_FIELD {
-                            None => value,
-                            Some(name) => value.field(name),
-                        };
-                        Attested {
-                            kind: <Uint<8>>::declare(c, &out.field("kind")),
-                            output: <Ret<Called<F>>>::declare(c, &value),
-                        }
-                    },
+                    respond: <RespondBidirectionalEvent<Private>>::declare(
+                        c,
+                        &path.field("respond"),
+                    ),
+                    output: <Serialized<F>>::declare(c, &path.field("serializedOutput")),
                     _filing: PhantomData,
                 }
             }
 
             fn push_slots(&self, slots: &mut Vec<Wire3<FieldT, Private>>) {
-                self.request_id.push_slots(slots);
                 self.respond.push_slots(slots);
                 self.output.push_slots(slots);
             }
@@ -716,24 +770,29 @@ ticket!(
     Succeeded,
     "THE CALL EXECUTED AND SUCCEEDED — the only ticket [`Pending::complete`] \
      takes.\n\n\
-     The claim is CHECKED, not believed: `complete` asserts the kind, the \
-     signature, the record's own kind and version, and then the call's \
-     [`EvmCall::succeeded`] predicate. What the ticket's TYPE buys is that a ticket \
-     for filing `X` cannot be handed to a slot filed as `Y` — a different \
-     call, or the SAME call at another kind — and that a [`Failed`] cannot \
-     be handed to `complete` at all."
+     The claim is CHECKED, not believed: `complete` verifies the signature \
+     over the attested width, asserts the verdict is \
+     [`output_kind::EXECUTED`](crate::signet_v1::output_kind::EXECUTED), \
+     consumes this slot's own entry, and then asserts the call's \
+     [`EvmCall::succeeded`] predicate over the decoded output. What the \
+     ticket's TYPE buys is that a ticket for filing `X` cannot be handed to a \
+     slot filed as `Y`, and that a [`Failed`] cannot be handed to `complete` \
+     at all."
 );
 
 ticket!(
     Failed,
     "THE CALL DID NOT SUCCEED — the only ticket [`Pending::refund`] takes, \
      for both non-successes.\n\n\
-     Either the MPC attested its failure kind ([`FAILURE_KIND`]: reverted, \
-     never mined, or an undecodable return), or it attested THIS call's kind \
-     with a return the call's [`EvmCall::succeeded`] says is not a success (an \
-     ERC-20 `transfer` that mined and returned `false`). The wire shape is \
-     [`Succeeded`]'s; in the first case the output slots carry the MPC's \
-     padding and are not part of the signed preimage."
+     Either the MPC's verdict was \
+     [`FAILED`](crate::signet_v1::output_kind::FAILED) or \
+     [`UNVIABLE`](crate::signet_v1::output_kind::UNVIABLE) (reverted, never \
+     mined, or an undecodable return — and then the attested output is \
+     EMPTY), or it was `EXECUTED` with a return the call's \
+     [`EvmCall::succeeded`] says is not a success (an ERC-20 `transfer` that \
+     mined and returned `false`). The wire shape is [`Succeeded`]'s; in the \
+     first case the output slots carry the prover's padding and are not part \
+     of the signed preimage."
 );
 
 // ---- what survives privately, with a TYPED domain -----------------------------
@@ -963,15 +1022,14 @@ impl<E: LedgerRepr> LedgerRepr for Owned<E> {
 /// the caller's environment map) plus the block's [`Signet`] configuration,
 /// typed by the call it makes.
 ///
-/// `F` IS THE FILING, not the call: the call plus this deployment's kind
-/// byte and its name for the attested return
-/// ([`Kinded<Call, KIND>`](crate::evm::Kinded) for the one-line case). Two
-/// slots of one block may file the same Solidity function under two kinds,
-/// which is what the deployed vault does with `transfer`, and their tickets
-/// still do not unify.
+/// `F` IS THE FILING, not the call: the call plus the output schema this
+/// deployment files it under ([`Filed<Call, Schema>`](crate::evm::Filed) for
+/// the one-line case). Two slots of one block may file the same Solidity
+/// function under two schemas — or under the SAME schema — and their tickets
+/// still do not unify, because the ticket is typed by the filing.
 ///
 /// `WORDS` is the record's calldata capacity. Stable Rust cannot write
-/// `EventRecordV2<{ <Call::Args as AbiTuple>::WORDS }>`
+/// `EventRecordV1<{ <Call::Args as AbiTuple>::WORDS }, _>`
 /// (`generic_const_exprs`), so the number is NAMED and CHECKED — an
 /// inline-`const` assert in the constructor makes a mismatch an
 /// `error[E0080]` (notes/evm-calls.org §3).
@@ -981,7 +1039,7 @@ impl<E: LedgerRepr> LedgerRepr for Owned<E> {
 /// ([`Self::at_block_with_signet`]). That is why `request`, `complete` and
 /// `refund` take no `&SELF.signet`.
 pub struct Pending<F: Filing, Env, const WORDS: usize = 2> {
-    records: LedgerMap<RequestId<Public>, EventRecordV2<WORDS>>,
+    records: LedgerMap<RequestId<Public>, Record<F, WORDS>>,
     envs: LedgerMap<RequestId<Public>, Env>,
     signet: Signet,
     _filing: PhantomData<fn() -> F>,
@@ -1022,12 +1080,13 @@ impl<F: Filing, Env, const WORDS: usize> Pending<F, Env, WORDS> {
 /// vault's `approveRouter` and `approveStata`): ONE ledger field, the record
 /// map, and [`Fired::request_with`] as its only operation.
 ///
-/// No settle method exists, so "no circuit settles this kind" is a fact about
-/// the type rather than a convention. The kind is still claimed in
-/// [`LedgerWidth::KINDS`], so no settling slot of the block can share it and
-/// an approve ATTESTATION is a kind nothing accepts.
+/// No settle method exists, so "nothing settles this slot" is a fact about
+/// the TYPE rather than a convention: there is no `Succeeded<F>` any circuit
+/// of the contract can consume, and the record entry is never removed. An
+/// attestation for one of these requests is a message nobody has a circuit
+/// for, which is the intent.
 pub struct Fired<F: Filing, const WORDS: usize = 2> {
-    records: LedgerMap<RequestId<Public>, EventRecordV2<WORDS>>,
+    records: LedgerMap<RequestId<Public>, Record<F, WORDS>>,
     signet: Signet,
     _filing: PhantomData<fn() -> F>,
 }
@@ -1065,16 +1124,14 @@ impl<F: Filing, const WORDS: usize> Fired<F, WORDS> {
     /// The shape is [`Pending::request_with`]'s minus the environment: the
     /// callee and the arguments are builders, so a ledger read emits where
     /// the circuit reads it, and `signer` answers whose key signs.
-    #[allow(clippy::too_many_arguments)]
     pub fn request_with<I: Extends<Callee<F>>>(
         &self,
         c: &mut Circuit3,
         callee: impl FnOnce(&mut Circuit3) -> Contract<I>,
         args: impl AbiArgs<<Called<F> as EvmCall>::Args>,
         envelope: Envelope,
-        key_version: Uint<8>,
         nonce: Uint<64>,
-        signer: impl FnOnce(&mut Circuit3) -> SigningPath<Private>,
+        signer: impl FnOnce(&mut Circuit3) -> Signing,
     ) -> RequestId<Public> {
         let tx = build_tx_with::<Called<F>, WORDS>(
             c,
@@ -1084,37 +1141,30 @@ impl<F: Filing, const WORDS: usize> Fired<F, WORDS> {
             nonce.field(),
             F::GAS_LIMIT,
         );
-        let path = signer(c);
-        file_request(
+        let signing = signer(c);
+        file_request::<WORDS, F::Schema>(
             c,
             &self.signet,
             &self.records,
-            SignRequest {
-                key_version,
-                path,
-                tx,
-            },
-            F::KIND,
+            SignRequest { signing, tx },
+            <<Called<F> as EvmCall>::Args as AbiTuple>::WORDS,
             |_, _| {},
         )
     }
 }
 
-impl<F: Filing, const WORDS: usize> LedgerWidth for Fired<F, WORDS> {
-    const KINDS: &'static [u8] = &[F::KIND];
-}
+impl<F: Filing, const WORDS: usize> LedgerWidth for Fired<F, WORDS> {}
 
 impl<F: Filing, Env, const WORDS: usize> LedgerWidth for Pending<F, Env, WORDS> {
     const WIDTH: usize = 2;
-    const KINDS: &'static [u8] = &[F::KIND];
 }
 
 impl<F: Filing, Env: LedgerRepr, const WORDS: usize> Pending<F, Env, WORDS>
 where
-    Ret<Called<F>>: Attestable,
+    Returned<F>: AbiReturn,
 {
     /// FILE THE CALL. Builds `F::Call`'s transaction from the callee and the
-    /// argument tuple, files the signing record under `F::KIND`, stores the
+    /// argument tuple, files the signing record under `F::Schema`, stores the
     /// environment beside it and notifies the singleton with this slot's own
     /// ledger path. Returns the disclosed request id, and discloses
     /// `signet_flow::Requested` plus whatever `env` discloses.
@@ -1123,21 +1173,21 @@ where
     /// [`Extends`] the call's own [`EvmCall::Callee`] is accepted, and
     /// nothing else is.
     ///
-    /// `key_version` and `nonce` are still the CALLER'S (the prover picks
-    /// the EVM nonce; the MPC's key owns the sequence). Both want a home in
-    /// the block or in an administrator-set policy cell — notes/evm-calls.org
-    /// §7, the conversation queued after this build.
+    /// `nonce` is still the CALLER'S: the prover picks the EVM nonce, which
+    /// is why [`Outbox`] exists (the nonce it assigns is the ledger's, and
+    /// the circuit never reads it). The MPC key version is no longer an
+    /// argument at all — it is `Signet::mpc_key_version`, the home
+    /// notes/evm-calls.org §7 was looking for.
     pub fn request(
         &self,
         c: &mut Circuit3,
         callee: Contract<impl Extends<Callee<F>>>,
         args: <<Called<F> as EvmCall>::Args as AbiTuple>::Wires<Private>,
-        key_version: Uint<8>,
         nonce: Uint<64>,
         env: impl FnOnce(&mut Circuit3, RequestId<Public>) -> Env,
     ) -> RequestId<Public> {
         let tx = build_tx_filed::<F, WORDS>(c, callee.address, args, nonce.field());
-        self.file(c, tx, key_version, env)
+        self.file(c, tx, env)
     }
 
     /// FILE THE CALL WITH ETHER ATTACHED — [`Self::request`] for a
@@ -1168,7 +1218,6 @@ where
         callee: Contract<impl Extends<Callee<F>>>,
         args: <<Called<F> as EvmCall>::Args as AbiTuple>::Wires<Private>,
         value: Uint<128, Private>,
-        key_version: Uint<8>,
         nonce: Uint<64>,
         env: impl FnOnce(&mut Circuit3, RequestId<Public>) -> Env,
     ) -> RequestId<Public>
@@ -1176,30 +1225,25 @@ where
         Called<F>: Payable,
     {
         let tx = build_tx_payable_filed::<F, WORDS>(c, callee.address, args, value, nonce.field());
-        self.file(c, tx, key_version, env)
+        self.file(c, tx, env)
     }
 
     /// The shared tail of [`Self::request`] and [`Self::request_payable`]:
     /// the contract's own signing path, the record filed under this slot's
-    /// kind, and the environment stored beside it.
+    /// output schema, and the environment stored beside it.
     fn file(
         &self,
         c: &mut Circuit3,
         tx: EvmTx<WORDS>,
-        key_version: Uint<8>,
         env: impl FnOnce(&mut Circuit3, RequestId<Public>) -> Env,
     ) -> RequestId<Public> {
-        let path = SigningPath::contract_path(c).private();
-        file_request(
+        let signing = Signing::contract(c);
+        file_request::<WORDS, F::Schema>(
             c,
             &self.signet,
             &self.records,
-            SignRequest {
-                key_version,
-                path,
-                tx,
-            },
-            F::KIND,
+            SignRequest { signing, tx },
+            <<Called<F> as EvmCall>::Args as AbiTuple>::WORDS,
             |c, request_id| {
                 // The environment is built AFTER the id exists, so a
                 // `Commit` in it binds to this request and no other.
@@ -1223,7 +1267,8 @@ where
     ///   `deposit`, whose transaction is paid from the DEPOSITOR's EVM
     ///   account and whose three gas numbers are therefore circuit arguments.
     /// - `signer` runs AFTER the transaction and BEFORE the record is filed,
-    ///   and answers "whose key signs this": it returns the signing path and
+    ///   and answers "whose key signs this": it returns a [`Signing`] — the
+    ///   path, and whether the reserved-path assert is emitted for it — and
     ///   whatever else the environment will need. That is where the vault
     ///   witnesses the secret its refund commitment is made to — after the
     ///   transaction, which is where its deployed stream has it — and where
@@ -1241,9 +1286,8 @@ where
         callee: impl FnOnce(&mut Circuit3) -> Contract<I>,
         args: impl AbiArgs<<Called<F> as EvmCall>::Args>,
         envelope: Envelope,
-        key_version: Uint<8>,
         nonce: Uint<64>,
-        signer: impl FnOnce(&mut Circuit3) -> (SigningPath<Private>, S),
+        signer: impl FnOnce(&mut Circuit3) -> (Signing, S),
         env: impl FnOnce(&mut Circuit3, RequestId<Public>, &S) -> Env,
     ) -> RequestId<Public> {
         let tx = build_tx_with::<Called<F>, WORDS>(
@@ -1254,17 +1298,13 @@ where
             nonce.field(),
             F::GAS_LIMIT,
         );
-        let (path, carried) = signer(c);
-        file_request(
+        let (signing, carried) = signer(c);
+        file_request::<WORDS, F::Schema>(
             c,
             &self.signet,
             &self.records,
-            SignRequest {
-                key_version,
-                path,
-                tx,
-            },
-            F::KIND,
+            SignRequest { signing, tx },
+            <<Called<F> as EvmCall>::Args as AbiTuple>::WORDS,
             |c, request_id| {
                 // The environment is built AFTER the id exists, so a
                 // `Commit` in it binds to this request and no other.
@@ -1274,11 +1314,25 @@ where
         )
     }
 
-    /// SETTLE A SUCCESS. Asserts the attestation's kind is this slot's,
-    /// verifies the MPC's signature over the Poseidon digest of
-    /// `(requestId ‖ borsh(kind ‖ output))`, consumes record and
-    /// environment, checks the record's own kind and format version — and
-    /// then asserts the call's [`EvmCall::succeeded`] predicate.
+    /// SETTLE A SUCCESS. Verifies the MPC's signature over the V1
+    /// attestation digest at the call's attested WIDTH, asserts the verdict
+    /// is `executed`, consumes record and environment — and then asserts the
+    /// call's [`EvmCall::succeeded`] predicate over the decoded output.
+    ///
+    /// FOUR CHECKS, AND EACH ONE REJECTS A DIFFERENT LIE:
+    ///
+    /// - the signature binds the id, the height, the verdict, the width and
+    ///   the output together, so none of them can be swapped;
+    /// - `outputKind == executed` rejects an attestation that says the
+    ///   transaction reverted or never mined — where the `fff3421c` lineage
+    ///   had a kind BYTE to compare, V1 has the MPC's verdict;
+    /// - the record entry must be in THIS slot's map, which is what binds an
+    ///   attestation to the slot that filed the request (the kind byte's old
+    ///   job, done by the ledger instead);
+    /// - and the call's own predicate rejects a mined `transfer` that
+    ///   returned `false` (notes/evm-calls.org §3: the spurious-completion
+    ///   hole the deployed vault leaves open by putting a refund branch
+    ///   inside its `completeWithdraw`).
     ///
     /// ANYONE MAY CALL IT: the attestation is the gate, and no secret is
     /// witnessed. Discloses `signet_flow::Settled`.
@@ -1286,133 +1340,154 @@ where
         &self,
         c: &mut Circuit3,
         ticket: Succeeded<F>,
-    ) -> Outcome<Env, <Called<F> as EvmCall>::Success, WORDS> {
-        let request_id = ticket.request_id.disclose_as::<RequestIdSettled>(c);
-        let attested = ticket.output;
+    ) -> Outcome<Env, <Called<F> as EvmCall>::Success> {
+        let request_id = ticket.respond.request_id.disclose_as::<RequestIdSettled>(c);
+        let block_height = ticket.respond.block_height.disclose_as::<BlockHeightSettled>(c);
+        let output = ticket.output;
 
         c.region("signet flow: attestation", |c| {
-            c.assert(
-                eq(attested.kind.field(), u64::from(F::KIND)).message("Wrong response kind"),
-            );
             let key = self.signet.mpc_response_key.read(c);
-            let valid = signet::verify_respond_bidirectional_event_borsh(
+            let limbs = <Returned<F> as AbiReturn>::limbs(&output);
+            let valid = signet_v1::verify_respond_bidirectional_event_v1_at(
                 c,
-                &request_id.private(),
-                &attested,
-                &Secp256k1SigLimbs {
-                    big_r_x: ticket.respond.big_r.x,
-                    s: ticket.respond.s,
-                },
+                <Returned<F> as AbiReturn>::LEN as u64,
+                &limbs,
+                &ticket.respond,
                 key.point().private(),
             );
-            c.assert(valid);
+            c.assert_with(valid, Some("Invalid attestation signature"));
+            let executed = c.constant(output_kind::EXECUTED).private();
+            let is_executed = c.test_eq(ticket.respond.output_kind.field(), executed);
+            c.assert_with(is_executed, Some("The attested call did not execute"));
         });
 
-        let (record, env) = self.consume(c, request_id);
-        let succeeded = <Called<F> as EvmCall>::succeeded(c, &attested.output);
+        let env = self.consume(c, request_id);
+        let decoded = <Returned<F> as AbiReturn>::decode(c, &output);
+        let succeeded = <Called<F> as EvmCall>::succeeded(c, &decoded);
         c.assert(succeeded.message("The attested call did not succeed"));
 
         Outcome {
             request_id,
+            block_height,
             env,
             // The projection runs AFTER the assert, so nothing a caller can
             // read has escaped the check.
-            output: <Called<F> as EvmCall>::map(c, attested.output),
-            record,
+            output: <Called<F> as EvmCall>::map(c, decoded),
         }
     }
 
-    /// SETTLE A NON-SUCCESS. Accepts [`FAILURE_KIND`] (reverted, never
-    /// mined, undecodable) OR this slot's kind with the [`EvmCall::succeeded`]
-    /// predicate false. Discloses `signet_flow::Settled`.
+    /// SETTLE A NON-SUCCESS. Accepts the MPC's `failed` or `unviable`
+    /// verdict — whose attested output is EMPTY — OR `executed` with the
+    /// [`EvmCall::succeeded`] predicate false. Discloses
+    /// `signet_flow::Settled`.
     ///
-    /// The two accepted attestations have different preimage LENGTHS (see
-    /// the module docs), so the digest is hashed both ways and selected by
-    /// the kind byte before the single signature check.
-    pub fn refund(
-        &self,
-        c: &mut Circuit3,
-        ticket: Failed<F>,
-    ) -> Outcome<Env, Ret<Called<F>>, WORDS> {
-        let request_id = ticket.request_id.disclose_as::<RequestIdSettled>(c);
-        let attested = ticket.output;
+    /// THE TWO ACCEPTED ATTESTATIONS SIGN DIFFERENT PREIMAGES, and they
+    /// differ in both the WIDTH and the limbs: a failed or unviable request
+    /// has no return to decode, so the MPC attests zero bytes and the
+    /// digest's `LEN` field is `0`, where an executed call's is the return's
+    /// own width. Poseidon is not a stream, so one hash cannot cover both:
+    /// the preimage is hashed BOTH ways, the field element is selected by the
+    /// verdict, and the signature is verified ONCE
+    /// ([`signet_v1::attestation_transient_hash_v1`]). The extra cost is one
+    /// `transient_hash` and one `cond_select` beside the ~30k rows of the
+    /// ECDSA verification that follows.
+    ///
+    /// The output slots are still DECODED in the failure arms, because a
+    /// circuit has one instruction stream: a prover whose request failed
+    /// supplies zeros, which satisfy the narrowing's range checks, and those
+    /// bytes are outside the signed digest either way.
+    pub fn refund(&self, c: &mut Circuit3, ticket: Failed<F>) -> Outcome<Env, Ret<Called<F>>> {
+        let request_id = ticket.respond.request_id.disclose_as::<RequestIdSettled>(c);
+        let block_height = ticket.respond.block_height.disclose_as::<BlockHeightSettled>(c);
+        let output = ticket.output;
 
-        c.region("signet flow: attestation", |c| {
-            // BOTH kinds are legal here, and they sign DIFFERENT preimages:
-            // the MPC's failure output is the kind byte alone, this call's
-            // output is the kind byte and the return value.
-            let is_failure = c.test_eq(attested.kind.field(), u64::from(FAILURE_KIND));
+        let decoded = {
+            let event = &ticket.respond;
+            let limbs = <Returned<F> as AbiReturn>::limbs(&output);
+            let (digest, is_executed) = c.region("signet flow: attestation", |c| {
+                let executed_hash = signet_v1::attestation_transient_hash_v1(
+                    c,
+                    &event.request_id,
+                    event.block_height.field(),
+                    event.output_kind.field(),
+                    <Returned<F> as AbiReturn>::LEN as u64,
+                    &limbs,
+                );
+                let empty_hash = signet_v1::attestation_transient_hash_v1(
+                    c,
+                    &event.request_id,
+                    event.block_height.field(),
+                    event.output_kind.field(),
+                    0,
+                    &[],
+                );
+                let executed = c.constant(output_kind::EXECUTED).private();
+                let is_executed = c.test_eq(event.output_kind.field(), executed);
+                let digest = c.cond_select(is_executed, executed_hash, empty_hash);
+                (upgrade_from_transient(c, digest), is_executed)
+            });
 
-            // Each preimage packed the way the MPC packs it — one byte
-            // string, `signet::calculate_attestation_digest_borsh`'s rule
-            // (2026-09-07, decisions.org T1) — hashed before the upgrade so
-            // the select happens on the raw Poseidon output.
-            let rid = request_id.private();
-            let executed_digest = signet::attestation_transient_hash_borsh(c, &rid, &attested);
-            let failed_digest = signet::attestation_transient_hash_borsh(c, &rid, &attested.kind);
+            c.region("signet flow: attestation", |c| {
+                let key = self.signet.mpc_response_key.read(c);
+                let valid = signet_v1::verify_attestation_signature(
+                    c,
+                    &digest,
+                    &Secp256k1SigLimbs {
+                        big_r_x: event.signature.big_r.x,
+                        s: event.signature.s,
+                    },
+                    key.point().private(),
+                );
+                c.assert_with(valid, Some("Invalid attestation signature"));
 
-            let digest = c.cond_select(is_failure, failed_digest, executed_digest);
-            let digest = upgrade_from_transient(c, digest);
+                // …and the verdict is one this slot refunds on: a
+                // non-execution, or an execution the call calls a failure.
+                let decoded = <Returned<F> as AbiReturn>::decode(c, &output);
+                let succeeded = <Called<F> as EvmCall>::succeeded(c, &decoded);
+                let not_executed = not(is_true(Bool::from_field_unchecked(is_executed)));
+                let executed_and_failed =
+                    is_true(Bool::from_field_unchecked(is_executed)).and(not(succeeded));
+                c.assert(
+                    not_executed
+                        .or(executed_and_failed)
+                        .message("Not a refundable outcome"),
+                );
+                decoded
+            })
+        };
 
-            let key = self.signet.mpc_response_key.read(c);
-            let valid = signet::verify_attestation_signature(
-                c,
-                &digest,
-                &Secp256k1SigLimbs {
-                    big_r_x: ticket.respond.big_r.x,
-                    s: ticket.respond.s,
-                },
-                key.point().private(),
-            );
-            c.assert(valid);
-
-            // …and the kind is one of the two this slot accepts, with the
-            // EXECUTED one accepted only when the call did not succeed.
-            let failure_kind = eq(attested.kind.field(), u64::from(FAILURE_KIND));
-            let this_kind = eq(attested.kind.field(), u64::from(F::KIND));
-            let succeeded = <Called<F> as EvmCall>::succeeded(c, &attested.output);
-            c.assert(
-                failure_kind
-                    .or(this_kind.and(not(succeeded)))
-                    .message("Not a refundable outcome"),
-            );
-        });
-
-        let (record, env) = self.consume(c, request_id);
+        let env = self.consume(c, request_id);
         Outcome {
             request_id,
+            block_height,
             env,
-            output: attested.output,
-            record,
+            output: decoded,
         }
     }
 
-    /// Read and remove the record and the environment, and bind the record
-    /// to THIS slot (its kind byte and its format version).
-    fn consume(
-        &self,
-        c: &mut Circuit3,
-        request_id: RequestId<Public>,
-    ) -> (Assumed<EventRecordV2<WORDS>>, Assumed<Env>) {
+    /// Read and remove the record and the environment.
+    ///
+    /// THE MEMBERSHIP CHECK IS THE SLOT BINDING. A V1 record carries neither
+    /// a response kind nor a format version — the two fields the `fff3421c`
+    /// lineage re-asserted here — so what ties an attestation to this slot is
+    /// that this slot's own record map holds its id, and that the attestation
+    /// verified under a digest that commits to that id. A ticket for a
+    /// request another slot filed finds nothing to consume.
+    fn consume(&self, c: &mut Circuit3, request_id: RequestId<Public>) -> Assumed<Env> {
         c.region("signet flow: consume", |c| {
             let found = self.records.member(c, &request_id);
             c.assert(is_true(found).message("Request not found"));
-            let record = self.records.lookup(c, &request_id);
             self.records.remove(c, &request_id);
             let env = self.envs.lookup(c, &request_id);
             self.envs.remove(c, &request_id);
-            let kind_ok = c.test_eq(record.response_kind(), u64::from(F::KIND));
-            c.assert(kind_ok);
-            let version_ok = c.test_eq(record.format_version(), u64::from(RECORD_FORMAT_VERSION));
-            c.assert(version_ok);
-            (record, env)
+            env
         })
     }
 }
 
 impl<F: Filing, E: LedgerRepr, const WORDS: usize> Pending<F, Owned<E>, WORDS>
 where
-    Ret<Called<F>>: Attestable,
+    Returned<F>: AbiReturn,
 {
     /// [`Pending::request`] with the caller's identity committed into the
     /// environment: the secret key is witnessed here and bound to the
@@ -1426,12 +1501,11 @@ where
         c: &mut Circuit3,
         callee: Contract<impl Extends<Callee<F>>>,
         args: <<Called<F> as EvmCall>::Args as AbiTuple>::Wires<Private>,
-        key_version: Uint<8>,
         nonce: Uint<64>,
         inner: impl FnOnce(&mut Circuit3, RequestId<Public>) -> E,
     ) -> RequestId<Public> {
         let sk = common::witness_sk(c);
-        self.request(c, callee, args, key_version, nonce, |c, request_id| Owned {
+        self.request(c, callee, args, nonce, |c, request_id| Owned {
             owner: Commit::to::<L, _>(c, &sk, request_id),
             inner: inner(c, request_id),
         })
@@ -1463,11 +1537,10 @@ where
 // ---- the outbox: a request that does not choose its nonce -------------------------
 
 label! {
-    /// The pre-record a call files: the callee, the key version and the
-    /// calldata words the emit will build a transaction from. Stored, so
-    /// public — and no more public than a `Pending` request's calldata,
-    /// which is disclosed into the record in the same way, one transaction
-    /// later.
+    /// The pre-record a call files: the callee and the calldata words the
+    /// emit will build a transaction from. Stored, so public — and no more
+    /// public than a `Pending` request's calldata, which is disclosed into
+    /// the record in the same way, one transaction later.
     pub QueuedRecordFiled = "queued pre-record";
 }
 
@@ -1478,9 +1551,9 @@ label! {
 pub type Inserted = (QueuedRecordFiled,);
 
 /// THE OUTBOX KEY, and what the requester keeps: the Poseidon hash of the
-/// pre-record (callee, key version, calldata words) — content-derived, so
-/// unsquattable and computed by anyone who knows the request; the request
-/// id MINUS the nonce (notes/stream-design.org, "emit restored").
+/// pre-record (callee, calldata words) — content-derived, so unsquattable
+/// and computed by anyone who knows the request; the request id MINUS the
+/// nonce (notes/stream-design.org, "emit restored").
 ///
 /// Two byte-identical requests share a handle, so the second is refused
 /// while the first is between call and emit and accepted after: the
@@ -1562,29 +1635,29 @@ impl Disclose for Handle<Private> {
 /// THE TRANSACTION MINUS ITS NONCE — what a call files and an emit turns
 /// into a record.
 ///
-/// Three fields, and they are exactly the three an emit cannot derive from
-/// the call type: the callee, the key version, and the encoded ABI words.
-/// Everything else in the transaction is the CONTRACT'S — the selector, the
-/// word count and the gas limit from [`EvmCall`], the fee envelope from the
-/// contract (notes/nonce-admin.org §1.1: a requester picks neither a nonce
-/// nor a fee, because an unminable transaction is a denial of service on
-/// every later nonce of the path), the chain ids from the [`Signet`] block,
-/// and the nonce from the outbox's accumulator, snapshotted at the call.
+/// Two fields, and they are exactly the two an emit cannot derive from the
+/// call type: the callee and the encoded ABI words. Everything else in the
+/// transaction is the CONTRACT'S — the selector, the word count and the gas
+/// limit from [`EvmCall`], the fee envelope from the contract
+/// (notes/nonce-admin.org §1.1: a requester picks neither a nonce nor a fee,
+/// because an unminable transaction is a denial of service on every later
+/// nonce of the path), the chain id and the MPC KEY VERSION from the
+/// [`Signet`] block, and the nonce from the outbox's accumulator,
+/// snapshotted at the call.
+///
+/// THE KEY VERSION WENT IN M44 RUNG D, with the argument that carried it: it
+/// is `Signet::mpc_key_version`, a cell, read at the emit like the chain id.
+/// So a pre-record is one limb shorter and a call one argument shorter.
 pub struct PreRecord<const WORDS: usize>(Vec<Wire3<FieldT, Public>>);
 
 impl<const WORDS: usize> PreRecord<WORDS> {
-    /// One limb for the callee, one for the key version, two per word.
-    pub const LIMBS: usize = 2 + 2 * WORDS;
+    /// One limb for the callee, two per word.
+    pub const LIMBS: usize = 1 + 2 * WORDS;
 
     /// Assemble and DISCLOSE the pre-record: it is about to be stored, so
     /// every limb is public, and the label names them in the inventory.
-    fn file(
-        c: &mut Circuit3,
-        callee: Bytes<20, Private>,
-        key_version: Uint<8>,
-        words: &[B32<Private>],
-    ) -> Self {
-        let mut limbs = vec![callee.field(), key_version.field()];
+    fn file(c: &mut Circuit3, callee: Bytes<20, Private>, words: &[B32<Private>]) -> Self {
+        let mut limbs = vec![callee.field()];
         for word in words {
             limbs.push(word.hi);
             limbs.push(word.lo);
@@ -1602,14 +1675,10 @@ impl<const WORDS: usize> PreRecord<WORDS> {
         Bytes::from_field_unchecked(self.0[0].private())
     }
 
-    fn key_version(&self) -> Uint<8> {
-        Uint::from_field_unchecked(self.0[1].private())
-    }
-
     fn words(&self) -> [B32<Private>; WORDS] {
         core::array::from_fn(|i| B32 {
-            hi: self.0[2 + 2 * i].private(),
-            lo: self.0[3 + 2 * i].private(),
+            hi: self.0[1 + 2 * i].private(),
+            lo: self.0[2 + 2 * i].private(),
         })
     }
 }
@@ -1623,7 +1692,6 @@ impl<const WORDS: usize> ProofWires for PreRecord<WORDS> {
 impl<const WORDS: usize> LedgerRepr for PreRecord<WORDS> {
     fn atoms() -> Vec<minocrab::AlignmentAtom> {
         let mut atoms = <Bytes<20, Public> as LedgerRepr>::atoms();
-        atoms.extend(<Uint<8, Public> as LedgerRepr>::atoms());
         for _ in 0..WORDS {
             atoms.extend(<B32<Public> as LedgerRepr>::atoms());
         }

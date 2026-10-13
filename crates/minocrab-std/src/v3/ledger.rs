@@ -59,7 +59,7 @@ use minocrab_ledger::{
 };
 
 use super::{
-    coin_commitment, hash, Bool, BoundedUint, Bytes, BytesN, CoinRecipient, ContractAddress,
+    coin_commitment, hash, Bool, BoundedUint, Bytes, Bytes0, BytesN, CoinRecipient, ContractAddress,
     Either, JubjubPoint, Maybe, MerkleTreeDigest, Opaque, QualifiedShieldedCoinInfo3,
     Secp256k1Point, ShieldedCoinInfo3, TsType, Uint, UserAddress, B32,
 };
@@ -199,6 +199,8 @@ ledger_repr_via_abi! {
     [] QualifiedShieldedCoinInfo3<Public>,
     [const BOUND: u128] BoundedUint<BOUND, Public>,
     [] Bool<Public>,
+    /// `Bytes<0>` in a ledger slot — one zero-length atom and no limb.
+    [] Bytes0<Public>,
     [const N: usize] Bytes<N, Public>,
     [] B32<Public>,
     [const N: usize] BytesN<Public, N>,

@@ -11,9 +11,9 @@
 //!
 //! | attestation                  | `complete` | `refund`, owner | `refund`, stranger |
 //! |------------------------------|-----------:|----------------:|-------------------:|
-//! | this kind, flag `true`       |     ACCEPT |          reject |             reject |
-//! | this kind, flag `false`      |     reject |          ACCEPT |             reject |
-//! | the MPC's failure kind       |     reject |          ACCEPT |             reject |
+//! | `executed`, flag `true`      |     ACCEPT |          reject |             reject |
+//! | `executed`, flag `false`     |     reject |          ACCEPT |             reject |
+//! | `failed` (the empty output)  |     reject |          ACCEPT |             reject |
 //!
 //! The middle row is the one the deployed vault gets wrong: its
 //! `completeWithdraw` accepts an attested `false` and refunds inside the
@@ -41,16 +41,18 @@ use model::{Attestation, SendScenario, SettleScenario};
 
 // ---- the layout the derive computes ------------------------------------------
 
-/// Seven fields from two declarations, under the fifteen-field segment
-/// length — so the notification the MPC follows is one element deep, and
+/// Six fields from two declarations — FOUR of `Signet` since V1, where the
+/// `fff3421c` block had five — under the fifteen-field segment length, so
+/// the notification the MPC follows is one element deep and
 /// `#[derive(Ledger)]` found the `Signet` block at offset 0 without anyone
 /// naming it in `Pending`'s constructor.
 #[test]
 fn the_block_is_laid_out_by_slot_width() {
     let t = &minocrab_contracts::treasury::TREASURY;
     assert_eq!(t.signet.signer.index(), 0);
-    assert_eq!(t.signet.evm_chain_id.index(), 4);
-    assert_eq!(t.transfers.record_path().as_slice(), &[5]);
+    assert_eq!(t.signet.mpc_key_version.index(), 2);
+    assert_eq!(t.signet.evm_chain_id.index(), 3);
+    assert_eq!(t.transfers.record_path().as_slice(), &[4]);
     assert_eq!(t.transfers.record_path().depth(), 1);
 }
 
@@ -103,9 +105,8 @@ fn anyone_can_complete() {
 }
 
 /// THE HOLE THIS API CLOSES. A mined `transfer` that returned `false` is a
-/// perfectly valid attestation of THIS kind, correctly signed — and it
-/// cannot complete, because a `Bool` return's `success` is the flag and
-/// `complete`
+/// perfectly valid `executed` attestation, correctly signed — and it cannot
+/// complete, because a `Bool` return's `success` is the flag and `complete`
 /// asserts it.
 #[test]
 fn a_false_attestation_cannot_complete() {
@@ -116,8 +117,8 @@ fn a_false_attestation_cannot_complete() {
     );
 }
 
-/// The MPC's failure kind is not this slot's kind, so `complete`'s kind
-/// assert rejects it before anything else does.
+/// A `failed` verdict is not `executed`, so `complete`'s verdict assert
+/// rejects it before anything else does.
 #[test]
 fn a_failure_attestation_cannot_complete() {
     let s = SettleScenario::new(Attestation::NeverExecuted);
@@ -134,8 +135,8 @@ fn complete_rejects_an_unfiled_request() {
 
 // ---- send -> refund -----------------------------------------------------------
 
-/// A NEVER-EXECUTED request refunds — the MPC's failure kind, whose signed
-/// preimage is the kind byte alone.
+/// A NEVER-EXECUTED request refunds — the `failed` verdict, whose signed
+/// preimage has width ZERO and no output limbs.
 #[test]
 fn send_then_refund_a_never_executed_call() {
     let s = SettleScenario::new(Attestation::NeverExecuted);
@@ -145,7 +146,7 @@ fn send_then_refund_a_never_executed_call() {
 }
 
 /// AND SO DOES AN EXECUTED `false` — the second disjunct, over the OTHER
-/// preimage length. That both are accepted by one circuit is what the
+/// preimage width. That both are accepted by one circuit is what the
 /// two-digest selection in `Pending::refund` buys.
 #[test]
 fn a_false_attestation_can_refund() {
@@ -154,8 +155,8 @@ fn a_false_attestation_can_refund() {
         .expect("an attested `false` refunds");
 }
 
-/// A SUCCESS DOES NOT REFUND: the kind matches, the signature verifies, and
-/// the disjunction still fails because the flag is set.
+/// A SUCCESS DOES NOT REFUND: the verdict is `executed`, the signature
+/// verifies, and the disjunction still fails because the flag is set.
 #[test]
 fn a_true_attestation_cannot_refund() {
     let s = SettleScenario::new(Attestation::ExecutedTrue);
@@ -179,19 +180,19 @@ fn a_stranger_cannot_refund() {
     }
 }
 
-/// The failure attestation's signature is over THREE field elements (id,
-/// id, kind); presenting it under the executed kind's four-element digest
-/// does not verify. The negative control for the digest selection: without
-/// it, one of the two branches would be verifying the wrong preimage and
-/// this test would pass for the wrong reason.
+/// The failure attestation's signature is over the ZERO-WIDTH preimage;
+/// presenting it under the `executed` verdict selects the one-byte digest
+/// instead, which it does not verify against. The negative control for the
+/// digest selection: without it, one of the two branches would be verifying
+/// the wrong preimage and this test would pass for the wrong reason.
 #[test]
-fn a_failure_signature_does_not_verify_under_the_executed_kind() {
+fn a_failure_signature_does_not_verify_under_the_executed_verdict() {
     let s = SettleScenario::new(Attestation::NeverExecuted);
     let mut pi = s.refund_preimage();
-    // Relabel the kind slot as this call's kind, leaving the signature (and
+    // Relabel the verdict as `executed`, leaving the signature (and
     // therefore the preimage it was made over) alone.
-    let kind_slot = pi.inputs.len() - 2;
-    pi.inputs[kind_slot] = minocrab::Fr::from(u64::from(model::TRANSFER_KIND));
+    pi.inputs[model::OUTPUT_KIND_SLOT] =
+        minocrab::Fr::from(minocrab_contracts::signet_v1::output_kind::EXECUTED);
     assert!(simulate(&Treasury::refund().ir, &pi).is_err());
 }
 
@@ -199,8 +200,8 @@ fn a_failure_signature_does_not_verify_under_the_executed_kind() {
 
 /// WHAT `Failed<Call>` COSTS, measured. `refund` does everything `complete`
 /// does plus: a second Poseidon digest and a `cond_select` (the two
-/// preimage lengths), the kind disjunction, the owner commitment's opening,
-/// and `own_public_key`. The whole difference is a few hundred rows against
+/// preimage widths), the verdict disjunction, the owner commitment's
+/// opening, and `own_public_key`. The whole difference is a few hundred rows against
 /// the ~25k the one shared ECDSA verification costs, and `k` does not move.
 #[test]
 fn the_refund_pays_one_extra_digest() {

@@ -44,7 +44,7 @@ use minocrab::v3::{
 use minocrab::{AlignmentAtom, Private, Public};
 
 use super::{
-    Bool, BoundedUint, Bytes, BytesN, ContractAddress, Either, JubjubPoint, Maybe,
+    Bool, BoundedUint, Bytes, Bytes0, BytesN, ContractAddress, Either, JubjubPoint, Maybe,
     MerkleTreeDigest, Opaque, Secp256k1Point, Secp256k1Scalar, ShieldedCoinInfo3,
     ShieldedSendResult, TsType, Uint, UserAddress, Vis3, B32,
 };
@@ -253,6 +253,27 @@ impl CircuitArg for Bool<Private> {
     fn push_slots(&self, slots: &mut Vec<Wire3<FieldT, Private>>) {
         slots.push(self.field());
     }
+}
+
+/// `Bytes<0>`: one zero-length atom, no slot, no constraint — exactly what
+/// compactc declares for a `Bytes<0>` parameter (`queueAttestation0`'s
+/// `serializedOutput` adds no input).
+impl<V: Vis3> CircuitAbi for Bytes0<V> {
+    const SLOTS: usize = 0;
+
+    fn push_atoms(atoms: &mut Vec<AlignmentAtom>) {
+        atoms.push(AlignmentAtom::Bytes { length: 0 });
+    }
+
+    fn push_prims(_prims: &mut Vec<Prim>) {}
+}
+
+impl CircuitArg for Bytes0<Private> {
+    fn declare(_c: &mut Circuit3, _path: &ArgPath) -> Self {
+        Bytes0::new()
+    }
+
+    fn push_slots(&self, _slots: &mut Vec<Wire3<FieldT, Private>>) {}
 }
 
 impl<const N: usize, V: Vis3> CircuitAbi for Bytes<N, V> {

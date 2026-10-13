@@ -7,114 +7,174 @@
     "type": "directory",
     "contract-info.json": {
       "type": "file",
-      "size": 87649,
-      "hash": "f6bf757f5b10cd98b3f974d115c4da2f7dde213aacf4b92ee83888148ad260d0"
+      "size": 121141,
+      "hash": "cc9e54c8bcbcf1ac9b1d3cae872d9061d230ab9c44d62adbea2ba6ea84da0e1e"
     }
   },
   "contract": {
     "type": "directory",
     "index.d.ts": {
       "type": "file",
-      "size": 50974,
-      "hash": "87905079005b15096f99e06891463e6fb317a4028ba666e7d5cd2372f90c0637"
+      "size": 59754,
+      "hash": "72e60022624b307985bc129f3db5e026d477107ff2afa710725e0484a5e01a8d"
     },
     "index.js": {
       "type": "file",
-      "size": 700361,
-      "hash": "860a51ca79976ac6ceb8d9a17131542af12bc2e6b1da41807dd5c27261a87b34"
+      "size": 1119954,
+      "hash": "5dc2ff7760712dda224603624765c111da2b565635b08f6e1edcdcd236866808"
     },
     "index.js.map": {
       "type": "file",
-      "size": 26117,
-      "hash": "633a27272b16efd66dff917fcc3bd74f19e657a5e8c3c070d40c15fbc536fc77"
+      "size": 41169,
+      "hash": "c68336691585e808dc3b188b43c476234a8248fc26f83e255341d4bb6c68e6f2"
     }
   },
   "zkir": {
     "type": "directory",
-    "approveRouter.zkir": {
+    "addAllowedToken.zkir": {
       "type": "file",
-      "size": 20611,
-      "hash": "bd477ad261199d094f94756f8fc2db1072363ce9685574910c2ea6e52aa52423"
+      "size": 2579,
+      "hash": "1417f7a76ef0bce867dc07a52f98226484df486c05ccec64190e757f700f5996"
     },
-    "approveStata.zkir": {
+    "completeApprove.zkir": {
       "type": "file",
-      "size": 20587,
-      "hash": "f6cedcd4f852dc43596335db8e53b1984072e15fe9a0452a2e29727f8850de81"
+      "size": 9569,
+      "hash": "6abe8c3b3439aa3e7051ffeea50ccf46f88588815978d65c30ccb2bf01aec80a"
     },
     "completeDeposit.zkir": {
       "type": "file",
-      "size": 22022,
-      "hash": "a017de7b763266c658f42b77115c46d5ce9014c1aeaf442e27c1911a936e1ceb"
+      "size": 18822,
+      "hash": "cbc0b83b1d83aecf57393624d67613a41f301ab44fe2fa1c460b7d324cbc75ef"
     },
     "completeRedeem.zkir": {
       "type": "file",
-      "size": 21499,
-      "hash": "32f35751a5634aaa970b3ae593cafda6f8267c53590b691e503806e7c2247103"
+      "size": 21689,
+      "hash": "aa1305ee023c4110a6b2cd273521c7d84b3c749f78a106cf1999b9cb41c06669"
+    },
+    "completeReplaceNonce.zkir": {
+      "type": "file",
+      "size": 9236,
+      "hash": "9f6ebf8e5a29104e96939e0d1499b0bc79954fb8f776213d6d97e5207b66b267"
     },
     "completeSupply.zkir": {
       "type": "file",
-      "size": 21499,
-      "hash": "b759c17a71368cdec8f0f2cf9fb79b11052d31cb30ae953ab32b9e64566f73af"
+      "size": 21689,
+      "hash": "da6df82253b6f12d5bd827ae90c03b894118db00c5b1f55f2caa262f64840be1"
     },
     "completeSwap.zkir": {
       "type": "file",
-      "size": 26218,
-      "hash": "bd81b1bb8d5e71b5a8c5bd8d505f2410656552ef9bbf4e86f49550f201996751"
+      "size": 27156,
+      "hash": "3869b8a36f0405c03e2bcf9a0a1f662f4f994bdcbde654847041f61a0aae1fd5"
     },
     "completeWithdraw.zkir": {
       "type": "file",
-      "size": 19140,
-      "hash": "4bcb75844463c83d371837bf71097dfd5fa58528edfc16591ba332e3077cd484"
+      "size": 15873,
+      "hash": "3172b470d37c6c49a4e76ac755e6ec121cd4964439de2c948ee21453eb014287"
+    },
+    "flushQueue.zkir": {
+      "type": "file",
+      "size": 111283,
+      "hash": "79bf567f0b741f5d404655ca80b2eaa14ab3211f9560d0ecc4baad4e9a514fda"
     },
     "initialise.zkir": {
       "type": "file",
-      "size": 6962,
-      "hash": "ddf144110d57ce75df7b2efdac8f73e50aec94f0fc703d6c63f58ff61453cf9a"
+      "size": 9447,
+      "hash": "f60a0caa530b2c4d38fa7f3dcfebed041bc99fc192b90433a3dd0a285386b71c"
     },
-    "refundRedeem.zkir": {
+    "queueAttestation0.zkir": {
       "type": "file",
-      "size": 18952,
-      "hash": "5f6000f2c9f2419b0f8daa6f1708c93be4408e55e9154898d23652eee8988258"
+      "size": 17692,
+      "hash": "8744247d7ebb2b338f7f6663b40321603c051fe22dab59a17236a2f45eead7c3"
     },
-    "refundSupply.zkir": {
+    "queueAttestation1.zkir": {
       "type": "file",
-      "size": 18952,
-      "hash": "37d1f298f8a857a7f760e8c6750d02fdf62cf24580686023c64d943f8c08e4b3"
+      "size": 17885,
+      "hash": "d55e3e585f5775ec9dbfc34ba6e93ef1219ee75718721fbb374c957987857434"
     },
-    "refundSwap.zkir": {
+    "queueAttestation32.zkir": {
       "type": "file",
-      "size": 18925,
-      "hash": "75a896a7415c998c663769c34e8de30d7f026e14f1a3a5088ad6884c989b4cc6"
+      "size": 18080,
+      "hash": "ad91b683ee1854efded78859890aec8173dc124a5f52de509c8149655d1c5206"
     },
-    "refundWithdraw.zkir": {
+    "sendApprove.zkir": {
       "type": "file",
-      "size": 18689,
-      "hash": "9bc29a1529d4232c4cc8024a0dca902ef5ebe3ee6682301e9d95c5c249e9f54b"
+      "size": 22699,
+      "hash": "d4d837e77a0ad8a8fa4af70cc7c05b8b3c72630762ff988a5d38d3abd665b909"
+    },
+    "sendDeposit.zkir": {
+      "type": "file",
+      "size": 28769,
+      "hash": "474c83963a5a82ae656aa920cc5cb74ba4a5a68a91b3871da1fc535e7edbc284"
+    },
+    "sendRedeem.zkir": {
+      "type": "file",
+      "size": 34283,
+      "hash": "b3d46d220121c9740055ed0dc4db323f88ed128b11dde2db7efac8f0aa3a9de2"
+    },
+    "sendReplaceNonce.zkir": {
+      "type": "file",
+      "size": 16955,
+      "hash": "8a93c7e5b5deb1cd57f10f86db450c7e30cb759d38d6ebec19bb63f55b90ac3f"
+    },
+    "sendSupply.zkir": {
+      "type": "file",
+      "size": 28356,
+      "hash": "31b9a758a172e3eac9d2c4cd8005032a927f92a2a7348d97ef555882f6a0cb9a"
+    },
+    "sendSwap.zkir": {
+      "type": "file",
+      "size": 50698,
+      "hash": "f9b8669708eb8d3df1b2c6b038f1af7c4d133e2e469f9b4988b1c27f468f59b4"
+    },
+    "sendWithdraw.zkir": {
+      "type": "file",
+      "size": 27884,
+      "hash": "bedb106118342a66132fecec00d405dbad99ff1e4c6bc9d1bb52efccb265faf5"
+    },
+    "setGasParams.zkir": {
+      "type": "file",
+      "size": 5319,
+      "hash": "f317a37a65a1ab7841bb4afbc1a70e364198f062d2b5b07b04f784f42d09ec3a"
+    },
+    "startApproveRouter.zkir": {
+      "type": "file",
+      "size": 7436,
+      "hash": "cfd9de0c02681e2d09ea0c8e4bedf80fca411698db113c8718f43c3cba40927c"
+    },
+    "startApproveStata.zkir": {
+      "type": "file",
+      "size": 7415,
+      "hash": "ba08779db7b48711d1b2f7a5fd3321f09106738bd6e1fbd981296949e03364ff"
     },
     "startDeposit.zkir": {
       "type": "file",
-      "size": 28330,
-      "hash": "c5fe806284b91bca0cb51f88cb7987dd3e2fe23b4ee498513009e542f07425f1"
+      "size": 6444,
+      "hash": "135e8fb6b8c322606438e36e864ee08eb81f571eed0fef8c6bf8190c7a6d3d47"
     },
     "startRedeem.zkir": {
       "type": "file",
-      "size": 40971,
-      "hash": "7734cc8b9e2934d93f4e9677ae62db73c8735cdcd67c3e197eb317b33eb31017"
+      "size": 13315,
+      "hash": "94c5fb23c7ab17a73b60b4255cb0fabd866799d2dd29a425fcb1cea5e763ecab"
+    },
+    "startReplaceNonce.zkir": {
+      "type": "file",
+      "size": 36000,
+      "hash": "27134093641502f004f7cb4091afd5da7a1eb4705bc3fe6b33afcf43d9d63e5e"
     },
     "startSupply.zkir": {
       "type": "file",
-      "size": 35126,
-      "hash": "166c1d93b31b73efa9ab28ec3adfa08e7bddd8dccf282c827cfa2babe701c373"
+      "size": 13315,
+      "hash": "7a83745467d47ae5ed529164cf9c2c916754d02c97ff4a91bbc2fef615b1cf1d"
     },
     "startSwap.zkir": {
       "type": "file",
-      "size": 57862,
-      "hash": "a72b6f8ad1dea09e869bf82235b5291394e812209fb9060ad75114b517ad6ac6"
+      "size": 14786,
+      "hash": "551b9b9b275bdac870c6ce9513c4cafdf31be0a89cdb8a7be0b0f14ed3980261"
     },
     "startWithdraw.zkir": {
       "type": "file",
-      "size": 34461,
-      "hash": "713fb703b7652504eeacd194d39a5874ef25638be3539f1edd1defba0b2f73c9"
+      "size": 13784,
+      "hash": "21cd18c1648a139ea887ae0386b07919932e85f57cc48474384c0909c77831ed"
     }
   }
 }

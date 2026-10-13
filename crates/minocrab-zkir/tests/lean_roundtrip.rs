@@ -57,8 +57,14 @@ fn lean_syntax_round_trips_the_v3_corpus_byte_for_byte() {
     // 722 → 739 v2 skipped at the M31 compactc bump (0.33.0-rc.2 → 0.34.0):
     // compact/examples/types/examples.compact compiles under language 0.26.0
     // and adds 17 v2 artifacts. The v3 count (92) does not move.
+    // 92 → 95 v3 at M43 A: the second signet-midnight-integration pin
+    // (pr127, e9350c4) adds the singleton's three circuits at PR #127.
+    // 95 → 110 v3 at M44 A: the corpus repinned to midnight-examples main
+    // (375071b, the flush-pattern vault) and midnight-integration v0.24.1
+    // (the V1 Signet vocabulary). See corpus_roundtrip.rs for the file
+    // counts; the v2 count does not move.
     assert!(
-        stdout.starts_with("92 ok, 0 failed, 739 v2 skipped"),
+        stdout.starts_with("110 ok, 0 failed, 739 v2 skipped"),
         "unexpected round-trip summary (corpus size moved?): {stdout}"
     );
 

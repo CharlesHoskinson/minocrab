@@ -38,8 +38,9 @@ use vault_pending::spec::{self, Effect, Outcome};
 fn counter_would_overflow(effects: &[Effect], pre: &PreState) -> bool {
     effects.iter().any(|e| match e {
         Effect::CounterInc { field, by } => {
+            // `initialized` is the only counter left: the Signet request
+            // nonce went with the V1 vocabulary at M44 rung D.
             let cur = match *field {
-                SIGNET_REQUEST_NONCE => pre.request_nonce,
                 INITIALIZED => pre.initialized,
                 _ => 0,
             };

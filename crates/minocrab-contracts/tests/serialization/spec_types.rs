@@ -22,10 +22,15 @@
 //! ALWAYS-PRESENT payload — never `Option`, whose Borsh encoding omits the
 //! payload on `None` and so has data-dependent offsets.
 //!
-//! These are TODAY's shapes, not the shapes stage 5 proposes: the attested
-//! outputs carry no kind tag and `claim`/`completeWithdraw` carry a `u8`
-//! rather than a `bool`, because that is what is deployed (see
-//! [`ClaimOutput`]).
+//! TWO LINEAGES live here, and they are not alternatives. The V1 types
+//! ([`VaultEventV1`] and its four siblings, [`BoolOutput`], [`WordOutput`],
+//! [`EmptyOutput`]) are the DEPLOYED Signet wire vocabulary the flush-pattern
+//! vault imports (`@sig-net/midnight` 0.24.1, M44); the V2 types
+//! ([`VaultEventV2`], [`VaultResponse`] and the rest) are the `Pending`
+//! lineage's own format, which nothing has deployed — a SPECIFICATION, pinned
+//! here against borsh's encoder and borsh's schema. What is on the wire today
+//! is V1, and it is the V1 types that carry a byte-equality claim against the
+//! protocol's own FAB bytes.
 
 use borsh::schema::{BorshSchemaContainer, Declaration, Definition};
 use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
@@ -129,15 +134,13 @@ impl<T: FixedLen> FixedLen for Flagged<T> {
     const LEN: usize = 1 + T::LEN;
 }
 
-// ---- the request record: `SignBidirectionalEvent` ----------------------------
+// ---- the transaction parameters, shared by both lineages ---------------------
 //
-// Field order, widths and nesting are read off the deployed shape:
-// `signet::SignBidirectionalEvent::atoms()` (the alignment
-// `calculateRequestId` hands to keccak256) and `signet::layout`. The vault's
-// four instantiations are `<2, 34, 34>` (deposit / approveRouter / withdraw
-// and the claim / completeWithdraw settlements that read the record back),
-// `<7, 38, 37>` (swap / completeSwap), and the lending pair `<2, 36, 35>`
-// (supply) and `<3, 36, 35>` (redeem).
+// `EvmType2TxParams<#maxCalldataWords, 0, 0>` is the one struct the V1 move
+// did NOT touch (`signet_v1`'s module doc says so), so these declarations
+// serve the deployed V1 records and the V2 specification alike. Field order,
+// widths and nesting are read off the shape itself:
+// `signet_v1::SignBidirectionalEventV1::atoms()` and `signet_v1::layout`.
 
 /// `struct EvmCalldata<#maxWords>` — the ABI calldata of the EVM
 /// transaction the MPC is asked to sign.
@@ -237,128 +240,186 @@ impl FixedLen for EvmType2TxParams3 {
     const LEN: usize = 8 + 8 + 16 + 16 + 8 + 20 + 16 + Flagged::<EvmCalldata3>::LEN + 1;
 }
 
-/// The vault's request record: `SignBidirectionalEvent<EvmType2TxParams<2,
-/// 0, 0>, 34, 34>`, the value `signBidirectionalEventMap` stores and the
-/// keccak256 preimage of the request id.
+// ---- the request record: `SignBidirectionalEventV1` (DEPLOYED) ---------------
+//
+// One type per instantiation the vault writes, because the two things that
+// vary — the calldata's word capacity and the output schema's width — are both
+// in the layout. The vault's five are `<2, 34>` (deposit / withdraw /
+// approveRouter / approveStata), `<2, 2>` (replaceNonce, whose `[]` schema says
+// the MPC returns nothing), `<7, 38>` (swap), `<2, 36>` (supply) and `<3, 36>`
+// (redeem).
+//
+// THE TRAILING `Bytes<0>` IS SPELLED OUT. `respondSerializationSchema` is
+// pinned to `Bytes<0>` at every V1 site: the FAB alignment carries the atom,
+// the limbs carry nothing for it, and `Alignment::bin_len` adds zero. A
+// zero-width [`ByteArray<0>`] says exactly that — the published offset table
+// gets a `width 0` row where the field is, so a decoder reads "there is a
+// field here and it is empty" rather than inferring it from a total. That the
+// two agree is `lens_match_the_deployed_alignments`, which compares each `LEN`
+// against the `bin_len` of the atom list INCLUDING the `b0` atom.
+
+/// The vault's request record: `SignBidirectionalEventV1<EvmType2TxParams<2,
+/// 0, 0>, 34, 0>`, the value an action's request map stores — 362 bytes.
 ///
-/// `deposit`, `approveRouter` and `withdraw` write one; `claim`,
-/// `completeWithdraw` and `refund` read one back.
+/// `sendDeposit`, `sendWithdraw` and `sendApprove` write one; the matching
+/// `complete*` reads it back.
 #[derive(BorshSerialize, BorshDeserialize, BorshSchema, Serialize, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct VaultEvent {
+pub struct VaultEventV1 {
+    /// Guarded `>= 1` by `constructSignBidirectionalEventV1`, and FIRST — the
+    /// V1 record's byte 0, where the superseded shape put the sender.
+    pub key_version: u8,
     /// The requesting contract's address (`kernel.self`).
     pub sender: [u8; 32],
-    pub request_nonce: u64,
-    /// Guarded `>= 1` by `constructSignBidirectionalEvent`.
-    pub key_version: u8,
-    /// The MPC key-derivation path — `userCommitment(sk)` for a deposit,
-    /// the fixed vault path for the vault's own EVM account.
+    /// The MPC key-derivation path — `userCommitment(sk)` for a deposit, the
+    /// fixed vault path everywhere else.
     pub path: [u8; 32],
     /// `MPCSignatureAlgorithm` — a fieldless enum, 1 byte. A Rust `enum`
-    /// would leave the subset: bincode-fixint writes a 4-byte variant
-    /// index where Borsh writes one (`fieldless_enum_leaves_the_subset`).
+    /// would leave the subset: bincode-fixint writes a 4-byte variant index
+    /// where Borsh writes one (`fieldless_enum_leaves_the_subset`).
     pub algo: u8,
-    /// `MPCDestination`, same rule as `algo`.
-    pub dest: u8,
-    /// `Bytes<64>` — `pad(64, "")` at every deployed site.
-    pub params: ByteArray<64>,
     /// `TxParamType`, same rule as `algo`.
     pub tx_param_type: u8,
     pub tx_params: EvmType2TxParams2,
-    pub caip2_id: [u8; 32],
-    /// The in-band ABI-JSON schema strings. Stage 7 replaces both with a
-    /// 1-byte kind tag; today they are 34 bytes each.
+    /// `executionDest: Bytes<32>` — `pad(32, "eip155:1")`, the MPC's routing
+    /// key for every Ethereum network it watches.
+    pub execution_dest: [u8; 32],
+    /// `MPCDestination`, same rule as `algo`.
+    pub signature_dest: u8,
+    /// `Bytes<64>` — `pad(64, "")` at every deployed site.
+    pub params: ByteArray<64>,
+    /// The in-band ABI-JSON schema the MPC decodes the return data with.
     pub output_deserialization_schema: ByteArray<34>,
-    pub respond_serialization_schema: ByteArray<34>,
+    /// `Bytes<0>` — an atom with no limb and no byte. See the note above.
+    pub respond_serialization_schema: ByteArray<0>,
 }
 
-impl FixedLen for VaultEvent {
-    const LEN: usize = 32 + 8 + 1 + 32 + 1 + 1 + 64 + 1 + EvmType2TxParams2::LEN + 32 + 34 + 34;
+impl FixedLen for VaultEventV1 {
+    // The trailing `+ 0` is `respondSerializationSchema: Bytes<0>`, spelled
+    // out so the sum reads field for field against the record above. It is
+    // the field whose presence in the ALIGNMENT and absence from the LIMBS
+    // is the V1 record\'s one surprise, so it is not a term to tidy away.
+    #[allow(clippy::identity_op)]
+    const LEN: usize = 1 + 32 + 32 + 1 + 1 + EvmType2TxParams2::LEN + 32 + 1 + 64 + 34 + 0;
 }
 
-/// The swap request record: `SignBidirectionalEvent<EvmType2TxParams<7, 0,
-/// 0>, 38, 37>` — `swap` writes one, `completeSwap` and `refund` read it
-/// back. 571 bytes, the number the design of record's stage-7 estimate is
-/// built on.
+/// `sendReplaceNonce`'s record: [`VaultEventV1`]'s shape with the `[]` output
+/// schema — a value-only transaction to the vault's own EVM address with NO
+/// calldata, so `calldata.is_some` is 0 and the two words are zero. 330 bytes.
 #[derive(BorshSerialize, BorshDeserialize, BorshSchema, Serialize, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SwapEvent {
-    pub sender: [u8; 32],
-    pub request_nonce: u64,
+pub struct ReplaceNonceEventV1 {
     pub key_version: u8,
+    pub sender: [u8; 32],
     pub path: [u8; 32],
     pub algo: u8,
-    pub dest: u8,
-    pub params: ByteArray<64>,
-    pub tx_param_type: u8,
-    pub tx_params: EvmType2TxParams7,
-    pub caip2_id: [u8; 32],
-    pub output_deserialization_schema: ByteArray<38>,
-    pub respond_serialization_schema: ByteArray<37>,
-}
-
-impl FixedLen for SwapEvent {
-    const LEN: usize = 32 + 8 + 1 + 32 + 1 + 1 + 64 + 1 + EvmType2TxParams7::LEN + 32 + 38 + 37;
-}
-
-/// The supply request record: `SignBidirectionalEvent<EvmType2TxParams<2,
-/// 0, 0>, 36, 35>` — the SAME 2-word shape as [`VaultEvent`] with the two
-/// schema strings two bytes longer (`shares` for `success`, `uint256` /
-/// `uint64` for `bool`), so 404 + 2 + 1 = 407 bytes. `startSupply` writes one
-/// (an ERC-4626 `deposit(assets, receiver)` to the stata token);
-/// `completeSupply` and `refundSupply` read it back.
-#[derive(BorshSerialize, BorshDeserialize, BorshSchema, Serialize, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SupplyEvent {
-    pub sender: [u8; 32],
-    pub request_nonce: u64,
-    pub key_version: u8,
-    pub path: [u8; 32],
-    pub algo: u8,
-    pub dest: u8,
-    pub params: ByteArray<64>,
     pub tx_param_type: u8,
     pub tx_params: EvmType2TxParams2,
-    pub caip2_id: [u8; 32],
-    pub output_deserialization_schema: ByteArray<36>,
-    pub respond_serialization_schema: ByteArray<35>,
+    pub execution_dest: [u8; 32],
+    pub signature_dest: u8,
+    pub params: ByteArray<64>,
+    pub output_deserialization_schema: ByteArray<2>,
+    pub respond_serialization_schema: ByteArray<0>,
 }
 
-impl FixedLen for SupplyEvent {
-    const LEN: usize = 32 + 8 + 1 + 32 + 1 + 1 + 64 + 1 + EvmType2TxParams2::LEN + 32 + 36 + 35;
+impl FixedLen for ReplaceNonceEventV1 {
+    // The trailing `+ 0` is `respondSerializationSchema: Bytes<0>`, spelled
+    // out so the sum reads field for field against the record above. It is
+    // the field whose presence in the ALIGNMENT and absence from the LIMBS
+    // is the V1 record\'s one surprise, so it is not a term to tidy away.
+    #[allow(clippy::identity_op)]
+    const LEN: usize = 1 + 32 + 32 + 1 + 1 + EvmType2TxParams2::LEN + 32 + 1 + 64 + 2 + 0;
 }
 
-/// The redeem request record: `SignBidirectionalEvent<EvmType2TxParams<3,
-/// 0, 0>, 36, 35>` — three ABI words (`redeem(shares, receiver, owner)`) and
-/// the lending schemas, 439 bytes. `startRedeem` writes one; `completeRedeem`
-/// and `refundRedeem` read it back.
+/// The swap request record: `SignBidirectionalEventV1<EvmType2TxParams<7, 0,
+/// 0>, 38, 0>` — `exactOutputSingle`'s seven ABI words and the wider schema,
+/// 526 bytes.
 #[derive(BorshSerialize, BorshDeserialize, BorshSchema, Serialize, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct RedeemEvent {
-    pub sender: [u8; 32],
-    pub request_nonce: u64,
+pub struct SwapEventV1 {
     pub key_version: u8,
+    pub sender: [u8; 32],
     pub path: [u8; 32],
     pub algo: u8,
-    pub dest: u8,
+    pub tx_param_type: u8,
+    pub tx_params: EvmType2TxParams7,
+    pub execution_dest: [u8; 32],
+    pub signature_dest: u8,
     pub params: ByteArray<64>,
+    pub output_deserialization_schema: ByteArray<38>,
+    pub respond_serialization_schema: ByteArray<0>,
+}
+
+impl FixedLen for SwapEventV1 {
+    // The trailing `+ 0` is `respondSerializationSchema: Bytes<0>`, spelled
+    // out so the sum reads field for field against the record above. It is
+    // the field whose presence in the ALIGNMENT and absence from the LIMBS
+    // is the V1 record\'s one surprise, so it is not a term to tidy away.
+    #[allow(clippy::identity_op)]
+    const LEN: usize = 1 + 32 + 32 + 1 + 1 + EvmType2TxParams7::LEN + 32 + 1 + 64 + 38 + 0;
+}
+
+/// The supply request record: the SAME 2-word shape as [`VaultEventV1`] with
+/// the lending schema two bytes longer (`shares: uint256` for `success: bool`),
+/// so 364 bytes. `sendSupply` writes an ERC-4626 `deposit(assets, receiver)` to
+/// the stata token.
+#[derive(BorshSerialize, BorshDeserialize, BorshSchema, Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SupplyEventV1 {
+    pub key_version: u8,
+    pub sender: [u8; 32],
+    pub path: [u8; 32],
+    pub algo: u8,
+    pub tx_param_type: u8,
+    pub tx_params: EvmType2TxParams2,
+    pub execution_dest: [u8; 32],
+    pub signature_dest: u8,
+    pub params: ByteArray<64>,
+    pub output_deserialization_schema: ByteArray<36>,
+    pub respond_serialization_schema: ByteArray<0>,
+}
+
+impl FixedLen for SupplyEventV1 {
+    // The trailing `+ 0` is `respondSerializationSchema: Bytes<0>`, spelled
+    // out so the sum reads field for field against the record above. It is
+    // the field whose presence in the ALIGNMENT and absence from the LIMBS
+    // is the V1 record\'s one surprise, so it is not a term to tidy away.
+    #[allow(clippy::identity_op)]
+    const LEN: usize = 1 + 32 + 32 + 1 + 1 + EvmType2TxParams2::LEN + 32 + 1 + 64 + 36 + 0;
+}
+
+/// The redeem request record: three ABI words (`redeem(shares, receiver,
+/// owner)`) and the lending schema, 396 bytes.
+#[derive(BorshSerialize, BorshDeserialize, BorshSchema, Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RedeemEventV1 {
+    pub key_version: u8,
+    pub sender: [u8; 32],
+    pub path: [u8; 32],
+    pub algo: u8,
     pub tx_param_type: u8,
     pub tx_params: EvmType2TxParams3,
-    pub caip2_id: [u8; 32],
+    pub execution_dest: [u8; 32],
+    pub signature_dest: u8,
+    pub params: ByteArray<64>,
     pub output_deserialization_schema: ByteArray<36>,
-    pub respond_serialization_schema: ByteArray<35>,
+    pub respond_serialization_schema: ByteArray<0>,
 }
 
-impl FixedLen for RedeemEvent {
-    const LEN: usize = 32 + 8 + 1 + 32 + 1 + 1 + 64 + 1 + EvmType2TxParams3::LEN + 32 + 36 + 35;
+impl FixedLen for RedeemEventV1 {
+    // The trailing `+ 0` is `respondSerializationSchema: Bytes<0>`, spelled
+    // out so the sum reads field for field against the record above. It is
+    // the field whose presence in the ALIGNMENT and absence from the LIMBS
+    // is the V1 record\'s one surprise, so it is not a term to tidy away.
+    #[allow(clippy::identity_op)]
+    const LEN: usize = 1 + 32 + 32 + 1 + 1 + EvmType2TxParams3::LEN + 32 + 1 + 64 + 36 + 0;
 }
 
-// ---- the request record, M11 stage 7 -----------------------------------------
+// ---- the request record, V2 (the `Pending` lineage, M11 stage 7) -------------
 //
-// What the BORSH artifacts write: the same record with a FORMAT VERSION byte
-// in front and a 1-byte RESPONSE KIND where the two in-band ABI-JSON schema
-// strings were. Nothing is deployed in this shape — like the stage-5 attested
-// outputs, it is a SPECIFICATION — and the deployed types above stay exactly
-// as they are, because what is on the wire today is still on the wire today.
-//
-// Read the two side by side: the middle is identical, field for field, and
-// that is the whole change.
+// What the BORSH artifacts write: a FORMAT VERSION byte in front, a 1-byte
+// RESPONSE KIND where the in-band ABI-JSON schema strings were, and the
+// `fff3421c` field order in between (`sender` first, the request nonce after
+// it, `params` before `txParamType`) — which is the order the V2 records keep
+// and the deployed V1 record above no longer has. Nothing is deployed in this
+// shape; like the stage-5 attested outputs it is a SPECIFICATION, and the V1
+// types above are untouched by it, because what is on the wire today is still
+// on the wire today.
 
 /// `formatVersion` — the byte at offset 0 of every stage-7 record.
 ///
@@ -368,8 +429,8 @@ impl FixedLen for RedeemEvent {
 /// pinned stack is 33).
 pub const RECORD_FORMAT_VERSION: u8 = 0x80;
 
-/// [`VaultEvent`] as M11 stage 7 defines it — 338 bytes, where the deployed
-/// record is 404.
+/// The V2 2-word record — 338 bytes, where the `fff3421c` record it versions
+/// was 404.
 ///
 /// `deposit` (kind 0, CLAIM), `approveRouter` (kind 4, APPROVE) and `withdraw`
 /// (kind 1, WITHDRAW) write one; `claim`, `completeWithdraw` and `refund` read
@@ -399,9 +460,9 @@ impl FixedLen for VaultEventV2 {
     const LEN: usize = 1 + 32 + 8 + 1 + 32 + 1 + 1 + 64 + 1 + EvmType2TxParams2::LEN + 32 + 1;
 }
 
-/// [`SwapEvent`] as M11 stage 7 defines it — 498 bytes, where the deployed
-/// record is 571. The 73 bytes are what takes the swap record's keccak
-/// preimage from five blocks to four, and `swap` from k16 to k15.
+/// The V2 7-word swap record — 498 bytes, where the `fff3421c` record it
+/// versions was 571. The 73 bytes are what takes that record's keccak preimage
+/// from five blocks to four, and `swap` from k16 to k15.
 #[derive(BorshSerialize, BorshDeserialize, BorshSchema, Serialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SwapEventV2 {
     pub format_version: u8,
@@ -423,7 +484,7 @@ impl FixedLen for SwapEventV2 {
     const LEN: usize = 1 + 32 + 8 + 1 + 32 + 1 + 1 + 64 + 1 + EvmType2TxParams7::LEN + 32 + 1;
 }
 
-/// [`RedeemEvent`] as the V2 format defines it — 370 bytes (the 3-word
+/// The V2 3-word redeem record — 370 bytes (the 3-word
 /// middle with the version byte in front and kind 6, REDEEM, where the schema
 /// strings were). A V2 SUPPLY record needs no type of its own: it is a
 /// [`VaultEventV2`] whose `response_kind` is 5, SUPPLY — the same 2-word
@@ -449,60 +510,61 @@ impl FixedLen for RedeemEventV2 {
     const LEN: usize = 1 + 32 + 8 + 1 + 32 + 1 + 1 + 64 + 1 + EvmType2TxParams3::LEN + 32 + 1;
 }
 
-// ---- the attested outputs ----------------------------------------------------
+// ---- the attested outputs: V1 (DEPLOYED) -------------------------------------
 //
-// What the MPC signs alongside the request id, exactly as deployed: four
-// shapes, no kind tag. Stage 5's kind byte and `bool` are NOT here.
+// What the MPC serializes back, exactly as deployed: a `Bytes<LEN>` at one of
+// THREE widths, and no kind tag. The width is part of the signed digest (V1
+// commits to it beside the verdict), so the three are not interchangeable —
+// `queueAttestation0`, `queueAttestation1` and `queueAttestation32` are three
+// circuits, one per width.
+//
+// NO FAILURE SENTINEL. A V1 attestation on a `failed` or `unviable` verdict
+// carries an EMPTY output ([`EmptyOutput`]) and the verdict itself says what
+// went wrong, so the superseded 5-byte `0xdeadbeef01` output — a value a
+// settle circuit asserted equal in-circuit — has no successor here.
 
-/// `claim`'s `serializedOutput: Bytes<1>` — the attested EVM result byte.
+/// The empty attested output, `Bytes<0>`: what `queueAttestation0` takes and
+/// what EVERY failed or unviable verdict carries, whatever the request asked
+/// for. Zero bytes, spelled as a zero-width field so the published table says
+/// where the output is rather than leaving a reader to infer that it is absent.
+#[derive(BorshSerialize, BorshDeserialize, BorshSchema, Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EmptyOutput {
+    pub output: ByteArray<0>,
+}
+
+impl FixedLen for EmptyOutput {
+    const LEN: usize = 0;
+}
+
+/// `Bytes<1>` — the attested EVM `bool` of a transfer or an approval, which
+/// `completeDeposit`, `completeWithdraw` and the approvals read.
 ///
-/// A `u8`, not a `bool`: today ANY byte is accepted and everything other
-/// than `0x01` routes to the failure branch (the 0x02 hazard, M10's harness
-/// finding). Stage 5 makes this a Borsh `bool`, which is `0|1` and nothing
-/// else; until then the deployed type is a byte.
+/// A `u8`, not a `bool`: `deserialize<VaultResponse, 1>(output).success` is
+/// `(byte == 1)` with NO canonicity check, so ANY byte is accepted and
+/// everything other than `0x01` routes to the failure branch (the 0x02 hazard,
+/// M10's harness finding). The V2 lineage makes this a Borsh `bool`, which is
+/// `0|1` and nothing else; the deployed type is a byte.
 #[derive(BorshSerialize, BorshDeserialize, BorshSchema, Serialize, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ClaimOutput {
+pub struct BoolOutput {
     pub success: u8,
 }
 
-impl FixedLen for ClaimOutput {
+impl FixedLen for BoolOutput {
     const LEN: usize = 1;
 }
 
-/// `completeWithdraw`'s `serializedOutput: Bytes<1>` — the same shape as
-/// [`ClaimOutput`] at a different site. That the two are structurally
-/// indistinguishable is exactly why stage 5 proposes a kind tag: today only
-/// which map holds the request id separates them.
+/// `Bytes<32>` — one big-endian ABI word, which is how V1 carries every
+/// `uint256` the destination chain returns: the swap's `amountIn`, the
+/// supply's `shares`, the redeem's `assets`. ONE type for the three sites,
+/// because the wire cannot tell them apart; which map holds the request id
+/// does.
 #[derive(BorshSerialize, BorshDeserialize, BorshSchema, Serialize, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CompleteWithdrawOutput {
-    pub success: u8,
+pub struct WordOutput {
+    pub word: [u8; 32],
 }
 
-impl FixedLen for CompleteWithdrawOutput {
-    const LEN: usize = 1;
-}
-
-/// `refund`'s `serializedOutput: Bytes<5>` — the MPC's fixed failure
-/// sentinel `0xdeadbeef01`, asserted equal in-circuit.
-#[derive(BorshSerialize, BorshDeserialize, BorshSchema, Serialize, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct RefundOutput {
-    pub failure: [u8; 5],
-}
-
-impl FixedLen for RefundOutput {
-    const LEN: usize = 5;
-}
-
-/// `completeSwap`'s `serializedOutput: Bytes<8>` — the attested `amountIn`
-/// actually spent. Already a Borsh `u64`: the deployed preimage is
-/// `amount_in.to_le_bytes()`.
-#[derive(BorshSerialize, BorshDeserialize, BorshSchema, Serialize, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CompleteSwapOutput {
-    pub amount_in: u64,
-}
-
-impl FixedLen for CompleteSwapOutput {
-    const LEN: usize = 8;
+impl FixedLen for WordOutput {
+    const LEN: usize = 32;
 }
 
 // ---- the attested outputs, M11 stage 5 ----------------------------------------
@@ -518,11 +580,11 @@ impl FixedLen for CompleteSwapOutput {
 /// `claim` (kind 0) and `completeWithdraw` (kind 1): the kind byte and the
 /// EVM outcome as a Borsh `bool`.
 ///
-/// ONE TYPE FOR TWO SITES, unlike [`ClaimOutput`]/[`CompleteWithdrawOutput`]:
-/// the two are now separated by the KIND VALUE rather than by being
-/// structurally identical types at different sites, which is what makes a
-/// cross-circuit replay a signature failure instead of a state-machine
-/// question. And `success` is a `bool`, not a `u8` — the 0x02 hazard closing.
+/// ONE TYPE FOR TWO SITES, unlike V1's [`BoolOutput`] at both: the two are
+/// separated by the KIND VALUE rather than by being the same bytes at
+/// different sites, which is what makes a cross-circuit replay a signature
+/// failure instead of a state-machine question. And `success` is a `bool`, not
+/// a `u8` — the 0x02 hazard closing.
 #[derive(BorshSerialize, BorshDeserialize, BorshSchema, Serialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct VaultResponse {
     pub kind: u8,
@@ -578,8 +640,15 @@ impl FixedLen for FailureResponse {
     const LEN: usize = 1;
 }
 
-/// `calculateSignetAttestationDigest(requestId, serializedOutput)`'s
-/// preimage — the raw concatenation the MPC signs.
+/// The V2 lineage's `calculateSignetAttestationDigest(requestId,
+/// serializedOutput)` preimage — the raw concatenation the MPC signs.
+///
+/// V2 ONLY, and that is a real difference rather than an omission: V1's
+/// `calculateSignetAttestationDigestV1` is Poseidon over the FIELD limbs
+/// `[HashDomain.attestationDigest, requestId, blockHeight, outputKind, LEN,
+/// ..output]`, which is never a byte string, so there is nothing for a Borsh
+/// declaration of it to be true of. `v1_attestation_digest_commits_to_the_kind_and_the_width`
+/// states the V1 preimage instead, in limbs.
 #[derive(BorshSerialize, BorshDeserialize, BorshSchema, Serialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AttestationPreimage<T> {
     pub request_id: [u8; 32],
@@ -631,44 +700,29 @@ impl FixedLen for RespondMisc {
 /// Every spec type's Borsh schema container, for the frozen layout table.
 /// Kept beside the declarations so a new spec type that is never snapshotted
 /// is a visible omission.
+///
+/// Order is the document's: the DEPLOYED V1 records and outputs first, then
+/// the V2 specification, then the singleton's logged payloads.
 pub fn schema_containers() -> Vec<(&'static str, BorshSchemaContainer)> {
     vec![
-        ("VaultEvent", BorshSchemaContainer::for_type::<VaultEvent>()),
-        ("SwapEvent", BorshSchemaContainer::for_type::<SwapEvent>()),
-        // The lending flows' instantiations (signet-midnight-examples 0d9c1660).
-        ("SupplyEvent", BorshSchemaContainer::for_type::<SupplyEvent>()),
-        ("RedeemEvent", BorshSchemaContainer::for_type::<RedeemEvent>()),
-        // M11 stage 7: the versioned, kind-tagged records.
+        // The deployed V1 records (signet-midnight-examples 375071b).
+        ("VaultEventV1", BorshSchemaContainer::for_type::<VaultEventV1>()),
+        (
+            "ReplaceNonceEventV1",
+            BorshSchemaContainer::for_type::<ReplaceNonceEventV1>(),
+        ),
+        ("SwapEventV1", BorshSchemaContainer::for_type::<SwapEventV1>()),
+        ("SupplyEventV1", BorshSchemaContainer::for_type::<SupplyEventV1>()),
+        ("RedeemEventV1", BorshSchemaContainer::for_type::<RedeemEventV1>()),
+        // The deployed V1 attested outputs — three widths, no kind tag.
+        ("EmptyOutput", BorshSchemaContainer::for_type::<EmptyOutput>()),
+        ("BoolOutput", BorshSchemaContainer::for_type::<BoolOutput>()),
+        ("WordOutput", BorshSchemaContainer::for_type::<WordOutput>()),
+        // The V2 lineage: the versioned, kind-tagged records.
         ("VaultEventV2", BorshSchemaContainer::for_type::<VaultEventV2>()),
         ("SwapEventV2", BorshSchemaContainer::for_type::<SwapEventV2>()),
         ("RedeemEventV2", BorshSchemaContainer::for_type::<RedeemEventV2>()),
-        ("ClaimOutput", BorshSchemaContainer::for_type::<ClaimOutput>()),
-        (
-            "CompleteWithdrawOutput",
-            BorshSchemaContainer::for_type::<CompleteWithdrawOutput>(),
-        ),
-        ("RefundOutput", BorshSchemaContainer::for_type::<RefundOutput>()),
-        (
-            "CompleteSwapOutput",
-            BorshSchemaContainer::for_type::<CompleteSwapOutput>(),
-        ),
-        (
-            "AttestationPreimage<ClaimOutput>",
-            BorshSchemaContainer::for_type::<AttestationPreimage<ClaimOutput>>(),
-        ),
-        (
-            "AttestationPreimage<CompleteWithdrawOutput>",
-            BorshSchemaContainer::for_type::<AttestationPreimage<CompleteWithdrawOutput>>(),
-        ),
-        (
-            "AttestationPreimage<RefundOutput>",
-            BorshSchemaContainer::for_type::<AttestationPreimage<RefundOutput>>(),
-        ),
-        (
-            "AttestationPreimage<CompleteSwapOutput>",
-            BorshSchemaContainer::for_type::<AttestationPreimage<CompleteSwapOutput>>(),
-        ),
-        // M11 stage 5: the specified (not yet deployed) attested outputs.
+        // The V2 lineage: the specified (not deployed) attested outputs.
         ("VaultResponse", BorshSchemaContainer::for_type::<VaultResponse>()),
         ("SwapResponse", BorshSchemaContainer::for_type::<SwapResponse>()),
         (

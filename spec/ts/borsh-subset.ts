@@ -514,47 +514,43 @@ export const flaggedU32Codec: Codec<FlaggedU32> = {
   leaves: flaggedU32Leaves,
 };
 
-// ---- VaultEvent ------------------------------------------------------------------
+// ---- VaultEventV1 ----------------------------------------------------------------
 
-/** The fixed serialized width of `VaultEvent`. */
-export const VAULT_EVENT_LEN = 404;
+/** The fixed serialized width of `VaultEventV1`. */
+export const VAULT_EVENT_V1_LEN = 362;
 
-/** `VaultEvent`'s offset table — `spec/borsh-subset.md` §9, as data. */
-export const VAULT_EVENT_FIELDS: readonly FieldSpec[] = [
-  { path: 'sender', type: '[u8; 32]', offset: 0, width: 32 },
-  { path: 'request_nonce', type: 'u64', offset: 32, width: 8 },
-  { path: 'key_version', type: 'u8', offset: 40, width: 1 },
-  { path: 'path', type: '[u8; 32]', offset: 41, width: 32 },
-  { path: 'algo', type: 'u8', offset: 73, width: 1 },
-  { path: 'dest', type: 'u8', offset: 74, width: 1 },
-  { path: 'params', type: '[u8; 64]', offset: 75, width: 64 },
-  { path: 'tx_param_type', type: 'u8', offset: 139, width: 1 },
-  { path: 'tx_params.chain_id', type: 'u64', offset: 140, width: 8 },
-  { path: 'tx_params.nonce', type: 'u64', offset: 148, width: 8 },
-  { path: 'tx_params.max_priority_fee_per_gas', type: 'u128', offset: 156, width: 16 },
-  { path: 'tx_params.max_fee_per_gas', type: 'u128', offset: 172, width: 16 },
-  { path: 'tx_params.gas_limit', type: 'u64', offset: 188, width: 8 },
-  { path: 'tx_params.to', type: '[u8; 20]', offset: 196, width: 20 },
-  { path: 'tx_params.value', type: 'u128', offset: 216, width: 16 },
-  { path: 'tx_params.calldata.is_some', type: 'bool', offset: 232, width: 1 },
-  { path: 'tx_params.calldata.value.selector', type: '[u8; 4]', offset: 233, width: 4 },
-  { path: 'tx_params.calldata.value.no_words', type: 'u16', offset: 237, width: 2 },
-  { path: 'tx_params.calldata.value.words[0]', type: '[u8; 32]', offset: 239, width: 32 },
-  { path: 'tx_params.calldata.value.words[1]', type: '[u8; 32]', offset: 271, width: 32 },
-  { path: 'tx_params.access_list_entry_count', type: 'u8', offset: 303, width: 1 },
-  { path: 'caip2_id', type: '[u8; 32]', offset: 304, width: 32 },
-  { path: 'output_deserialization_schema', type: '[u8; 34]', offset: 336, width: 34 },
-  { path: 'respond_serialization_schema', type: '[u8; 34]', offset: 370, width: 34 },
+/** `VaultEventV1`'s offset table — `spec/borsh-subset.md` §9, as data. */
+export const VAULT_EVENT_V1_FIELDS: readonly FieldSpec[] = [
+  { path: 'key_version', type: 'u8', offset: 0, width: 1 },
+  { path: 'sender', type: '[u8; 32]', offset: 1, width: 32 },
+  { path: 'path', type: '[u8; 32]', offset: 33, width: 32 },
+  { path: 'algo', type: 'u8', offset: 65, width: 1 },
+  { path: 'tx_param_type', type: 'u8', offset: 66, width: 1 },
+  { path: 'tx_params.chain_id', type: 'u64', offset: 67, width: 8 },
+  { path: 'tx_params.nonce', type: 'u64', offset: 75, width: 8 },
+  { path: 'tx_params.max_priority_fee_per_gas', type: 'u128', offset: 83, width: 16 },
+  { path: 'tx_params.max_fee_per_gas', type: 'u128', offset: 99, width: 16 },
+  { path: 'tx_params.gas_limit', type: 'u64', offset: 115, width: 8 },
+  { path: 'tx_params.to', type: '[u8; 20]', offset: 123, width: 20 },
+  { path: 'tx_params.value', type: 'u128', offset: 143, width: 16 },
+  { path: 'tx_params.calldata.is_some', type: 'bool', offset: 159, width: 1 },
+  { path: 'tx_params.calldata.value.selector', type: '[u8; 4]', offset: 160, width: 4 },
+  { path: 'tx_params.calldata.value.no_words', type: 'u16', offset: 164, width: 2 },
+  { path: 'tx_params.calldata.value.words[0]', type: '[u8; 32]', offset: 166, width: 32 },
+  { path: 'tx_params.calldata.value.words[1]', type: '[u8; 32]', offset: 198, width: 32 },
+  { path: 'tx_params.access_list_entry_count', type: 'u8', offset: 230, width: 1 },
+  { path: 'execution_dest', type: '[u8; 32]', offset: 231, width: 32 },
+  { path: 'signature_dest', type: 'u8', offset: 263, width: 1 },
+  { path: 'params', type: '[u8; 64]', offset: 264, width: 64 },
+  { path: 'output_deserialization_schema', type: '[u8; 34]', offset: 328, width: 34 },
+  { path: 'respond_serialization_schema', type: '[u8; 0]', offset: 362, width: 0 },
 ];
 
-export interface VaultEvent {
-  readonly sender: Uint8Array;
-  readonly requestNonce: bigint;
+export interface VaultEventV1 {
   readonly keyVersion: number;
+  readonly sender: Uint8Array;
   readonly path: Uint8Array;
   readonly algo: number;
-  readonly dest: number;
-  readonly params: Uint8Array;
   readonly txParamType: number;
   readonly txParams: {
     readonly chainId: bigint;
@@ -574,94 +570,91 @@ export interface VaultEvent {
     };
     readonly accessListEntryCount: number;
   };
-  readonly caip2Id: Uint8Array;
+  readonly executionDest: Uint8Array;
+  readonly signatureDest: number;
+  readonly params: Uint8Array;
   readonly outputDeserializationSchema: Uint8Array;
   readonly respondSerializationSchema: Uint8Array;
 }
 
-/** Read a `VaultEvent` from `bytes` at `offset` — 404 bytes, fixed. */
-export function readVaultEvent(bytes: Uint8Array, offset = 0): VaultEvent {
-  const view = checkedView(bytes, offset, VAULT_EVENT_LEN);
+/** Read a `VaultEventV1` from `bytes` at `offset` — 362 bytes, fixed. */
+export function readVaultEventV1(bytes: Uint8Array, offset = 0): VaultEventV1 {
+  const view = checkedView(bytes, offset, VAULT_EVENT_V1_LEN);
   return {
-    sender: getBytes(view, 0, 32),
-    requestNonce: getU64(view, 32),
-    keyVersion: getU8(view, 40),
-    path: getBytes(view, 41, 32),
-    algo: getU8(view, 73),
-    dest: getU8(view, 74),
-    params: getBytes(view, 75, 64),
-    txParamType: getU8(view, 139),
+    keyVersion: getU8(view, 0),
+    sender: getBytes(view, 1, 32),
+    path: getBytes(view, 33, 32),
+    algo: getU8(view, 65),
+    txParamType: getU8(view, 66),
     txParams: {
-      chainId: getU64(view, 140),
-      nonce: getU64(view, 148),
-      maxPriorityFeePerGas: getU128(view, 156),
-      maxFeePerGas: getU128(view, 172),
-      gasLimit: getU64(view, 188),
-      to: getBytes(view, 196, 20),
-      value: getU128(view, 216),
+      chainId: getU64(view, 67),
+      nonce: getU64(view, 75),
+      maxPriorityFeePerGas: getU128(view, 83),
+      maxFeePerGas: getU128(view, 99),
+      gasLimit: getU64(view, 115),
+      to: getBytes(view, 123, 20),
+      value: getU128(view, 143),
       calldata: {
-        isSome: getBool(view, 232),
+        isSome: getBool(view, 159),
         value: {
-          selector: getBytes(view, 233, 4),
-          noWords: getU16(view, 237),
+          selector: getBytes(view, 160, 4),
+          noWords: getU16(view, 164),
           words: [
-            getBytes(view, 239, 32),
-            getBytes(view, 271, 32),
+            getBytes(view, 166, 32),
+            getBytes(view, 198, 32),
           ],
         },
       },
-      accessListEntryCount: getU8(view, 303),
+      accessListEntryCount: getU8(view, 230),
     },
-    caip2Id: getBytes(view, 304, 32),
-    outputDeserializationSchema: getBytes(view, 336, 34),
-    respondSerializationSchema: getBytes(view, 370, 34),
+    executionDest: getBytes(view, 231, 32),
+    signatureDest: getU8(view, 263),
+    params: getBytes(view, 264, 64),
+    outputDeserializationSchema: getBytes(view, 328, 34),
+    respondSerializationSchema: getBytes(view, 362, 0),
   };
 }
 
-/** Write a `VaultEvent` into `out` at `offset`, and return `out`. */
-export function writeVaultEvent(
-  value: VaultEvent,
-  out = new Uint8Array(VAULT_EVENT_LEN),
+/** Write a `VaultEventV1` into `out` at `offset`, and return `out`. */
+export function writeVaultEventV1(
+  value: VaultEventV1,
+  out = new Uint8Array(VAULT_EVENT_V1_LEN),
   offset = 0,
 ): Uint8Array {
-  const view = checkedView(out, offset, VAULT_EVENT_LEN);
-  setBytes(view, 0, 32, value.sender);
-  setU64(view, 32, value.requestNonce);
-  setU8(view, 40, value.keyVersion);
-  setBytes(view, 41, 32, value.path);
-  setU8(view, 73, value.algo);
-  setU8(view, 74, value.dest);
-  setBytes(view, 75, 64, value.params);
-  setU8(view, 139, value.txParamType);
-  setU64(view, 140, value.txParams.chainId);
-  setU64(view, 148, value.txParams.nonce);
-  setU128(view, 156, value.txParams.maxPriorityFeePerGas);
-  setU128(view, 172, value.txParams.maxFeePerGas);
-  setU64(view, 188, value.txParams.gasLimit);
-  setBytes(view, 196, 20, value.txParams.to);
-  setU128(view, 216, value.txParams.value);
-  setBool(view, 232, value.txParams.calldata.isSome);
-  setBytes(view, 233, 4, value.txParams.calldata.value.selector);
-  setU16(view, 237, value.txParams.calldata.value.noWords);
-  setBytes(view, 239, 32, value.txParams.calldata.value.words[0]);
-  setBytes(view, 271, 32, value.txParams.calldata.value.words[1]);
-  setU8(view, 303, value.txParams.accessListEntryCount);
-  setBytes(view, 304, 32, value.caip2Id);
-  setBytes(view, 336, 34, value.outputDeserializationSchema);
-  setBytes(view, 370, 34, value.respondSerializationSchema);
+  const view = checkedView(out, offset, VAULT_EVENT_V1_LEN);
+  setU8(view, 0, value.keyVersion);
+  setBytes(view, 1, 32, value.sender);
+  setBytes(view, 33, 32, value.path);
+  setU8(view, 65, value.algo);
+  setU8(view, 66, value.txParamType);
+  setU64(view, 67, value.txParams.chainId);
+  setU64(view, 75, value.txParams.nonce);
+  setU128(view, 83, value.txParams.maxPriorityFeePerGas);
+  setU128(view, 99, value.txParams.maxFeePerGas);
+  setU64(view, 115, value.txParams.gasLimit);
+  setBytes(view, 123, 20, value.txParams.to);
+  setU128(view, 143, value.txParams.value);
+  setBool(view, 159, value.txParams.calldata.isSome);
+  setBytes(view, 160, 4, value.txParams.calldata.value.selector);
+  setU16(view, 164, value.txParams.calldata.value.noWords);
+  setBytes(view, 166, 32, value.txParams.calldata.value.words[0]);
+  setBytes(view, 198, 32, value.txParams.calldata.value.words[1]);
+  setU8(view, 230, value.txParams.accessListEntryCount);
+  setBytes(view, 231, 32, value.executionDest);
+  setU8(view, 263, value.signatureDest);
+  setBytes(view, 264, 64, value.params);
+  setBytes(view, 328, 34, value.outputDeserializationSchema);
+  setBytes(view, 362, 0, value.respondSerializationSchema);
   return out;
 }
 
-/** `VaultEvent`'s leaves, in declaration order — one per `VAULT_EVENT_FIELDS` entry. */
-export function vaultEventLeaves(value: VaultEvent): readonly LeafValue[] {
+/** `VaultEventV1`'s leaves, in declaration order — one per `VAULT_EVENT_V1_FIELDS` entry. */
+export function vaultEventV1Leaves(value: VaultEventV1): readonly LeafValue[] {
   return [
-    value.sender,
-    value.requestNonce,
     value.keyVersion,
+    value.sender,
     value.path,
     value.algo,
-    value.dest,
-    value.params,
     value.txParamType,
     value.txParams.chainId,
     value.txParams.nonce,
@@ -676,67 +669,237 @@ export function vaultEventLeaves(value: VaultEvent): readonly LeafValue[] {
     value.txParams.calldata.value.words[0],
     value.txParams.calldata.value.words[1],
     value.txParams.accessListEntryCount,
-    value.caip2Id,
+    value.executionDest,
+    value.signatureDest,
+    value.params,
     value.outputDeserializationSchema,
     value.respondSerializationSchema,
   ];
 }
 
-export const vaultEventCodec: Codec<VaultEvent> = {
-  name: 'VaultEvent',
-  byteLength: VAULT_EVENT_LEN,
-  fields: VAULT_EVENT_FIELDS,
-  read: readVaultEvent,
-  write: writeVaultEvent,
-  leaves: vaultEventLeaves,
+export const vaultEventV1Codec: Codec<VaultEventV1> = {
+  name: 'VaultEventV1',
+  byteLength: VAULT_EVENT_V1_LEN,
+  fields: VAULT_EVENT_V1_FIELDS,
+  read: readVaultEventV1,
+  write: writeVaultEventV1,
+  leaves: vaultEventV1Leaves,
 };
 
-// ---- SwapEvent -------------------------------------------------------------------
+// ---- ReplaceNonceEventV1 ---------------------------------------------------------
 
-/** The fixed serialized width of `SwapEvent`. */
-export const SWAP_EVENT_LEN = 571;
+/** The fixed serialized width of `ReplaceNonceEventV1`. */
+export const REPLACE_NONCE_EVENT_V1_LEN = 330;
 
-/** `SwapEvent`'s offset table — `spec/borsh-subset.md` §9, as data. */
-export const SWAP_EVENT_FIELDS: readonly FieldSpec[] = [
-  { path: 'sender', type: '[u8; 32]', offset: 0, width: 32 },
-  { path: 'request_nonce', type: 'u64', offset: 32, width: 8 },
-  { path: 'key_version', type: 'u8', offset: 40, width: 1 },
-  { path: 'path', type: '[u8; 32]', offset: 41, width: 32 },
-  { path: 'algo', type: 'u8', offset: 73, width: 1 },
-  { path: 'dest', type: 'u8', offset: 74, width: 1 },
-  { path: 'params', type: '[u8; 64]', offset: 75, width: 64 },
-  { path: 'tx_param_type', type: 'u8', offset: 139, width: 1 },
-  { path: 'tx_params.chain_id', type: 'u64', offset: 140, width: 8 },
-  { path: 'tx_params.nonce', type: 'u64', offset: 148, width: 8 },
-  { path: 'tx_params.max_priority_fee_per_gas', type: 'u128', offset: 156, width: 16 },
-  { path: 'tx_params.max_fee_per_gas', type: 'u128', offset: 172, width: 16 },
-  { path: 'tx_params.gas_limit', type: 'u64', offset: 188, width: 8 },
-  { path: 'tx_params.to', type: '[u8; 20]', offset: 196, width: 20 },
-  { path: 'tx_params.value', type: 'u128', offset: 216, width: 16 },
-  { path: 'tx_params.calldata.is_some', type: 'bool', offset: 232, width: 1 },
-  { path: 'tx_params.calldata.value.selector', type: '[u8; 4]', offset: 233, width: 4 },
-  { path: 'tx_params.calldata.value.no_words', type: 'u16', offset: 237, width: 2 },
-  { path: 'tx_params.calldata.value.words[0]', type: '[u8; 32]', offset: 239, width: 32 },
-  { path: 'tx_params.calldata.value.words[1]', type: '[u8; 32]', offset: 271, width: 32 },
-  { path: 'tx_params.calldata.value.words[2]', type: '[u8; 32]', offset: 303, width: 32 },
-  { path: 'tx_params.calldata.value.words[3]', type: '[u8; 32]', offset: 335, width: 32 },
-  { path: 'tx_params.calldata.value.words[4]', type: '[u8; 32]', offset: 367, width: 32 },
-  { path: 'tx_params.calldata.value.words[5]', type: '[u8; 32]', offset: 399, width: 32 },
-  { path: 'tx_params.calldata.value.words[6]', type: '[u8; 32]', offset: 431, width: 32 },
-  { path: 'tx_params.access_list_entry_count', type: 'u8', offset: 463, width: 1 },
-  { path: 'caip2_id', type: '[u8; 32]', offset: 464, width: 32 },
-  { path: 'output_deserialization_schema', type: '[u8; 38]', offset: 496, width: 38 },
-  { path: 'respond_serialization_schema', type: '[u8; 37]', offset: 534, width: 37 },
+/** `ReplaceNonceEventV1`'s offset table — `spec/borsh-subset.md` §9, as data. */
+export const REPLACE_NONCE_EVENT_V1_FIELDS: readonly FieldSpec[] = [
+  { path: 'key_version', type: 'u8', offset: 0, width: 1 },
+  { path: 'sender', type: '[u8; 32]', offset: 1, width: 32 },
+  { path: 'path', type: '[u8; 32]', offset: 33, width: 32 },
+  { path: 'algo', type: 'u8', offset: 65, width: 1 },
+  { path: 'tx_param_type', type: 'u8', offset: 66, width: 1 },
+  { path: 'tx_params.chain_id', type: 'u64', offset: 67, width: 8 },
+  { path: 'tx_params.nonce', type: 'u64', offset: 75, width: 8 },
+  { path: 'tx_params.max_priority_fee_per_gas', type: 'u128', offset: 83, width: 16 },
+  { path: 'tx_params.max_fee_per_gas', type: 'u128', offset: 99, width: 16 },
+  { path: 'tx_params.gas_limit', type: 'u64', offset: 115, width: 8 },
+  { path: 'tx_params.to', type: '[u8; 20]', offset: 123, width: 20 },
+  { path: 'tx_params.value', type: 'u128', offset: 143, width: 16 },
+  { path: 'tx_params.calldata.is_some', type: 'bool', offset: 159, width: 1 },
+  { path: 'tx_params.calldata.value.selector', type: '[u8; 4]', offset: 160, width: 4 },
+  { path: 'tx_params.calldata.value.no_words', type: 'u16', offset: 164, width: 2 },
+  { path: 'tx_params.calldata.value.words[0]', type: '[u8; 32]', offset: 166, width: 32 },
+  { path: 'tx_params.calldata.value.words[1]', type: '[u8; 32]', offset: 198, width: 32 },
+  { path: 'tx_params.access_list_entry_count', type: 'u8', offset: 230, width: 1 },
+  { path: 'execution_dest', type: '[u8; 32]', offset: 231, width: 32 },
+  { path: 'signature_dest', type: 'u8', offset: 263, width: 1 },
+  { path: 'params', type: '[u8; 64]', offset: 264, width: 64 },
+  { path: 'output_deserialization_schema', type: '[u8; 2]', offset: 328, width: 2 },
+  { path: 'respond_serialization_schema', type: '[u8; 0]', offset: 330, width: 0 },
 ];
 
-export interface SwapEvent {
-  readonly sender: Uint8Array;
-  readonly requestNonce: bigint;
+export interface ReplaceNonceEventV1 {
   readonly keyVersion: number;
+  readonly sender: Uint8Array;
   readonly path: Uint8Array;
   readonly algo: number;
-  readonly dest: number;
+  readonly txParamType: number;
+  readonly txParams: {
+    readonly chainId: bigint;
+    readonly nonce: bigint;
+    readonly maxPriorityFeePerGas: bigint;
+    readonly maxFeePerGas: bigint;
+    readonly gasLimit: bigint;
+    readonly to: Uint8Array;
+    readonly value: bigint;
+    readonly calldata: {
+      readonly isSome: boolean;
+      readonly value: {
+        readonly selector: Uint8Array;
+        readonly noWords: number;
+        readonly words: readonly [Uint8Array, Uint8Array];
+      };
+    };
+    readonly accessListEntryCount: number;
+  };
+  readonly executionDest: Uint8Array;
+  readonly signatureDest: number;
   readonly params: Uint8Array;
+  readonly outputDeserializationSchema: Uint8Array;
+  readonly respondSerializationSchema: Uint8Array;
+}
+
+/** Read a `ReplaceNonceEventV1` from `bytes` at `offset` — 330 bytes, fixed. */
+export function readReplaceNonceEventV1(bytes: Uint8Array, offset = 0): ReplaceNonceEventV1 {
+  const view = checkedView(bytes, offset, REPLACE_NONCE_EVENT_V1_LEN);
+  return {
+    keyVersion: getU8(view, 0),
+    sender: getBytes(view, 1, 32),
+    path: getBytes(view, 33, 32),
+    algo: getU8(view, 65),
+    txParamType: getU8(view, 66),
+    txParams: {
+      chainId: getU64(view, 67),
+      nonce: getU64(view, 75),
+      maxPriorityFeePerGas: getU128(view, 83),
+      maxFeePerGas: getU128(view, 99),
+      gasLimit: getU64(view, 115),
+      to: getBytes(view, 123, 20),
+      value: getU128(view, 143),
+      calldata: {
+        isSome: getBool(view, 159),
+        value: {
+          selector: getBytes(view, 160, 4),
+          noWords: getU16(view, 164),
+          words: [
+            getBytes(view, 166, 32),
+            getBytes(view, 198, 32),
+          ],
+        },
+      },
+      accessListEntryCount: getU8(view, 230),
+    },
+    executionDest: getBytes(view, 231, 32),
+    signatureDest: getU8(view, 263),
+    params: getBytes(view, 264, 64),
+    outputDeserializationSchema: getBytes(view, 328, 2),
+    respondSerializationSchema: getBytes(view, 330, 0),
+  };
+}
+
+/** Write a `ReplaceNonceEventV1` into `out` at `offset`, and return `out`. */
+export function writeReplaceNonceEventV1(
+  value: ReplaceNonceEventV1,
+  out = new Uint8Array(REPLACE_NONCE_EVENT_V1_LEN),
+  offset = 0,
+): Uint8Array {
+  const view = checkedView(out, offset, REPLACE_NONCE_EVENT_V1_LEN);
+  setU8(view, 0, value.keyVersion);
+  setBytes(view, 1, 32, value.sender);
+  setBytes(view, 33, 32, value.path);
+  setU8(view, 65, value.algo);
+  setU8(view, 66, value.txParamType);
+  setU64(view, 67, value.txParams.chainId);
+  setU64(view, 75, value.txParams.nonce);
+  setU128(view, 83, value.txParams.maxPriorityFeePerGas);
+  setU128(view, 99, value.txParams.maxFeePerGas);
+  setU64(view, 115, value.txParams.gasLimit);
+  setBytes(view, 123, 20, value.txParams.to);
+  setU128(view, 143, value.txParams.value);
+  setBool(view, 159, value.txParams.calldata.isSome);
+  setBytes(view, 160, 4, value.txParams.calldata.value.selector);
+  setU16(view, 164, value.txParams.calldata.value.noWords);
+  setBytes(view, 166, 32, value.txParams.calldata.value.words[0]);
+  setBytes(view, 198, 32, value.txParams.calldata.value.words[1]);
+  setU8(view, 230, value.txParams.accessListEntryCount);
+  setBytes(view, 231, 32, value.executionDest);
+  setU8(view, 263, value.signatureDest);
+  setBytes(view, 264, 64, value.params);
+  setBytes(view, 328, 2, value.outputDeserializationSchema);
+  setBytes(view, 330, 0, value.respondSerializationSchema);
+  return out;
+}
+
+/** `ReplaceNonceEventV1`'s leaves, in declaration order — one per `REPLACE_NONCE_EVENT_V1_FIELDS` entry. */
+export function replaceNonceEventV1Leaves(value: ReplaceNonceEventV1): readonly LeafValue[] {
+  return [
+    value.keyVersion,
+    value.sender,
+    value.path,
+    value.algo,
+    value.txParamType,
+    value.txParams.chainId,
+    value.txParams.nonce,
+    value.txParams.maxPriorityFeePerGas,
+    value.txParams.maxFeePerGas,
+    value.txParams.gasLimit,
+    value.txParams.to,
+    value.txParams.value,
+    value.txParams.calldata.isSome,
+    value.txParams.calldata.value.selector,
+    value.txParams.calldata.value.noWords,
+    value.txParams.calldata.value.words[0],
+    value.txParams.calldata.value.words[1],
+    value.txParams.accessListEntryCount,
+    value.executionDest,
+    value.signatureDest,
+    value.params,
+    value.outputDeserializationSchema,
+    value.respondSerializationSchema,
+  ];
+}
+
+export const replaceNonceEventV1Codec: Codec<ReplaceNonceEventV1> = {
+  name: 'ReplaceNonceEventV1',
+  byteLength: REPLACE_NONCE_EVENT_V1_LEN,
+  fields: REPLACE_NONCE_EVENT_V1_FIELDS,
+  read: readReplaceNonceEventV1,
+  write: writeReplaceNonceEventV1,
+  leaves: replaceNonceEventV1Leaves,
+};
+
+// ---- SwapEventV1 -----------------------------------------------------------------
+
+/** The fixed serialized width of `SwapEventV1`. */
+export const SWAP_EVENT_V1_LEN = 526;
+
+/** `SwapEventV1`'s offset table — `spec/borsh-subset.md` §9, as data. */
+export const SWAP_EVENT_V1_FIELDS: readonly FieldSpec[] = [
+  { path: 'key_version', type: 'u8', offset: 0, width: 1 },
+  { path: 'sender', type: '[u8; 32]', offset: 1, width: 32 },
+  { path: 'path', type: '[u8; 32]', offset: 33, width: 32 },
+  { path: 'algo', type: 'u8', offset: 65, width: 1 },
+  { path: 'tx_param_type', type: 'u8', offset: 66, width: 1 },
+  { path: 'tx_params.chain_id', type: 'u64', offset: 67, width: 8 },
+  { path: 'tx_params.nonce', type: 'u64', offset: 75, width: 8 },
+  { path: 'tx_params.max_priority_fee_per_gas', type: 'u128', offset: 83, width: 16 },
+  { path: 'tx_params.max_fee_per_gas', type: 'u128', offset: 99, width: 16 },
+  { path: 'tx_params.gas_limit', type: 'u64', offset: 115, width: 8 },
+  { path: 'tx_params.to', type: '[u8; 20]', offset: 123, width: 20 },
+  { path: 'tx_params.value', type: 'u128', offset: 143, width: 16 },
+  { path: 'tx_params.calldata.is_some', type: 'bool', offset: 159, width: 1 },
+  { path: 'tx_params.calldata.value.selector', type: '[u8; 4]', offset: 160, width: 4 },
+  { path: 'tx_params.calldata.value.no_words', type: 'u16', offset: 164, width: 2 },
+  { path: 'tx_params.calldata.value.words[0]', type: '[u8; 32]', offset: 166, width: 32 },
+  { path: 'tx_params.calldata.value.words[1]', type: '[u8; 32]', offset: 198, width: 32 },
+  { path: 'tx_params.calldata.value.words[2]', type: '[u8; 32]', offset: 230, width: 32 },
+  { path: 'tx_params.calldata.value.words[3]', type: '[u8; 32]', offset: 262, width: 32 },
+  { path: 'tx_params.calldata.value.words[4]', type: '[u8; 32]', offset: 294, width: 32 },
+  { path: 'tx_params.calldata.value.words[5]', type: '[u8; 32]', offset: 326, width: 32 },
+  { path: 'tx_params.calldata.value.words[6]', type: '[u8; 32]', offset: 358, width: 32 },
+  { path: 'tx_params.access_list_entry_count', type: 'u8', offset: 390, width: 1 },
+  { path: 'execution_dest', type: '[u8; 32]', offset: 391, width: 32 },
+  { path: 'signature_dest', type: 'u8', offset: 423, width: 1 },
+  { path: 'params', type: '[u8; 64]', offset: 424, width: 64 },
+  { path: 'output_deserialization_schema', type: '[u8; 38]', offset: 488, width: 38 },
+  { path: 'respond_serialization_schema', type: '[u8; 0]', offset: 526, width: 0 },
+];
+
+export interface SwapEventV1 {
+  readonly keyVersion: number;
+  readonly sender: Uint8Array;
+  readonly path: Uint8Array;
+  readonly algo: number;
   readonly txParamType: number;
   readonly txParams: {
     readonly chainId: bigint;
@@ -756,104 +919,101 @@ export interface SwapEvent {
     };
     readonly accessListEntryCount: number;
   };
-  readonly caip2Id: Uint8Array;
+  readonly executionDest: Uint8Array;
+  readonly signatureDest: number;
+  readonly params: Uint8Array;
   readonly outputDeserializationSchema: Uint8Array;
   readonly respondSerializationSchema: Uint8Array;
 }
 
-/** Read a `SwapEvent` from `bytes` at `offset` — 571 bytes, fixed. */
-export function readSwapEvent(bytes: Uint8Array, offset = 0): SwapEvent {
-  const view = checkedView(bytes, offset, SWAP_EVENT_LEN);
+/** Read a `SwapEventV1` from `bytes` at `offset` — 526 bytes, fixed. */
+export function readSwapEventV1(bytes: Uint8Array, offset = 0): SwapEventV1 {
+  const view = checkedView(bytes, offset, SWAP_EVENT_V1_LEN);
   return {
-    sender: getBytes(view, 0, 32),
-    requestNonce: getU64(view, 32),
-    keyVersion: getU8(view, 40),
-    path: getBytes(view, 41, 32),
-    algo: getU8(view, 73),
-    dest: getU8(view, 74),
-    params: getBytes(view, 75, 64),
-    txParamType: getU8(view, 139),
+    keyVersion: getU8(view, 0),
+    sender: getBytes(view, 1, 32),
+    path: getBytes(view, 33, 32),
+    algo: getU8(view, 65),
+    txParamType: getU8(view, 66),
     txParams: {
-      chainId: getU64(view, 140),
-      nonce: getU64(view, 148),
-      maxPriorityFeePerGas: getU128(view, 156),
-      maxFeePerGas: getU128(view, 172),
-      gasLimit: getU64(view, 188),
-      to: getBytes(view, 196, 20),
-      value: getU128(view, 216),
+      chainId: getU64(view, 67),
+      nonce: getU64(view, 75),
+      maxPriorityFeePerGas: getU128(view, 83),
+      maxFeePerGas: getU128(view, 99),
+      gasLimit: getU64(view, 115),
+      to: getBytes(view, 123, 20),
+      value: getU128(view, 143),
       calldata: {
-        isSome: getBool(view, 232),
+        isSome: getBool(view, 159),
         value: {
-          selector: getBytes(view, 233, 4),
-          noWords: getU16(view, 237),
+          selector: getBytes(view, 160, 4),
+          noWords: getU16(view, 164),
           words: [
-            getBytes(view, 239, 32),
-            getBytes(view, 271, 32),
-            getBytes(view, 303, 32),
-            getBytes(view, 335, 32),
-            getBytes(view, 367, 32),
-            getBytes(view, 399, 32),
-            getBytes(view, 431, 32),
+            getBytes(view, 166, 32),
+            getBytes(view, 198, 32),
+            getBytes(view, 230, 32),
+            getBytes(view, 262, 32),
+            getBytes(view, 294, 32),
+            getBytes(view, 326, 32),
+            getBytes(view, 358, 32),
           ],
         },
       },
-      accessListEntryCount: getU8(view, 463),
+      accessListEntryCount: getU8(view, 390),
     },
-    caip2Id: getBytes(view, 464, 32),
-    outputDeserializationSchema: getBytes(view, 496, 38),
-    respondSerializationSchema: getBytes(view, 534, 37),
+    executionDest: getBytes(view, 391, 32),
+    signatureDest: getU8(view, 423),
+    params: getBytes(view, 424, 64),
+    outputDeserializationSchema: getBytes(view, 488, 38),
+    respondSerializationSchema: getBytes(view, 526, 0),
   };
 }
 
-/** Write a `SwapEvent` into `out` at `offset`, and return `out`. */
-export function writeSwapEvent(
-  value: SwapEvent,
-  out = new Uint8Array(SWAP_EVENT_LEN),
+/** Write a `SwapEventV1` into `out` at `offset`, and return `out`. */
+export function writeSwapEventV1(
+  value: SwapEventV1,
+  out = new Uint8Array(SWAP_EVENT_V1_LEN),
   offset = 0,
 ): Uint8Array {
-  const view = checkedView(out, offset, SWAP_EVENT_LEN);
-  setBytes(view, 0, 32, value.sender);
-  setU64(view, 32, value.requestNonce);
-  setU8(view, 40, value.keyVersion);
-  setBytes(view, 41, 32, value.path);
-  setU8(view, 73, value.algo);
-  setU8(view, 74, value.dest);
-  setBytes(view, 75, 64, value.params);
-  setU8(view, 139, value.txParamType);
-  setU64(view, 140, value.txParams.chainId);
-  setU64(view, 148, value.txParams.nonce);
-  setU128(view, 156, value.txParams.maxPriorityFeePerGas);
-  setU128(view, 172, value.txParams.maxFeePerGas);
-  setU64(view, 188, value.txParams.gasLimit);
-  setBytes(view, 196, 20, value.txParams.to);
-  setU128(view, 216, value.txParams.value);
-  setBool(view, 232, value.txParams.calldata.isSome);
-  setBytes(view, 233, 4, value.txParams.calldata.value.selector);
-  setU16(view, 237, value.txParams.calldata.value.noWords);
-  setBytes(view, 239, 32, value.txParams.calldata.value.words[0]);
-  setBytes(view, 271, 32, value.txParams.calldata.value.words[1]);
-  setBytes(view, 303, 32, value.txParams.calldata.value.words[2]);
-  setBytes(view, 335, 32, value.txParams.calldata.value.words[3]);
-  setBytes(view, 367, 32, value.txParams.calldata.value.words[4]);
-  setBytes(view, 399, 32, value.txParams.calldata.value.words[5]);
-  setBytes(view, 431, 32, value.txParams.calldata.value.words[6]);
-  setU8(view, 463, value.txParams.accessListEntryCount);
-  setBytes(view, 464, 32, value.caip2Id);
-  setBytes(view, 496, 38, value.outputDeserializationSchema);
-  setBytes(view, 534, 37, value.respondSerializationSchema);
+  const view = checkedView(out, offset, SWAP_EVENT_V1_LEN);
+  setU8(view, 0, value.keyVersion);
+  setBytes(view, 1, 32, value.sender);
+  setBytes(view, 33, 32, value.path);
+  setU8(view, 65, value.algo);
+  setU8(view, 66, value.txParamType);
+  setU64(view, 67, value.txParams.chainId);
+  setU64(view, 75, value.txParams.nonce);
+  setU128(view, 83, value.txParams.maxPriorityFeePerGas);
+  setU128(view, 99, value.txParams.maxFeePerGas);
+  setU64(view, 115, value.txParams.gasLimit);
+  setBytes(view, 123, 20, value.txParams.to);
+  setU128(view, 143, value.txParams.value);
+  setBool(view, 159, value.txParams.calldata.isSome);
+  setBytes(view, 160, 4, value.txParams.calldata.value.selector);
+  setU16(view, 164, value.txParams.calldata.value.noWords);
+  setBytes(view, 166, 32, value.txParams.calldata.value.words[0]);
+  setBytes(view, 198, 32, value.txParams.calldata.value.words[1]);
+  setBytes(view, 230, 32, value.txParams.calldata.value.words[2]);
+  setBytes(view, 262, 32, value.txParams.calldata.value.words[3]);
+  setBytes(view, 294, 32, value.txParams.calldata.value.words[4]);
+  setBytes(view, 326, 32, value.txParams.calldata.value.words[5]);
+  setBytes(view, 358, 32, value.txParams.calldata.value.words[6]);
+  setU8(view, 390, value.txParams.accessListEntryCount);
+  setBytes(view, 391, 32, value.executionDest);
+  setU8(view, 423, value.signatureDest);
+  setBytes(view, 424, 64, value.params);
+  setBytes(view, 488, 38, value.outputDeserializationSchema);
+  setBytes(view, 526, 0, value.respondSerializationSchema);
   return out;
 }
 
-/** `SwapEvent`'s leaves, in declaration order — one per `SWAP_EVENT_FIELDS` entry. */
-export function swapEventLeaves(value: SwapEvent): readonly LeafValue[] {
+/** `SwapEventV1`'s leaves, in declaration order — one per `SWAP_EVENT_V1_FIELDS` entry. */
+export function swapEventV1Leaves(value: SwapEventV1): readonly LeafValue[] {
   return [
-    value.sender,
-    value.requestNonce,
     value.keyVersion,
+    value.sender,
     value.path,
     value.algo,
-    value.dest,
-    value.params,
     value.txParamType,
     value.txParams.chainId,
     value.txParams.nonce,
@@ -873,62 +1033,60 @@ export function swapEventLeaves(value: SwapEvent): readonly LeafValue[] {
     value.txParams.calldata.value.words[5],
     value.txParams.calldata.value.words[6],
     value.txParams.accessListEntryCount,
-    value.caip2Id,
+    value.executionDest,
+    value.signatureDest,
+    value.params,
     value.outputDeserializationSchema,
     value.respondSerializationSchema,
   ];
 }
 
-export const swapEventCodec: Codec<SwapEvent> = {
-  name: 'SwapEvent',
-  byteLength: SWAP_EVENT_LEN,
-  fields: SWAP_EVENT_FIELDS,
-  read: readSwapEvent,
-  write: writeSwapEvent,
-  leaves: swapEventLeaves,
+export const swapEventV1Codec: Codec<SwapEventV1> = {
+  name: 'SwapEventV1',
+  byteLength: SWAP_EVENT_V1_LEN,
+  fields: SWAP_EVENT_V1_FIELDS,
+  read: readSwapEventV1,
+  write: writeSwapEventV1,
+  leaves: swapEventV1Leaves,
 };
 
-// ---- SupplyEvent -----------------------------------------------------------------
+// ---- SupplyEventV1 ---------------------------------------------------------------
 
-/** The fixed serialized width of `SupplyEvent`. */
-export const SUPPLY_EVENT_LEN = 407;
+/** The fixed serialized width of `SupplyEventV1`. */
+export const SUPPLY_EVENT_V1_LEN = 364;
 
-/** `SupplyEvent`'s offset table — `spec/borsh-subset.md` §9, as data. */
-export const SUPPLY_EVENT_FIELDS: readonly FieldSpec[] = [
-  { path: 'sender', type: '[u8; 32]', offset: 0, width: 32 },
-  { path: 'request_nonce', type: 'u64', offset: 32, width: 8 },
-  { path: 'key_version', type: 'u8', offset: 40, width: 1 },
-  { path: 'path', type: '[u8; 32]', offset: 41, width: 32 },
-  { path: 'algo', type: 'u8', offset: 73, width: 1 },
-  { path: 'dest', type: 'u8', offset: 74, width: 1 },
-  { path: 'params', type: '[u8; 64]', offset: 75, width: 64 },
-  { path: 'tx_param_type', type: 'u8', offset: 139, width: 1 },
-  { path: 'tx_params.chain_id', type: 'u64', offset: 140, width: 8 },
-  { path: 'tx_params.nonce', type: 'u64', offset: 148, width: 8 },
-  { path: 'tx_params.max_priority_fee_per_gas', type: 'u128', offset: 156, width: 16 },
-  { path: 'tx_params.max_fee_per_gas', type: 'u128', offset: 172, width: 16 },
-  { path: 'tx_params.gas_limit', type: 'u64', offset: 188, width: 8 },
-  { path: 'tx_params.to', type: '[u8; 20]', offset: 196, width: 20 },
-  { path: 'tx_params.value', type: 'u128', offset: 216, width: 16 },
-  { path: 'tx_params.calldata.is_some', type: 'bool', offset: 232, width: 1 },
-  { path: 'tx_params.calldata.value.selector', type: '[u8; 4]', offset: 233, width: 4 },
-  { path: 'tx_params.calldata.value.no_words', type: 'u16', offset: 237, width: 2 },
-  { path: 'tx_params.calldata.value.words[0]', type: '[u8; 32]', offset: 239, width: 32 },
-  { path: 'tx_params.calldata.value.words[1]', type: '[u8; 32]', offset: 271, width: 32 },
-  { path: 'tx_params.access_list_entry_count', type: 'u8', offset: 303, width: 1 },
-  { path: 'caip2_id', type: '[u8; 32]', offset: 304, width: 32 },
-  { path: 'output_deserialization_schema', type: '[u8; 36]', offset: 336, width: 36 },
-  { path: 'respond_serialization_schema', type: '[u8; 35]', offset: 372, width: 35 },
+/** `SupplyEventV1`'s offset table — `spec/borsh-subset.md` §9, as data. */
+export const SUPPLY_EVENT_V1_FIELDS: readonly FieldSpec[] = [
+  { path: 'key_version', type: 'u8', offset: 0, width: 1 },
+  { path: 'sender', type: '[u8; 32]', offset: 1, width: 32 },
+  { path: 'path', type: '[u8; 32]', offset: 33, width: 32 },
+  { path: 'algo', type: 'u8', offset: 65, width: 1 },
+  { path: 'tx_param_type', type: 'u8', offset: 66, width: 1 },
+  { path: 'tx_params.chain_id', type: 'u64', offset: 67, width: 8 },
+  { path: 'tx_params.nonce', type: 'u64', offset: 75, width: 8 },
+  { path: 'tx_params.max_priority_fee_per_gas', type: 'u128', offset: 83, width: 16 },
+  { path: 'tx_params.max_fee_per_gas', type: 'u128', offset: 99, width: 16 },
+  { path: 'tx_params.gas_limit', type: 'u64', offset: 115, width: 8 },
+  { path: 'tx_params.to', type: '[u8; 20]', offset: 123, width: 20 },
+  { path: 'tx_params.value', type: 'u128', offset: 143, width: 16 },
+  { path: 'tx_params.calldata.is_some', type: 'bool', offset: 159, width: 1 },
+  { path: 'tx_params.calldata.value.selector', type: '[u8; 4]', offset: 160, width: 4 },
+  { path: 'tx_params.calldata.value.no_words', type: 'u16', offset: 164, width: 2 },
+  { path: 'tx_params.calldata.value.words[0]', type: '[u8; 32]', offset: 166, width: 32 },
+  { path: 'tx_params.calldata.value.words[1]', type: '[u8; 32]', offset: 198, width: 32 },
+  { path: 'tx_params.access_list_entry_count', type: 'u8', offset: 230, width: 1 },
+  { path: 'execution_dest', type: '[u8; 32]', offset: 231, width: 32 },
+  { path: 'signature_dest', type: 'u8', offset: 263, width: 1 },
+  { path: 'params', type: '[u8; 64]', offset: 264, width: 64 },
+  { path: 'output_deserialization_schema', type: '[u8; 36]', offset: 328, width: 36 },
+  { path: 'respond_serialization_schema', type: '[u8; 0]', offset: 364, width: 0 },
 ];
 
-export interface SupplyEvent {
-  readonly sender: Uint8Array;
-  readonly requestNonce: bigint;
+export interface SupplyEventV1 {
   readonly keyVersion: number;
+  readonly sender: Uint8Array;
   readonly path: Uint8Array;
   readonly algo: number;
-  readonly dest: number;
-  readonly params: Uint8Array;
   readonly txParamType: number;
   readonly txParams: {
     readonly chainId: bigint;
@@ -948,94 +1106,91 @@ export interface SupplyEvent {
     };
     readonly accessListEntryCount: number;
   };
-  readonly caip2Id: Uint8Array;
+  readonly executionDest: Uint8Array;
+  readonly signatureDest: number;
+  readonly params: Uint8Array;
   readonly outputDeserializationSchema: Uint8Array;
   readonly respondSerializationSchema: Uint8Array;
 }
 
-/** Read a `SupplyEvent` from `bytes` at `offset` — 407 bytes, fixed. */
-export function readSupplyEvent(bytes: Uint8Array, offset = 0): SupplyEvent {
-  const view = checkedView(bytes, offset, SUPPLY_EVENT_LEN);
+/** Read a `SupplyEventV1` from `bytes` at `offset` — 364 bytes, fixed. */
+export function readSupplyEventV1(bytes: Uint8Array, offset = 0): SupplyEventV1 {
+  const view = checkedView(bytes, offset, SUPPLY_EVENT_V1_LEN);
   return {
-    sender: getBytes(view, 0, 32),
-    requestNonce: getU64(view, 32),
-    keyVersion: getU8(view, 40),
-    path: getBytes(view, 41, 32),
-    algo: getU8(view, 73),
-    dest: getU8(view, 74),
-    params: getBytes(view, 75, 64),
-    txParamType: getU8(view, 139),
+    keyVersion: getU8(view, 0),
+    sender: getBytes(view, 1, 32),
+    path: getBytes(view, 33, 32),
+    algo: getU8(view, 65),
+    txParamType: getU8(view, 66),
     txParams: {
-      chainId: getU64(view, 140),
-      nonce: getU64(view, 148),
-      maxPriorityFeePerGas: getU128(view, 156),
-      maxFeePerGas: getU128(view, 172),
-      gasLimit: getU64(view, 188),
-      to: getBytes(view, 196, 20),
-      value: getU128(view, 216),
+      chainId: getU64(view, 67),
+      nonce: getU64(view, 75),
+      maxPriorityFeePerGas: getU128(view, 83),
+      maxFeePerGas: getU128(view, 99),
+      gasLimit: getU64(view, 115),
+      to: getBytes(view, 123, 20),
+      value: getU128(view, 143),
       calldata: {
-        isSome: getBool(view, 232),
+        isSome: getBool(view, 159),
         value: {
-          selector: getBytes(view, 233, 4),
-          noWords: getU16(view, 237),
+          selector: getBytes(view, 160, 4),
+          noWords: getU16(view, 164),
           words: [
-            getBytes(view, 239, 32),
-            getBytes(view, 271, 32),
+            getBytes(view, 166, 32),
+            getBytes(view, 198, 32),
           ],
         },
       },
-      accessListEntryCount: getU8(view, 303),
+      accessListEntryCount: getU8(view, 230),
     },
-    caip2Id: getBytes(view, 304, 32),
-    outputDeserializationSchema: getBytes(view, 336, 36),
-    respondSerializationSchema: getBytes(view, 372, 35),
+    executionDest: getBytes(view, 231, 32),
+    signatureDest: getU8(view, 263),
+    params: getBytes(view, 264, 64),
+    outputDeserializationSchema: getBytes(view, 328, 36),
+    respondSerializationSchema: getBytes(view, 364, 0),
   };
 }
 
-/** Write a `SupplyEvent` into `out` at `offset`, and return `out`. */
-export function writeSupplyEvent(
-  value: SupplyEvent,
-  out = new Uint8Array(SUPPLY_EVENT_LEN),
+/** Write a `SupplyEventV1` into `out` at `offset`, and return `out`. */
+export function writeSupplyEventV1(
+  value: SupplyEventV1,
+  out = new Uint8Array(SUPPLY_EVENT_V1_LEN),
   offset = 0,
 ): Uint8Array {
-  const view = checkedView(out, offset, SUPPLY_EVENT_LEN);
-  setBytes(view, 0, 32, value.sender);
-  setU64(view, 32, value.requestNonce);
-  setU8(view, 40, value.keyVersion);
-  setBytes(view, 41, 32, value.path);
-  setU8(view, 73, value.algo);
-  setU8(view, 74, value.dest);
-  setBytes(view, 75, 64, value.params);
-  setU8(view, 139, value.txParamType);
-  setU64(view, 140, value.txParams.chainId);
-  setU64(view, 148, value.txParams.nonce);
-  setU128(view, 156, value.txParams.maxPriorityFeePerGas);
-  setU128(view, 172, value.txParams.maxFeePerGas);
-  setU64(view, 188, value.txParams.gasLimit);
-  setBytes(view, 196, 20, value.txParams.to);
-  setU128(view, 216, value.txParams.value);
-  setBool(view, 232, value.txParams.calldata.isSome);
-  setBytes(view, 233, 4, value.txParams.calldata.value.selector);
-  setU16(view, 237, value.txParams.calldata.value.noWords);
-  setBytes(view, 239, 32, value.txParams.calldata.value.words[0]);
-  setBytes(view, 271, 32, value.txParams.calldata.value.words[1]);
-  setU8(view, 303, value.txParams.accessListEntryCount);
-  setBytes(view, 304, 32, value.caip2Id);
-  setBytes(view, 336, 36, value.outputDeserializationSchema);
-  setBytes(view, 372, 35, value.respondSerializationSchema);
+  const view = checkedView(out, offset, SUPPLY_EVENT_V1_LEN);
+  setU8(view, 0, value.keyVersion);
+  setBytes(view, 1, 32, value.sender);
+  setBytes(view, 33, 32, value.path);
+  setU8(view, 65, value.algo);
+  setU8(view, 66, value.txParamType);
+  setU64(view, 67, value.txParams.chainId);
+  setU64(view, 75, value.txParams.nonce);
+  setU128(view, 83, value.txParams.maxPriorityFeePerGas);
+  setU128(view, 99, value.txParams.maxFeePerGas);
+  setU64(view, 115, value.txParams.gasLimit);
+  setBytes(view, 123, 20, value.txParams.to);
+  setU128(view, 143, value.txParams.value);
+  setBool(view, 159, value.txParams.calldata.isSome);
+  setBytes(view, 160, 4, value.txParams.calldata.value.selector);
+  setU16(view, 164, value.txParams.calldata.value.noWords);
+  setBytes(view, 166, 32, value.txParams.calldata.value.words[0]);
+  setBytes(view, 198, 32, value.txParams.calldata.value.words[1]);
+  setU8(view, 230, value.txParams.accessListEntryCount);
+  setBytes(view, 231, 32, value.executionDest);
+  setU8(view, 263, value.signatureDest);
+  setBytes(view, 264, 64, value.params);
+  setBytes(view, 328, 36, value.outputDeserializationSchema);
+  setBytes(view, 364, 0, value.respondSerializationSchema);
   return out;
 }
 
-/** `SupplyEvent`'s leaves, in declaration order — one per `SUPPLY_EVENT_FIELDS` entry. */
-export function supplyEventLeaves(value: SupplyEvent): readonly LeafValue[] {
+/** `SupplyEventV1`'s leaves, in declaration order — one per `SUPPLY_EVENT_V1_FIELDS` entry. */
+export function supplyEventV1Leaves(value: SupplyEventV1): readonly LeafValue[] {
   return [
-    value.sender,
-    value.requestNonce,
     value.keyVersion,
+    value.sender,
     value.path,
     value.algo,
-    value.dest,
-    value.params,
     value.txParamType,
     value.txParams.chainId,
     value.txParams.nonce,
@@ -1050,63 +1205,61 @@ export function supplyEventLeaves(value: SupplyEvent): readonly LeafValue[] {
     value.txParams.calldata.value.words[0],
     value.txParams.calldata.value.words[1],
     value.txParams.accessListEntryCount,
-    value.caip2Id,
+    value.executionDest,
+    value.signatureDest,
+    value.params,
     value.outputDeserializationSchema,
     value.respondSerializationSchema,
   ];
 }
 
-export const supplyEventCodec: Codec<SupplyEvent> = {
-  name: 'SupplyEvent',
-  byteLength: SUPPLY_EVENT_LEN,
-  fields: SUPPLY_EVENT_FIELDS,
-  read: readSupplyEvent,
-  write: writeSupplyEvent,
-  leaves: supplyEventLeaves,
+export const supplyEventV1Codec: Codec<SupplyEventV1> = {
+  name: 'SupplyEventV1',
+  byteLength: SUPPLY_EVENT_V1_LEN,
+  fields: SUPPLY_EVENT_V1_FIELDS,
+  read: readSupplyEventV1,
+  write: writeSupplyEventV1,
+  leaves: supplyEventV1Leaves,
 };
 
-// ---- RedeemEvent -----------------------------------------------------------------
+// ---- RedeemEventV1 ---------------------------------------------------------------
 
-/** The fixed serialized width of `RedeemEvent`. */
-export const REDEEM_EVENT_LEN = 439;
+/** The fixed serialized width of `RedeemEventV1`. */
+export const REDEEM_EVENT_V1_LEN = 396;
 
-/** `RedeemEvent`'s offset table — `spec/borsh-subset.md` §9, as data. */
-export const REDEEM_EVENT_FIELDS: readonly FieldSpec[] = [
-  { path: 'sender', type: '[u8; 32]', offset: 0, width: 32 },
-  { path: 'request_nonce', type: 'u64', offset: 32, width: 8 },
-  { path: 'key_version', type: 'u8', offset: 40, width: 1 },
-  { path: 'path', type: '[u8; 32]', offset: 41, width: 32 },
-  { path: 'algo', type: 'u8', offset: 73, width: 1 },
-  { path: 'dest', type: 'u8', offset: 74, width: 1 },
-  { path: 'params', type: '[u8; 64]', offset: 75, width: 64 },
-  { path: 'tx_param_type', type: 'u8', offset: 139, width: 1 },
-  { path: 'tx_params.chain_id', type: 'u64', offset: 140, width: 8 },
-  { path: 'tx_params.nonce', type: 'u64', offset: 148, width: 8 },
-  { path: 'tx_params.max_priority_fee_per_gas', type: 'u128', offset: 156, width: 16 },
-  { path: 'tx_params.max_fee_per_gas', type: 'u128', offset: 172, width: 16 },
-  { path: 'tx_params.gas_limit', type: 'u64', offset: 188, width: 8 },
-  { path: 'tx_params.to', type: '[u8; 20]', offset: 196, width: 20 },
-  { path: 'tx_params.value', type: 'u128', offset: 216, width: 16 },
-  { path: 'tx_params.calldata.is_some', type: 'bool', offset: 232, width: 1 },
-  { path: 'tx_params.calldata.value.selector', type: '[u8; 4]', offset: 233, width: 4 },
-  { path: 'tx_params.calldata.value.no_words', type: 'u16', offset: 237, width: 2 },
-  { path: 'tx_params.calldata.value.words[0]', type: '[u8; 32]', offset: 239, width: 32 },
-  { path: 'tx_params.calldata.value.words[1]', type: '[u8; 32]', offset: 271, width: 32 },
-  { path: 'tx_params.calldata.value.words[2]', type: '[u8; 32]', offset: 303, width: 32 },
-  { path: 'tx_params.access_list_entry_count', type: 'u8', offset: 335, width: 1 },
-  { path: 'caip2_id', type: '[u8; 32]', offset: 336, width: 32 },
-  { path: 'output_deserialization_schema', type: '[u8; 36]', offset: 368, width: 36 },
-  { path: 'respond_serialization_schema', type: '[u8; 35]', offset: 404, width: 35 },
+/** `RedeemEventV1`'s offset table — `spec/borsh-subset.md` §9, as data. */
+export const REDEEM_EVENT_V1_FIELDS: readonly FieldSpec[] = [
+  { path: 'key_version', type: 'u8', offset: 0, width: 1 },
+  { path: 'sender', type: '[u8; 32]', offset: 1, width: 32 },
+  { path: 'path', type: '[u8; 32]', offset: 33, width: 32 },
+  { path: 'algo', type: 'u8', offset: 65, width: 1 },
+  { path: 'tx_param_type', type: 'u8', offset: 66, width: 1 },
+  { path: 'tx_params.chain_id', type: 'u64', offset: 67, width: 8 },
+  { path: 'tx_params.nonce', type: 'u64', offset: 75, width: 8 },
+  { path: 'tx_params.max_priority_fee_per_gas', type: 'u128', offset: 83, width: 16 },
+  { path: 'tx_params.max_fee_per_gas', type: 'u128', offset: 99, width: 16 },
+  { path: 'tx_params.gas_limit', type: 'u64', offset: 115, width: 8 },
+  { path: 'tx_params.to', type: '[u8; 20]', offset: 123, width: 20 },
+  { path: 'tx_params.value', type: 'u128', offset: 143, width: 16 },
+  { path: 'tx_params.calldata.is_some', type: 'bool', offset: 159, width: 1 },
+  { path: 'tx_params.calldata.value.selector', type: '[u8; 4]', offset: 160, width: 4 },
+  { path: 'tx_params.calldata.value.no_words', type: 'u16', offset: 164, width: 2 },
+  { path: 'tx_params.calldata.value.words[0]', type: '[u8; 32]', offset: 166, width: 32 },
+  { path: 'tx_params.calldata.value.words[1]', type: '[u8; 32]', offset: 198, width: 32 },
+  { path: 'tx_params.calldata.value.words[2]', type: '[u8; 32]', offset: 230, width: 32 },
+  { path: 'tx_params.access_list_entry_count', type: 'u8', offset: 262, width: 1 },
+  { path: 'execution_dest', type: '[u8; 32]', offset: 263, width: 32 },
+  { path: 'signature_dest', type: 'u8', offset: 295, width: 1 },
+  { path: 'params', type: '[u8; 64]', offset: 296, width: 64 },
+  { path: 'output_deserialization_schema', type: '[u8; 36]', offset: 360, width: 36 },
+  { path: 'respond_serialization_schema', type: '[u8; 0]', offset: 396, width: 0 },
 ];
 
-export interface RedeemEvent {
-  readonly sender: Uint8Array;
-  readonly requestNonce: bigint;
+export interface RedeemEventV1 {
   readonly keyVersion: number;
+  readonly sender: Uint8Array;
   readonly path: Uint8Array;
   readonly algo: number;
-  readonly dest: number;
-  readonly params: Uint8Array;
   readonly txParamType: number;
   readonly txParams: {
     readonly chainId: bigint;
@@ -1126,96 +1279,93 @@ export interface RedeemEvent {
     };
     readonly accessListEntryCount: number;
   };
-  readonly caip2Id: Uint8Array;
+  readonly executionDest: Uint8Array;
+  readonly signatureDest: number;
+  readonly params: Uint8Array;
   readonly outputDeserializationSchema: Uint8Array;
   readonly respondSerializationSchema: Uint8Array;
 }
 
-/** Read a `RedeemEvent` from `bytes` at `offset` — 439 bytes, fixed. */
-export function readRedeemEvent(bytes: Uint8Array, offset = 0): RedeemEvent {
-  const view = checkedView(bytes, offset, REDEEM_EVENT_LEN);
+/** Read a `RedeemEventV1` from `bytes` at `offset` — 396 bytes, fixed. */
+export function readRedeemEventV1(bytes: Uint8Array, offset = 0): RedeemEventV1 {
+  const view = checkedView(bytes, offset, REDEEM_EVENT_V1_LEN);
   return {
-    sender: getBytes(view, 0, 32),
-    requestNonce: getU64(view, 32),
-    keyVersion: getU8(view, 40),
-    path: getBytes(view, 41, 32),
-    algo: getU8(view, 73),
-    dest: getU8(view, 74),
-    params: getBytes(view, 75, 64),
-    txParamType: getU8(view, 139),
+    keyVersion: getU8(view, 0),
+    sender: getBytes(view, 1, 32),
+    path: getBytes(view, 33, 32),
+    algo: getU8(view, 65),
+    txParamType: getU8(view, 66),
     txParams: {
-      chainId: getU64(view, 140),
-      nonce: getU64(view, 148),
-      maxPriorityFeePerGas: getU128(view, 156),
-      maxFeePerGas: getU128(view, 172),
-      gasLimit: getU64(view, 188),
-      to: getBytes(view, 196, 20),
-      value: getU128(view, 216),
+      chainId: getU64(view, 67),
+      nonce: getU64(view, 75),
+      maxPriorityFeePerGas: getU128(view, 83),
+      maxFeePerGas: getU128(view, 99),
+      gasLimit: getU64(view, 115),
+      to: getBytes(view, 123, 20),
+      value: getU128(view, 143),
       calldata: {
-        isSome: getBool(view, 232),
+        isSome: getBool(view, 159),
         value: {
-          selector: getBytes(view, 233, 4),
-          noWords: getU16(view, 237),
+          selector: getBytes(view, 160, 4),
+          noWords: getU16(view, 164),
           words: [
-            getBytes(view, 239, 32),
-            getBytes(view, 271, 32),
-            getBytes(view, 303, 32),
+            getBytes(view, 166, 32),
+            getBytes(view, 198, 32),
+            getBytes(view, 230, 32),
           ],
         },
       },
-      accessListEntryCount: getU8(view, 335),
+      accessListEntryCount: getU8(view, 262),
     },
-    caip2Id: getBytes(view, 336, 32),
-    outputDeserializationSchema: getBytes(view, 368, 36),
-    respondSerializationSchema: getBytes(view, 404, 35),
+    executionDest: getBytes(view, 263, 32),
+    signatureDest: getU8(view, 295),
+    params: getBytes(view, 296, 64),
+    outputDeserializationSchema: getBytes(view, 360, 36),
+    respondSerializationSchema: getBytes(view, 396, 0),
   };
 }
 
-/** Write a `RedeemEvent` into `out` at `offset`, and return `out`. */
-export function writeRedeemEvent(
-  value: RedeemEvent,
-  out = new Uint8Array(REDEEM_EVENT_LEN),
+/** Write a `RedeemEventV1` into `out` at `offset`, and return `out`. */
+export function writeRedeemEventV1(
+  value: RedeemEventV1,
+  out = new Uint8Array(REDEEM_EVENT_V1_LEN),
   offset = 0,
 ): Uint8Array {
-  const view = checkedView(out, offset, REDEEM_EVENT_LEN);
-  setBytes(view, 0, 32, value.sender);
-  setU64(view, 32, value.requestNonce);
-  setU8(view, 40, value.keyVersion);
-  setBytes(view, 41, 32, value.path);
-  setU8(view, 73, value.algo);
-  setU8(view, 74, value.dest);
-  setBytes(view, 75, 64, value.params);
-  setU8(view, 139, value.txParamType);
-  setU64(view, 140, value.txParams.chainId);
-  setU64(view, 148, value.txParams.nonce);
-  setU128(view, 156, value.txParams.maxPriorityFeePerGas);
-  setU128(view, 172, value.txParams.maxFeePerGas);
-  setU64(view, 188, value.txParams.gasLimit);
-  setBytes(view, 196, 20, value.txParams.to);
-  setU128(view, 216, value.txParams.value);
-  setBool(view, 232, value.txParams.calldata.isSome);
-  setBytes(view, 233, 4, value.txParams.calldata.value.selector);
-  setU16(view, 237, value.txParams.calldata.value.noWords);
-  setBytes(view, 239, 32, value.txParams.calldata.value.words[0]);
-  setBytes(view, 271, 32, value.txParams.calldata.value.words[1]);
-  setBytes(view, 303, 32, value.txParams.calldata.value.words[2]);
-  setU8(view, 335, value.txParams.accessListEntryCount);
-  setBytes(view, 336, 32, value.caip2Id);
-  setBytes(view, 368, 36, value.outputDeserializationSchema);
-  setBytes(view, 404, 35, value.respondSerializationSchema);
+  const view = checkedView(out, offset, REDEEM_EVENT_V1_LEN);
+  setU8(view, 0, value.keyVersion);
+  setBytes(view, 1, 32, value.sender);
+  setBytes(view, 33, 32, value.path);
+  setU8(view, 65, value.algo);
+  setU8(view, 66, value.txParamType);
+  setU64(view, 67, value.txParams.chainId);
+  setU64(view, 75, value.txParams.nonce);
+  setU128(view, 83, value.txParams.maxPriorityFeePerGas);
+  setU128(view, 99, value.txParams.maxFeePerGas);
+  setU64(view, 115, value.txParams.gasLimit);
+  setBytes(view, 123, 20, value.txParams.to);
+  setU128(view, 143, value.txParams.value);
+  setBool(view, 159, value.txParams.calldata.isSome);
+  setBytes(view, 160, 4, value.txParams.calldata.value.selector);
+  setU16(view, 164, value.txParams.calldata.value.noWords);
+  setBytes(view, 166, 32, value.txParams.calldata.value.words[0]);
+  setBytes(view, 198, 32, value.txParams.calldata.value.words[1]);
+  setBytes(view, 230, 32, value.txParams.calldata.value.words[2]);
+  setU8(view, 262, value.txParams.accessListEntryCount);
+  setBytes(view, 263, 32, value.executionDest);
+  setU8(view, 295, value.signatureDest);
+  setBytes(view, 296, 64, value.params);
+  setBytes(view, 360, 36, value.outputDeserializationSchema);
+  setBytes(view, 396, 0, value.respondSerializationSchema);
   return out;
 }
 
-/** `RedeemEvent`'s leaves, in declaration order — one per `REDEEM_EVENT_FIELDS` entry. */
-export function redeemEventLeaves(value: RedeemEvent): readonly LeafValue[] {
+/** `RedeemEventV1`'s leaves, in declaration order — one per `REDEEM_EVENT_V1_FIELDS` entry. */
+export function redeemEventV1Leaves(value: RedeemEventV1): readonly LeafValue[] {
   return [
-    value.sender,
-    value.requestNonce,
     value.keyVersion,
+    value.sender,
     value.path,
     value.algo,
-    value.dest,
-    value.params,
     value.txParamType,
     value.txParams.chainId,
     value.txParams.nonce,
@@ -1231,19 +1381,168 @@ export function redeemEventLeaves(value: RedeemEvent): readonly LeafValue[] {
     value.txParams.calldata.value.words[1],
     value.txParams.calldata.value.words[2],
     value.txParams.accessListEntryCount,
-    value.caip2Id,
+    value.executionDest,
+    value.signatureDest,
+    value.params,
     value.outputDeserializationSchema,
     value.respondSerializationSchema,
   ];
 }
 
-export const redeemEventCodec: Codec<RedeemEvent> = {
-  name: 'RedeemEvent',
-  byteLength: REDEEM_EVENT_LEN,
-  fields: REDEEM_EVENT_FIELDS,
-  read: readRedeemEvent,
-  write: writeRedeemEvent,
-  leaves: redeemEventLeaves,
+export const redeemEventV1Codec: Codec<RedeemEventV1> = {
+  name: 'RedeemEventV1',
+  byteLength: REDEEM_EVENT_V1_LEN,
+  fields: REDEEM_EVENT_V1_FIELDS,
+  read: readRedeemEventV1,
+  write: writeRedeemEventV1,
+  leaves: redeemEventV1Leaves,
+};
+
+// ---- EmptyOutput -----------------------------------------------------------------
+
+/** The fixed serialized width of `EmptyOutput`. */
+export const EMPTY_OUTPUT_LEN = 0;
+
+/** `EmptyOutput`'s offset table — `spec/borsh-subset.md` §9, as data. */
+export const EMPTY_OUTPUT_FIELDS: readonly FieldSpec[] = [
+  { path: 'output', type: '[u8; 0]', offset: 0, width: 0 },
+];
+
+export interface EmptyOutput {
+  readonly output: Uint8Array;
+}
+
+/** Read a `EmptyOutput` from `bytes` at `offset` — 0 bytes, fixed. */
+export function readEmptyOutput(bytes: Uint8Array, offset = 0): EmptyOutput {
+  const view = checkedView(bytes, offset, EMPTY_OUTPUT_LEN);
+  return {
+    output: getBytes(view, 0, 0),
+  };
+}
+
+/** Write a `EmptyOutput` into `out` at `offset`, and return `out`. */
+export function writeEmptyOutput(
+  value: EmptyOutput,
+  out = new Uint8Array(EMPTY_OUTPUT_LEN),
+  offset = 0,
+): Uint8Array {
+  const view = checkedView(out, offset, EMPTY_OUTPUT_LEN);
+  setBytes(view, 0, 0, value.output);
+  return out;
+}
+
+/** `EmptyOutput`'s leaves, in declaration order — one per `EMPTY_OUTPUT_FIELDS` entry. */
+export function emptyOutputLeaves(value: EmptyOutput): readonly LeafValue[] {
+  return [
+    value.output,
+  ];
+}
+
+export const emptyOutputCodec: Codec<EmptyOutput> = {
+  name: 'EmptyOutput',
+  byteLength: EMPTY_OUTPUT_LEN,
+  fields: EMPTY_OUTPUT_FIELDS,
+  read: readEmptyOutput,
+  write: writeEmptyOutput,
+  leaves: emptyOutputLeaves,
+};
+
+// ---- BoolOutput ------------------------------------------------------------------
+
+/** The fixed serialized width of `BoolOutput`. */
+export const BOOL_OUTPUT_LEN = 1;
+
+/** `BoolOutput`'s offset table — `spec/borsh-subset.md` §9, as data. */
+export const BOOL_OUTPUT_FIELDS: readonly FieldSpec[] = [
+  { path: 'success', type: 'u8', offset: 0, width: 1 },
+];
+
+export interface BoolOutput {
+  readonly success: number;
+}
+
+/** Read a `BoolOutput` from `bytes` at `offset` — 1 byte, fixed. */
+export function readBoolOutput(bytes: Uint8Array, offset = 0): BoolOutput {
+  const view = checkedView(bytes, offset, BOOL_OUTPUT_LEN);
+  return {
+    success: getU8(view, 0),
+  };
+}
+
+/** Write a `BoolOutput` into `out` at `offset`, and return `out`. */
+export function writeBoolOutput(
+  value: BoolOutput,
+  out = new Uint8Array(BOOL_OUTPUT_LEN),
+  offset = 0,
+): Uint8Array {
+  const view = checkedView(out, offset, BOOL_OUTPUT_LEN);
+  setU8(view, 0, value.success);
+  return out;
+}
+
+/** `BoolOutput`'s leaves, in declaration order — one per `BOOL_OUTPUT_FIELDS` entry. */
+export function boolOutputLeaves(value: BoolOutput): readonly LeafValue[] {
+  return [
+    value.success,
+  ];
+}
+
+export const boolOutputCodec: Codec<BoolOutput> = {
+  name: 'BoolOutput',
+  byteLength: BOOL_OUTPUT_LEN,
+  fields: BOOL_OUTPUT_FIELDS,
+  read: readBoolOutput,
+  write: writeBoolOutput,
+  leaves: boolOutputLeaves,
+};
+
+// ---- WordOutput ------------------------------------------------------------------
+
+/** The fixed serialized width of `WordOutput`. */
+export const WORD_OUTPUT_LEN = 32;
+
+/** `WordOutput`'s offset table — `spec/borsh-subset.md` §9, as data. */
+export const WORD_OUTPUT_FIELDS: readonly FieldSpec[] = [
+  { path: 'word', type: '[u8; 32]', offset: 0, width: 32 },
+];
+
+export interface WordOutput {
+  readonly word: Uint8Array;
+}
+
+/** Read a `WordOutput` from `bytes` at `offset` — 32 bytes, fixed. */
+export function readWordOutput(bytes: Uint8Array, offset = 0): WordOutput {
+  const view = checkedView(bytes, offset, WORD_OUTPUT_LEN);
+  return {
+    word: getBytes(view, 0, 32),
+  };
+}
+
+/** Write a `WordOutput` into `out` at `offset`, and return `out`. */
+export function writeWordOutput(
+  value: WordOutput,
+  out = new Uint8Array(WORD_OUTPUT_LEN),
+  offset = 0,
+): Uint8Array {
+  const view = checkedView(out, offset, WORD_OUTPUT_LEN);
+  setBytes(view, 0, 32, value.word);
+  return out;
+}
+
+/** `WordOutput`'s leaves, in declaration order — one per `WORD_OUTPUT_FIELDS` entry. */
+export function wordOutputLeaves(value: WordOutput): readonly LeafValue[] {
+  return [
+    value.word,
+  ];
+}
+
+export const wordOutputCodec: Codec<WordOutput> = {
+  name: 'WordOutput',
+  byteLength: WORD_OUTPUT_LEN,
+  fields: WORD_OUTPUT_FIELDS,
+  read: readWordOutput,
+  write: writeWordOutput,
+  leaves: wordOutputLeaves,
 };
 
 // ---- VaultEventV2 ----------------------------------------------------------------
@@ -1826,434 +2125,6 @@ export const redeemEventV2Codec: Codec<RedeemEventV2> = {
   read: readRedeemEventV2,
   write: writeRedeemEventV2,
   leaves: redeemEventV2Leaves,
-};
-
-// ---- ClaimOutput -----------------------------------------------------------------
-
-/** The fixed serialized width of `ClaimOutput`. */
-export const CLAIM_OUTPUT_LEN = 1;
-
-/** `ClaimOutput`'s offset table — `spec/borsh-subset.md` §9, as data. */
-export const CLAIM_OUTPUT_FIELDS: readonly FieldSpec[] = [
-  { path: 'success', type: 'u8', offset: 0, width: 1 },
-];
-
-export interface ClaimOutput {
-  readonly success: number;
-}
-
-/** Read a `ClaimOutput` from `bytes` at `offset` — 1 byte, fixed. */
-export function readClaimOutput(bytes: Uint8Array, offset = 0): ClaimOutput {
-  const view = checkedView(bytes, offset, CLAIM_OUTPUT_LEN);
-  return {
-    success: getU8(view, 0),
-  };
-}
-
-/** Write a `ClaimOutput` into `out` at `offset`, and return `out`. */
-export function writeClaimOutput(
-  value: ClaimOutput,
-  out = new Uint8Array(CLAIM_OUTPUT_LEN),
-  offset = 0,
-): Uint8Array {
-  const view = checkedView(out, offset, CLAIM_OUTPUT_LEN);
-  setU8(view, 0, value.success);
-  return out;
-}
-
-/** `ClaimOutput`'s leaves, in declaration order — one per `CLAIM_OUTPUT_FIELDS` entry. */
-export function claimOutputLeaves(value: ClaimOutput): readonly LeafValue[] {
-  return [
-    value.success,
-  ];
-}
-
-export const claimOutputCodec: Codec<ClaimOutput> = {
-  name: 'ClaimOutput',
-  byteLength: CLAIM_OUTPUT_LEN,
-  fields: CLAIM_OUTPUT_FIELDS,
-  read: readClaimOutput,
-  write: writeClaimOutput,
-  leaves: claimOutputLeaves,
-};
-
-// ---- CompleteWithdrawOutput ------------------------------------------------------
-
-/** The fixed serialized width of `CompleteWithdrawOutput`. */
-export const COMPLETE_WITHDRAW_OUTPUT_LEN = 1;
-
-/** `CompleteWithdrawOutput`'s offset table — `spec/borsh-subset.md` §9, as data. */
-export const COMPLETE_WITHDRAW_OUTPUT_FIELDS: readonly FieldSpec[] = [
-  { path: 'success', type: 'u8', offset: 0, width: 1 },
-];
-
-export interface CompleteWithdrawOutput {
-  readonly success: number;
-}
-
-/** Read a `CompleteWithdrawOutput` from `bytes` at `offset` — 1 byte, fixed. */
-export function readCompleteWithdrawOutput(bytes: Uint8Array, offset = 0): CompleteWithdrawOutput {
-  const view = checkedView(bytes, offset, COMPLETE_WITHDRAW_OUTPUT_LEN);
-  return {
-    success: getU8(view, 0),
-  };
-}
-
-/** Write a `CompleteWithdrawOutput` into `out` at `offset`, and return `out`. */
-export function writeCompleteWithdrawOutput(
-  value: CompleteWithdrawOutput,
-  out = new Uint8Array(COMPLETE_WITHDRAW_OUTPUT_LEN),
-  offset = 0,
-): Uint8Array {
-  const view = checkedView(out, offset, COMPLETE_WITHDRAW_OUTPUT_LEN);
-  setU8(view, 0, value.success);
-  return out;
-}
-
-/** `CompleteWithdrawOutput`'s leaves, in declaration order — one per `COMPLETE_WITHDRAW_OUTPUT_FIELDS` entry. */
-export function completeWithdrawOutputLeaves(value: CompleteWithdrawOutput): readonly LeafValue[] {
-  return [
-    value.success,
-  ];
-}
-
-export const completeWithdrawOutputCodec: Codec<CompleteWithdrawOutput> = {
-  name: 'CompleteWithdrawOutput',
-  byteLength: COMPLETE_WITHDRAW_OUTPUT_LEN,
-  fields: COMPLETE_WITHDRAW_OUTPUT_FIELDS,
-  read: readCompleteWithdrawOutput,
-  write: writeCompleteWithdrawOutput,
-  leaves: completeWithdrawOutputLeaves,
-};
-
-// ---- RefundOutput ----------------------------------------------------------------
-
-/** The fixed serialized width of `RefundOutput`. */
-export const REFUND_OUTPUT_LEN = 5;
-
-/** `RefundOutput`'s offset table — `spec/borsh-subset.md` §9, as data. */
-export const REFUND_OUTPUT_FIELDS: readonly FieldSpec[] = [
-  { path: 'failure', type: '[u8; 5]', offset: 0, width: 5 },
-];
-
-export interface RefundOutput {
-  readonly failure: Uint8Array;
-}
-
-/** Read a `RefundOutput` from `bytes` at `offset` — 5 bytes, fixed. */
-export function readRefundOutput(bytes: Uint8Array, offset = 0): RefundOutput {
-  const view = checkedView(bytes, offset, REFUND_OUTPUT_LEN);
-  return {
-    failure: getBytes(view, 0, 5),
-  };
-}
-
-/** Write a `RefundOutput` into `out` at `offset`, and return `out`. */
-export function writeRefundOutput(
-  value: RefundOutput,
-  out = new Uint8Array(REFUND_OUTPUT_LEN),
-  offset = 0,
-): Uint8Array {
-  const view = checkedView(out, offset, REFUND_OUTPUT_LEN);
-  setBytes(view, 0, 5, value.failure);
-  return out;
-}
-
-/** `RefundOutput`'s leaves, in declaration order — one per `REFUND_OUTPUT_FIELDS` entry. */
-export function refundOutputLeaves(value: RefundOutput): readonly LeafValue[] {
-  return [
-    value.failure,
-  ];
-}
-
-export const refundOutputCodec: Codec<RefundOutput> = {
-  name: 'RefundOutput',
-  byteLength: REFUND_OUTPUT_LEN,
-  fields: REFUND_OUTPUT_FIELDS,
-  read: readRefundOutput,
-  write: writeRefundOutput,
-  leaves: refundOutputLeaves,
-};
-
-// ---- CompleteSwapOutput ----------------------------------------------------------
-
-/** The fixed serialized width of `CompleteSwapOutput`. */
-export const COMPLETE_SWAP_OUTPUT_LEN = 8;
-
-/** `CompleteSwapOutput`'s offset table — `spec/borsh-subset.md` §9, as data. */
-export const COMPLETE_SWAP_OUTPUT_FIELDS: readonly FieldSpec[] = [
-  { path: 'amount_in', type: 'u64', offset: 0, width: 8 },
-];
-
-export interface CompleteSwapOutput {
-  readonly amountIn: bigint;
-}
-
-/** Read a `CompleteSwapOutput` from `bytes` at `offset` — 8 bytes, fixed. */
-export function readCompleteSwapOutput(bytes: Uint8Array, offset = 0): CompleteSwapOutput {
-  const view = checkedView(bytes, offset, COMPLETE_SWAP_OUTPUT_LEN);
-  return {
-    amountIn: getU64(view, 0),
-  };
-}
-
-/** Write a `CompleteSwapOutput` into `out` at `offset`, and return `out`. */
-export function writeCompleteSwapOutput(
-  value: CompleteSwapOutput,
-  out = new Uint8Array(COMPLETE_SWAP_OUTPUT_LEN),
-  offset = 0,
-): Uint8Array {
-  const view = checkedView(out, offset, COMPLETE_SWAP_OUTPUT_LEN);
-  setU64(view, 0, value.amountIn);
-  return out;
-}
-
-/** `CompleteSwapOutput`'s leaves, in declaration order — one per `COMPLETE_SWAP_OUTPUT_FIELDS` entry. */
-export function completeSwapOutputLeaves(value: CompleteSwapOutput): readonly LeafValue[] {
-  return [
-    value.amountIn,
-  ];
-}
-
-export const completeSwapOutputCodec: Codec<CompleteSwapOutput> = {
-  name: 'CompleteSwapOutput',
-  byteLength: COMPLETE_SWAP_OUTPUT_LEN,
-  fields: COMPLETE_SWAP_OUTPUT_FIELDS,
-  read: readCompleteSwapOutput,
-  write: writeCompleteSwapOutput,
-  leaves: completeSwapOutputLeaves,
-};
-
-// ---- AttestationPreimage<ClaimOutput> --------------------------------------------
-
-/** The fixed serialized width of `AttestationPreimage<ClaimOutput>`. */
-export const ATTESTATION_PREIMAGE_CLAIM_OUTPUT_LEN = 33;
-
-/** `AttestationPreimage<ClaimOutput>`'s offset table — `spec/borsh-subset.md` §9, as data. */
-export const ATTESTATION_PREIMAGE_CLAIM_OUTPUT_FIELDS: readonly FieldSpec[] = [
-  { path: 'request_id', type: '[u8; 32]', offset: 0, width: 32 },
-  { path: 'output.success', type: 'u8', offset: 32, width: 1 },
-];
-
-export interface AttestationPreimageClaimOutput {
-  readonly requestId: Uint8Array;
-  readonly output: {
-    readonly success: number;
-  };
-}
-
-/** Read a `AttestationPreimage<ClaimOutput>` from `bytes` at `offset` — 33 bytes, fixed. */
-export function readAttestationPreimageClaimOutput(bytes: Uint8Array, offset = 0): AttestationPreimageClaimOutput {
-  const view = checkedView(bytes, offset, ATTESTATION_PREIMAGE_CLAIM_OUTPUT_LEN);
-  return {
-    requestId: getBytes(view, 0, 32),
-    output: {
-      success: getU8(view, 32),
-    },
-  };
-}
-
-/** Write a `AttestationPreimage<ClaimOutput>` into `out` at `offset`, and return `out`. */
-export function writeAttestationPreimageClaimOutput(
-  value: AttestationPreimageClaimOutput,
-  out = new Uint8Array(ATTESTATION_PREIMAGE_CLAIM_OUTPUT_LEN),
-  offset = 0,
-): Uint8Array {
-  const view = checkedView(out, offset, ATTESTATION_PREIMAGE_CLAIM_OUTPUT_LEN);
-  setBytes(view, 0, 32, value.requestId);
-  setU8(view, 32, value.output.success);
-  return out;
-}
-
-/** `AttestationPreimage<ClaimOutput>`'s leaves, in declaration order — one per `ATTESTATION_PREIMAGE_CLAIM_OUTPUT_FIELDS` entry. */
-export function attestationPreimageClaimOutputLeaves(value: AttestationPreimageClaimOutput): readonly LeafValue[] {
-  return [
-    value.requestId,
-    value.output.success,
-  ];
-}
-
-export const attestationPreimageClaimOutputCodec: Codec<AttestationPreimageClaimOutput> = {
-  name: 'AttestationPreimage<ClaimOutput>',
-  byteLength: ATTESTATION_PREIMAGE_CLAIM_OUTPUT_LEN,
-  fields: ATTESTATION_PREIMAGE_CLAIM_OUTPUT_FIELDS,
-  read: readAttestationPreimageClaimOutput,
-  write: writeAttestationPreimageClaimOutput,
-  leaves: attestationPreimageClaimOutputLeaves,
-};
-
-// ---- AttestationPreimage<CompleteWithdrawOutput> ---------------------------------
-
-/** The fixed serialized width of `AttestationPreimage<CompleteWithdrawOutput>`. */
-export const ATTESTATION_PREIMAGE_COMPLETE_WITHDRAW_OUTPUT_LEN = 33;
-
-/** `AttestationPreimage<CompleteWithdrawOutput>`'s offset table — `spec/borsh-subset.md` §9, as data. */
-export const ATTESTATION_PREIMAGE_COMPLETE_WITHDRAW_OUTPUT_FIELDS: readonly FieldSpec[] = [
-  { path: 'request_id', type: '[u8; 32]', offset: 0, width: 32 },
-  { path: 'output.success', type: 'u8', offset: 32, width: 1 },
-];
-
-export interface AttestationPreimageCompleteWithdrawOutput {
-  readonly requestId: Uint8Array;
-  readonly output: {
-    readonly success: number;
-  };
-}
-
-/** Read a `AttestationPreimage<CompleteWithdrawOutput>` from `bytes` at `offset` — 33 bytes, fixed. */
-export function readAttestationPreimageCompleteWithdrawOutput(bytes: Uint8Array, offset = 0): AttestationPreimageCompleteWithdrawOutput {
-  const view = checkedView(bytes, offset, ATTESTATION_PREIMAGE_COMPLETE_WITHDRAW_OUTPUT_LEN);
-  return {
-    requestId: getBytes(view, 0, 32),
-    output: {
-      success: getU8(view, 32),
-    },
-  };
-}
-
-/** Write a `AttestationPreimage<CompleteWithdrawOutput>` into `out` at `offset`, and return `out`. */
-export function writeAttestationPreimageCompleteWithdrawOutput(
-  value: AttestationPreimageCompleteWithdrawOutput,
-  out = new Uint8Array(ATTESTATION_PREIMAGE_COMPLETE_WITHDRAW_OUTPUT_LEN),
-  offset = 0,
-): Uint8Array {
-  const view = checkedView(out, offset, ATTESTATION_PREIMAGE_COMPLETE_WITHDRAW_OUTPUT_LEN);
-  setBytes(view, 0, 32, value.requestId);
-  setU8(view, 32, value.output.success);
-  return out;
-}
-
-/** `AttestationPreimage<CompleteWithdrawOutput>`'s leaves, in declaration order — one per `ATTESTATION_PREIMAGE_COMPLETE_WITHDRAW_OUTPUT_FIELDS` entry. */
-export function attestationPreimageCompleteWithdrawOutputLeaves(value: AttestationPreimageCompleteWithdrawOutput): readonly LeafValue[] {
-  return [
-    value.requestId,
-    value.output.success,
-  ];
-}
-
-export const attestationPreimageCompleteWithdrawOutputCodec: Codec<AttestationPreimageCompleteWithdrawOutput> = {
-  name: 'AttestationPreimage<CompleteWithdrawOutput>',
-  byteLength: ATTESTATION_PREIMAGE_COMPLETE_WITHDRAW_OUTPUT_LEN,
-  fields: ATTESTATION_PREIMAGE_COMPLETE_WITHDRAW_OUTPUT_FIELDS,
-  read: readAttestationPreimageCompleteWithdrawOutput,
-  write: writeAttestationPreimageCompleteWithdrawOutput,
-  leaves: attestationPreimageCompleteWithdrawOutputLeaves,
-};
-
-// ---- AttestationPreimage<RefundOutput> -------------------------------------------
-
-/** The fixed serialized width of `AttestationPreimage<RefundOutput>`. */
-export const ATTESTATION_PREIMAGE_REFUND_OUTPUT_LEN = 37;
-
-/** `AttestationPreimage<RefundOutput>`'s offset table — `spec/borsh-subset.md` §9, as data. */
-export const ATTESTATION_PREIMAGE_REFUND_OUTPUT_FIELDS: readonly FieldSpec[] = [
-  { path: 'request_id', type: '[u8; 32]', offset: 0, width: 32 },
-  { path: 'output.failure', type: '[u8; 5]', offset: 32, width: 5 },
-];
-
-export interface AttestationPreimageRefundOutput {
-  readonly requestId: Uint8Array;
-  readonly output: {
-    readonly failure: Uint8Array;
-  };
-}
-
-/** Read a `AttestationPreimage<RefundOutput>` from `bytes` at `offset` — 37 bytes, fixed. */
-export function readAttestationPreimageRefundOutput(bytes: Uint8Array, offset = 0): AttestationPreimageRefundOutput {
-  const view = checkedView(bytes, offset, ATTESTATION_PREIMAGE_REFUND_OUTPUT_LEN);
-  return {
-    requestId: getBytes(view, 0, 32),
-    output: {
-      failure: getBytes(view, 32, 5),
-    },
-  };
-}
-
-/** Write a `AttestationPreimage<RefundOutput>` into `out` at `offset`, and return `out`. */
-export function writeAttestationPreimageRefundOutput(
-  value: AttestationPreimageRefundOutput,
-  out = new Uint8Array(ATTESTATION_PREIMAGE_REFUND_OUTPUT_LEN),
-  offset = 0,
-): Uint8Array {
-  const view = checkedView(out, offset, ATTESTATION_PREIMAGE_REFUND_OUTPUT_LEN);
-  setBytes(view, 0, 32, value.requestId);
-  setBytes(view, 32, 5, value.output.failure);
-  return out;
-}
-
-/** `AttestationPreimage<RefundOutput>`'s leaves, in declaration order — one per `ATTESTATION_PREIMAGE_REFUND_OUTPUT_FIELDS` entry. */
-export function attestationPreimageRefundOutputLeaves(value: AttestationPreimageRefundOutput): readonly LeafValue[] {
-  return [
-    value.requestId,
-    value.output.failure,
-  ];
-}
-
-export const attestationPreimageRefundOutputCodec: Codec<AttestationPreimageRefundOutput> = {
-  name: 'AttestationPreimage<RefundOutput>',
-  byteLength: ATTESTATION_PREIMAGE_REFUND_OUTPUT_LEN,
-  fields: ATTESTATION_PREIMAGE_REFUND_OUTPUT_FIELDS,
-  read: readAttestationPreimageRefundOutput,
-  write: writeAttestationPreimageRefundOutput,
-  leaves: attestationPreimageRefundOutputLeaves,
-};
-
-// ---- AttestationPreimage<CompleteSwapOutput> -------------------------------------
-
-/** The fixed serialized width of `AttestationPreimage<CompleteSwapOutput>`. */
-export const ATTESTATION_PREIMAGE_COMPLETE_SWAP_OUTPUT_LEN = 40;
-
-/** `AttestationPreimage<CompleteSwapOutput>`'s offset table — `spec/borsh-subset.md` §9, as data. */
-export const ATTESTATION_PREIMAGE_COMPLETE_SWAP_OUTPUT_FIELDS: readonly FieldSpec[] = [
-  { path: 'request_id', type: '[u8; 32]', offset: 0, width: 32 },
-  { path: 'output.amount_in', type: 'u64', offset: 32, width: 8 },
-];
-
-export interface AttestationPreimageCompleteSwapOutput {
-  readonly requestId: Uint8Array;
-  readonly output: {
-    readonly amountIn: bigint;
-  };
-}
-
-/** Read a `AttestationPreimage<CompleteSwapOutput>` from `bytes` at `offset` — 40 bytes, fixed. */
-export function readAttestationPreimageCompleteSwapOutput(bytes: Uint8Array, offset = 0): AttestationPreimageCompleteSwapOutput {
-  const view = checkedView(bytes, offset, ATTESTATION_PREIMAGE_COMPLETE_SWAP_OUTPUT_LEN);
-  return {
-    requestId: getBytes(view, 0, 32),
-    output: {
-      amountIn: getU64(view, 32),
-    },
-  };
-}
-
-/** Write a `AttestationPreimage<CompleteSwapOutput>` into `out` at `offset`, and return `out`. */
-export function writeAttestationPreimageCompleteSwapOutput(
-  value: AttestationPreimageCompleteSwapOutput,
-  out = new Uint8Array(ATTESTATION_PREIMAGE_COMPLETE_SWAP_OUTPUT_LEN),
-  offset = 0,
-): Uint8Array {
-  const view = checkedView(out, offset, ATTESTATION_PREIMAGE_COMPLETE_SWAP_OUTPUT_LEN);
-  setBytes(view, 0, 32, value.requestId);
-  setU64(view, 32, value.output.amountIn);
-  return out;
-}
-
-/** `AttestationPreimage<CompleteSwapOutput>`'s leaves, in declaration order — one per `ATTESTATION_PREIMAGE_COMPLETE_SWAP_OUTPUT_FIELDS` entry. */
-export function attestationPreimageCompleteSwapOutputLeaves(value: AttestationPreimageCompleteSwapOutput): readonly LeafValue[] {
-  return [
-    value.requestId,
-    value.output.amountIn,
-  ];
-}
-
-export const attestationPreimageCompleteSwapOutputCodec: Codec<AttestationPreimageCompleteSwapOutput> = {
-  name: 'AttestationPreimage<CompleteSwapOutput>',
-  byteLength: ATTESTATION_PREIMAGE_COMPLETE_SWAP_OUTPUT_LEN,
-  fields: ATTESTATION_PREIMAGE_COMPLETE_SWAP_OUTPUT_FIELDS,
-  read: readAttestationPreimageCompleteSwapOutput,
-  write: writeAttestationPreimageCompleteSwapOutput,
-  leaves: attestationPreimageCompleteSwapOutputLeaves,
 };
 
 // ---- VaultResponse ---------------------------------------------------------------
@@ -2977,21 +2848,17 @@ export const CODECS: Readonly<Record<string, AnyCodec>> = {
   '[u8; 32]': bytes32Codec,
   '[u8; 64]': bytes64Codec,
   'Flagged<u32>': flaggedU32Codec,
-  'VaultEvent': vaultEventCodec,
-  'SwapEvent': swapEventCodec,
-  'SupplyEvent': supplyEventCodec,
-  'RedeemEvent': redeemEventCodec,
+  'VaultEventV1': vaultEventV1Codec,
+  'ReplaceNonceEventV1': replaceNonceEventV1Codec,
+  'SwapEventV1': swapEventV1Codec,
+  'SupplyEventV1': supplyEventV1Codec,
+  'RedeemEventV1': redeemEventV1Codec,
+  'EmptyOutput': emptyOutputCodec,
+  'BoolOutput': boolOutputCodec,
+  'WordOutput': wordOutputCodec,
   'VaultEventV2': vaultEventV2Codec,
   'SwapEventV2': swapEventV2Codec,
   'RedeemEventV2': redeemEventV2Codec,
-  'ClaimOutput': claimOutputCodec,
-  'CompleteWithdrawOutput': completeWithdrawOutputCodec,
-  'RefundOutput': refundOutputCodec,
-  'CompleteSwapOutput': completeSwapOutputCodec,
-  'AttestationPreimage<ClaimOutput>': attestationPreimageClaimOutputCodec,
-  'AttestationPreimage<CompleteWithdrawOutput>': attestationPreimageCompleteWithdrawOutputCodec,
-  'AttestationPreimage<RefundOutput>': attestationPreimageRefundOutputCodec,
-  'AttestationPreimage<CompleteSwapOutput>': attestationPreimageCompleteSwapOutputCodec,
   'VaultResponse': vaultResponseCodec,
   'SwapResponse': swapResponseCodec,
   'FailureResponse': failureResponseCodec,

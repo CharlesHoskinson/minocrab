@@ -42,8 +42,18 @@ pub fn gas_limit() -> impl Strategy<Value = u64> {
     prop_oneof![Just(0u64), Just(1u64), Just(u64::MAX), any::<u64>()]
 }
 
+/// A key version an `initialize` may be handed — ZERO INCLUDED, because
+/// that is the circuit the `keyVersion must be >= 1` guard lives on.
 pub fn key_version() -> impl Strategy<Value = u8> {
     prop_oneof![Just(0u8), Just(1u8), Just(255u8), any::<u8>()]
+}
+
+/// A key version a REQUEST can see in the cell: at least one, because a
+/// deployment that got past `initialize` cannot hold zero. Since M44 rung D
+/// no request takes a version, so this is the configuration a request reads
+/// rather than an argument it passes.
+pub fn live_key_version() -> impl Strategy<Value = u8> {
+    prop_oneof![Just(1u8), Just(255u8), 1u8..=255]
 }
 
 pub fn evm_nonce() -> impl Strategy<Value = u64> {
@@ -88,15 +98,13 @@ fn coin_value(amount: u128) -> impl Strategy<Value = Option<u128>> {
 
 /// The pre-state cells a request circuit reads.
 fn env() -> impl Strategy<Value = Env> {
-    (initialized(), counter_value(), nonzero20(), nonzero20(), nonzero20(), nonzero20(), b32()).prop_map(
-        |(init, nonce, vault_evm, router, underlying, token, caip2)| Env {
+    (initialized(), nonzero20(), nonzero20(), nonzero20(), nonzero20()).prop_map(
+        |(init, vault_evm, router, underlying, token)| Env {
             initialized: init,
-            request_nonce: nonce,
             vault_evm,
             router,
             stata_underlying: underlying,
             stata_token: token,
-            caip2,
             ..Env::new()
         },
     )
@@ -113,13 +121,19 @@ fn settle_env() -> impl Strategy<Value = Env> {
 }
 
 fn settle() -> impl Strategy<Value = Settle> {
-    (b32(), b32(), any::<bool>(), any::<u64>()).prop_map(|(mint_nonce, own_pk, pending, seed)| Settle {
-        pending,
-        mint_nonce,
-        own_pk,
-        claimant_sk: None,
-        nonce_seed: seed | 1,
-    })
+    // The attested height is inside the V1 digest, so it is generated: a
+    // settle that signed one height and presented another must not verify,
+    // and only a varying height can witness that.
+    (b32(), b32(), any::<bool>(), any::<u64>(), any::<u64>()).prop_map(
+        |(mint_nonce, own_pk, pending, seed, height)| Settle {
+            pending,
+            mint_nonce,
+            own_pk,
+            claimant_sk: None,
+            nonce_seed: seed | 1,
+            block_height: height,
+        },
+    )
 }
 
 // --- initialize ------------------------------------------------------------------------------
@@ -132,19 +146,19 @@ pub fn initialize() -> impl Strategy<Value = InitializeScenario> {
         address20(),
         address20(),
         prop_oneof![Just(0u64), Just(1u64), Just(u64::MAX), any::<u64>()],
-        b32(),
+        key_version(),
         prop_oneof![Just(0u64), Just(1u64), any::<u64>()],
         any::<bool>(),
     )
         .prop_map(
-            |(sk, vault_evm, swap_router, underlying, token, chain_id, caip2, count, right_sk)| {
+            |(sk, vault_evm, swap_router, underlying, token, chain_id, kv, count, right_sk)| {
                 let mut s = InitializeScenario::new();
                 s.vault_evm = vault_evm;
                 s.swap_router = swap_router;
                 s.stata_underlying = underlying;
                 s.stata_token = token;
                 s.chain_id = chain_id;
-                s.caip2 = caip2;
+                s.key_version = kv;
                 s.env.initialized = count;
                 s.sk = sk;
                 if right_sk {
@@ -158,13 +172,13 @@ pub fn initialize() -> impl Strategy<Value = InitializeScenario> {
 // --- the fire-and-forget allowances ------------------------------------------------------------
 
 pub fn approve_router() -> impl Strategy<Value = ApproveRouterScenario> {
-    (env(), address20(), evm_nonce(), key_version(), any::<bool>()).prop_map(
+    (env(), address20(), evm_nonce(), live_key_version(), any::<bool>()).prop_map(
         |(env, erc20, nonce, kv, exists)| {
             let mut a = ApproveRouterScenario::new();
             a.env = env;
             a.erc20 = erc20;
             a.evm_nonce = nonce;
-            a.key_version = kv;
+            a.env.key_version = kv;
             a.request_exists = exists;
             a
         },
@@ -172,11 +186,11 @@ pub fn approve_router() -> impl Strategy<Value = ApproveRouterScenario> {
 }
 
 pub fn approve_stata() -> impl Strategy<Value = ApproveStataScenario> {
-    (env(), evm_nonce(), key_version(), any::<bool>()).prop_map(|(env, nonce, kv, exists)| {
+    (env(), evm_nonce(), live_key_version(), any::<bool>()).prop_map(|(env, nonce, kv, exists)| {
         let mut a = ApproveStataScenario::new();
         a.env = env;
         a.evm_nonce = nonce;
-        a.key_version = kv;
+        a.env.key_version = kv;
         a.request_exists = exists;
         a
     })
@@ -185,13 +199,13 @@ pub fn approve_stata() -> impl Strategy<Value = ApproveStataScenario> {
 // --- deposit / claim ---------------------------------------------------------------------------
 
 pub fn start_deposit() -> impl Strategy<Value = StartDepositScenario> {
-    (env(), evm_nonce(), gas_limit(), key_version(), address20(), amount(), any::<bool>(), b32()).prop_map(
+    (env(), evm_nonce(), gas_limit(), live_key_version(), address20(), amount(), any::<bool>(), b32()).prop_map(
         |(env, nonce, gas, kv, erc20, amt, exists, sk)| {
             let mut d = StartDepositScenario::new();
             d.env = env;
             d.evm_nonce = nonce;
             d.gas_limit = gas;
-            d.key_version = kv;
+            d.env.key_version = kv;
             d.erc20 = erc20;
             d.amount = amt;
             d.request_exists = exists;
@@ -208,7 +222,7 @@ fn settled_deposit() -> impl Strategy<Value = StartDepositScenario> {
             let mut d = StartDepositScenario::new();
             d.env = env;
             d.evm_nonce = nonce;
-            d.key_version = kv;
+            d.env.key_version = kv;
             d.erc20 = erc20;
             d.amount = amt;
             d.sk = sk;
@@ -257,7 +271,7 @@ pub fn claim_auto_receive() -> impl Strategy<Value = ClaimScenario> {
 // --- withdraw ------------------------------------------------------------------------------
 
 pub fn start_withdraw() -> impl Strategy<Value = StartWithdrawScenario> {
-    (env(), evm_nonce(), key_version(), address20(), amount(), address20(), b32(), any::<bool>(), b32()).prop_flat_map(
+    (env(), evm_nonce(), live_key_version(), address20(), amount(), address20(), b32(), any::<bool>(), b32()).prop_flat_map(
         |(env, nonce, kv, erc20, amt, dest, coin_nonce, exists, sk)| {
             coin_value(amt).prop_flat_map(move |cv| {
                 let env = env.clone();
@@ -265,7 +279,7 @@ pub fn start_withdraw() -> impl Strategy<Value = StartWithdrawScenario> {
                     let mut w = StartWithdrawScenario::new();
                     w.env = env.clone();
                     w.evm_nonce = nonce;
-                    w.key_version = kv;
+                    w.env.key_version = kv;
                     w.erc20 = erc20;
                     w.amount = amt;
                     w.dest = dest;
@@ -287,7 +301,7 @@ fn settled_withdraw() -> impl Strategy<Value = StartWithdrawScenario> {
             let mut w = StartWithdrawScenario::new();
             w.env = env;
             w.evm_nonce = nonce;
-            w.key_version = kv;
+            w.env.key_version = kv;
             w.erc20 = erc20;
             w.amount = amt;
             w.dest = dest;
@@ -356,7 +370,7 @@ pub fn refund_withdrawal() -> impl Strategy<Value = RefundWithdrawalScenario> {
 
 #[allow(clippy::too_many_arguments)]
 pub fn start_swap() -> impl Strategy<Value = StartSwapScenario> {
-    (env(), evm_nonce(), key_version(), address20(), address20(), 0u32..=1_000_000, amount(), amount(), b32(), any::<bool>(), b32())
+    (env(), evm_nonce(), live_key_version(), address20(), address20(), 0u32..=1_000_000, amount(), amount(), b32(), any::<bool>(), b32())
         .prop_flat_map(|(env, nonce, kv, tin, tout, fee, aout, aimax, coin_nonce, exists, sk)| {
             coin_value(aimax).prop_flat_map(move |cv| {
                 let env = env.clone();
@@ -364,7 +378,7 @@ pub fn start_swap() -> impl Strategy<Value = StartSwapScenario> {
                     let mut s = StartSwapScenario::new();
                     s.env = env.clone();
                     s.evm_nonce = nonce;
-                    s.key_version = kv;
+                    s.env.key_version = kv;
                     s.token_in = tin;
                     s.token_out = tout;
                     s.fee = fee;
@@ -387,7 +401,7 @@ fn settled_swap() -> impl Strategy<Value = StartSwapScenario> {
             let mut s = StartSwapScenario::new();
             s.env = env;
             s.evm_nonce = nonce;
-            s.key_version = kv;
+            s.env.key_version = kv;
             s.token_in = tin;
             s.token_out = tout;
             s.amount_out = aout;
@@ -430,7 +444,7 @@ pub fn refund_swap() -> impl Strategy<Value = RefundSwapScenario> {
 // --- supply --------------------------------------------------------------------------------
 
 pub fn start_supply() -> impl Strategy<Value = StartSupplyScenario> {
-    (env(), evm_nonce(), key_version(), amount(), b32(), any::<bool>(), b32()).prop_flat_map(
+    (env(), evm_nonce(), live_key_version(), amount(), b32(), any::<bool>(), b32()).prop_flat_map(
         |(env, nonce, kv, amt, coin_nonce, exists, sk)| {
             coin_value(amt).prop_flat_map(move |cv| {
                 let env = env.clone();
@@ -438,7 +452,7 @@ pub fn start_supply() -> impl Strategy<Value = StartSupplyScenario> {
                     let mut s = StartSupplyScenario::new();
                     s.env = env.clone();
                     s.evm_nonce = nonce;
-                    s.key_version = kv;
+                    s.env.key_version = kv;
                     s.amount = amt;
                     s.coin_nonce = coin_nonce;
                     s.coin_value = cv;
@@ -457,7 +471,7 @@ fn settled_supply() -> impl Strategy<Value = StartSupplyScenario> {
         let mut s = StartSupplyScenario::new();
         s.env = env;
         s.evm_nonce = nonce;
-        s.key_version = kv;
+        s.env.key_version = kv;
         s.amount = amt;
         s.coin_nonce = coin_nonce;
         s.sk = sk;
@@ -492,7 +506,7 @@ pub fn refund_supply() -> impl Strategy<Value = RefundSupplyScenario> {
 // --- redeem --------------------------------------------------------------------------------
 
 pub fn start_redeem() -> impl Strategy<Value = StartRedeemScenario> {
-    (env(), evm_nonce(), key_version(), amount(), b32(), any::<bool>(), b32()).prop_flat_map(
+    (env(), evm_nonce(), live_key_version(), amount(), b32(), any::<bool>(), b32()).prop_flat_map(
         |(env, nonce, kv, shares, coin_nonce, exists, sk)| {
             coin_value(shares).prop_flat_map(move |cv| {
                 let env = env.clone();
@@ -500,7 +514,7 @@ pub fn start_redeem() -> impl Strategy<Value = StartRedeemScenario> {
                     let mut s = StartRedeemScenario::new();
                     s.env = env.clone();
                     s.evm_nonce = nonce;
-                    s.key_version = kv;
+                    s.env.key_version = kv;
                     s.shares = shares;
                     s.coin_nonce = coin_nonce;
                     s.coin_value = cv;
@@ -519,7 +533,7 @@ fn settled_redeem() -> impl Strategy<Value = StartRedeemScenario> {
         let mut s = StartRedeemScenario::new();
         s.env = env;
         s.evm_nonce = nonce;
-        s.key_version = kv;
+        s.env.key_version = kv;
         s.shares = shares;
         s.coin_nonce = coin_nonce;
         s.sk = sk;

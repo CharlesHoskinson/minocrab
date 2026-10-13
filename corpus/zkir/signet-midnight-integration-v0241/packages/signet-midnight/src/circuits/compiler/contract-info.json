@@ -1,0 +1,2133 @@
+{
+  "compiler-version": "0.34.0",
+  "language-version": "0.26.0",
+  "runtime-version": "0.19.0",
+  "circuits": [
+    {
+      "name": "calculateRequestIdV1",
+      "pure": true,
+      "proof": false,
+      "arguments": [
+        {
+          "name": "preimage",
+          "type": {
+            "type-name": "Struct",
+            "name": "RequestIdPreimageV1",
+            "elements": [
+              {
+                "name": "keyVersion",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 255
+                }
+              },
+              {
+                "name": "sender",
+                "type": {
+                  "type-name": "Struct",
+                  "name": "ContractAddress",
+                  "elements": [
+                    {
+                      "name": "bytes",
+                      "type": {
+                        "type-name": "Bytes",
+                        "length": 32
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "path",
+                "type": {
+                  "type-name": "Bytes",
+                  "length": 32
+                }
+              },
+              {
+                "name": "algo",
+                "type": {
+                  "type-name": "Enum",
+                  "name": "MPCSignatureAlgorithm",
+                  "elements": [
+                    "ecdsa",
+                    "reserved"
+                  ]
+                }
+              },
+              {
+                "name": "txParamType",
+                "type": {
+                  "type-name": "Enum",
+                  "name": "TxParamType",
+                  "elements": [
+                    "evmType2",
+                    "reserved"
+                  ]
+                }
+              },
+              {
+                "name": "txParamsDigest",
+                "type": {
+                  "type-name": "Bytes",
+                  "length": 32
+                }
+              },
+              {
+                "name": "executionDest",
+                "type": {
+                  "type-name": "Bytes",
+                  "length": 32
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Alias",
+        "name": "RequestId",
+        "type": {
+          "type-name": "Bytes",
+          "length": 32
+        }
+      }
+    },
+    {
+      "name": "constructSignBidirectionalEventNotificationV1",
+      "pure": true,
+      "proof": false,
+      "arguments": [
+        {
+          "name": "callerAddress",
+          "type": {
+            "type-name": "Struct",
+            "name": "ContractAddress",
+            "elements": [
+              {
+                "name": "bytes",
+                "type": {
+                  "type-name": "Bytes",
+                  "length": 32
+                }
+              }
+            ]
+          }
+        },
+        {
+          "name": "requestsPathDepth",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 255
+          }
+        },
+        {
+          "name": "requestsPath",
+          "type": {
+            "type-name": "Vector",
+            "length": 4,
+            "type": {
+              "type-name": "Uint",
+              "maxval": 255
+            }
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Struct",
+        "name": "SignBidirectionalEventNotification",
+        "elements": [
+          {
+            "name": "version",
+            "type": {
+              "type-name": "Uint",
+              "maxval": 255
+            }
+          },
+          {
+            "name": "payload",
+            "type": {
+              "type-name": "Bytes",
+              "length": 128
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ethereumCaip2Id",
+      "pure": true,
+      "proof": false,
+      "arguments": [
+      ],
+      "result-type": {
+        "type-name": "Bytes",
+        "length": 32
+      }
+    },
+    {
+      "name": "evmAddressAbiWord",
+      "pure": true,
+      "proof": false,
+      "arguments": [
+        {
+          "name": "addr",
+          "type": {
+            "type-name": "Bytes",
+            "length": 20
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Bytes",
+        "length": 32
+      }
+    },
+    {
+      "name": "numericAbiWord",
+      "pure": true,
+      "proof": false,
+      "arguments": [
+        {
+          "name": "value",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 340282366920938463463374607431768211455
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Bytes",
+        "length": 32
+      }
+    },
+    {
+      "name": "boolAbiWord",
+      "pure": true,
+      "proof": false,
+      "arguments": [
+        {
+          "name": "value",
+          "type": {
+            "type-name": "Boolean"
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Bytes",
+        "length": 32
+      }
+    },
+    {
+      "name": "abiWordToUint128",
+      "pure": true,
+      "proof": false,
+      "arguments": [
+        {
+          "name": "word",
+          "type": {
+            "type-name": "Bytes",
+            "length": 32
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Uint",
+        "maxval": 340282366920938463463374607431768211455
+      }
+    },
+    {
+      "name": "checkedTruncationU128",
+      "pure": true,
+      "proof": false,
+      "arguments": [
+        {
+          "name": "x",
+          "type": {
+            "type-name": "Bytes",
+            "length": 32
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Uint",
+        "maxval": 340282366920938463463374607431768211455
+      }
+    },
+    {
+      "name": "abiWordToBool",
+      "pure": true,
+      "proof": false,
+      "arguments": [
+        {
+          "name": "word",
+          "type": {
+            "type-name": "Bytes",
+            "length": 32
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Boolean"
+      }
+    },
+    {
+      "name": "calculateSignetAttestationDigest0",
+      "pure": true,
+      "proof": false,
+      "arguments": [
+        {
+          "name": "requestId",
+          "type": {
+            "type-name": "Alias",
+            "name": "RequestId",
+            "type": {
+              "type-name": "Bytes",
+              "length": 32
+            }
+          }
+        },
+        {
+          "name": "blockHeight",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 18446744073709551615
+          }
+        },
+        {
+          "name": "outputKind",
+          "type": {
+            "type-name": "Enum",
+            "name": "OutputKind",
+            "elements": [
+              "executed",
+              "failed",
+              "unviable"
+            ]
+          }
+        },
+        {
+          "name": "serializedOutput",
+          "type": {
+            "type-name": "Bytes",
+            "length": 0
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Bytes",
+        "length": 32
+      }
+    },
+    {
+      "name": "calculateSignetAttestationDigest1",
+      "pure": true,
+      "proof": false,
+      "arguments": [
+        {
+          "name": "requestId",
+          "type": {
+            "type-name": "Alias",
+            "name": "RequestId",
+            "type": {
+              "type-name": "Bytes",
+              "length": 32
+            }
+          }
+        },
+        {
+          "name": "blockHeight",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 18446744073709551615
+          }
+        },
+        {
+          "name": "outputKind",
+          "type": {
+            "type-name": "Enum",
+            "name": "OutputKind",
+            "elements": [
+              "executed",
+              "failed",
+              "unviable"
+            ]
+          }
+        },
+        {
+          "name": "serializedOutput",
+          "type": {
+            "type-name": "Bytes",
+            "length": 1
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Bytes",
+        "length": 32
+      }
+    },
+    {
+      "name": "calculateSignetAttestationDigest2",
+      "pure": true,
+      "proof": false,
+      "arguments": [
+        {
+          "name": "requestId",
+          "type": {
+            "type-name": "Alias",
+            "name": "RequestId",
+            "type": {
+              "type-name": "Bytes",
+              "length": 32
+            }
+          }
+        },
+        {
+          "name": "blockHeight",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 18446744073709551615
+          }
+        },
+        {
+          "name": "outputKind",
+          "type": {
+            "type-name": "Enum",
+            "name": "OutputKind",
+            "elements": [
+              "executed",
+              "failed",
+              "unviable"
+            ]
+          }
+        },
+        {
+          "name": "serializedOutput",
+          "type": {
+            "type-name": "Bytes",
+            "length": 2
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Bytes",
+        "length": 32
+      }
+    },
+    {
+      "name": "calculateSignetAttestationDigest32",
+      "pure": true,
+      "proof": false,
+      "arguments": [
+        {
+          "name": "requestId",
+          "type": {
+            "type-name": "Alias",
+            "name": "RequestId",
+            "type": {
+              "type-name": "Bytes",
+              "length": 32
+            }
+          }
+        },
+        {
+          "name": "blockHeight",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 18446744073709551615
+          }
+        },
+        {
+          "name": "outputKind",
+          "type": {
+            "type-name": "Enum",
+            "name": "OutputKind",
+            "elements": [
+              "executed",
+              "failed",
+              "unviable"
+            ]
+          }
+        },
+        {
+          "name": "serializedOutput",
+          "type": {
+            "type-name": "Bytes",
+            "length": 32
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Bytes",
+        "length": 32
+      }
+    },
+    {
+      "name": "calculateSignetAttestationDigest100",
+      "pure": true,
+      "proof": false,
+      "arguments": [
+        {
+          "name": "requestId",
+          "type": {
+            "type-name": "Alias",
+            "name": "RequestId",
+            "type": {
+              "type-name": "Bytes",
+              "length": 32
+            }
+          }
+        },
+        {
+          "name": "blockHeight",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 18446744073709551615
+          }
+        },
+        {
+          "name": "outputKind",
+          "type": {
+            "type-name": "Enum",
+            "name": "OutputKind",
+            "elements": [
+              "executed",
+              "failed",
+              "unviable"
+            ]
+          }
+        },
+        {
+          "name": "serializedOutput",
+          "type": {
+            "type-name": "Bytes",
+            "length": 100
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Bytes",
+        "length": 32
+      }
+    },
+    {
+      "name": "calculateEvmType2TxParamsDigestV1_1_0_0",
+      "pure": true,
+      "proof": false,
+      "arguments": [
+        {
+          "name": "txParams",
+          "type": {
+            "type-name": "Struct",
+            "name": "EvmType2TxParams",
+            "elements": [
+              {
+                "name": "chainId",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 18446744073709551615
+                }
+              },
+              {
+                "name": "nonce",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 18446744073709551615
+                }
+              },
+              {
+                "name": "maxPriorityFeePerGas",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 340282366920938463463374607431768211455
+                }
+              },
+              {
+                "name": "maxFeePerGas",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 340282366920938463463374607431768211455
+                }
+              },
+              {
+                "name": "gasLimit",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 18446744073709551615
+                }
+              },
+              {
+                "name": "to",
+                "type": {
+                  "type-name": "Bytes",
+                  "length": 20
+                }
+              },
+              {
+                "name": "value",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 340282366920938463463374607431768211455
+                }
+              },
+              {
+                "name": "calldata",
+                "type": {
+                  "type-name": "Struct",
+                  "name": "Maybe",
+                  "elements": [
+                    {
+                      "name": "is_some",
+                      "type": {
+                        "type-name": "Boolean"
+                      }
+                    },
+                    {
+                      "name": "value",
+                      "type": {
+                        "type-name": "Struct",
+                        "name": "EvmCalldata",
+                        "elements": [
+                          {
+                            "name": "selector",
+                            "type": {
+                              "type-name": "Bytes",
+                              "length": 4
+                            }
+                          },
+                          {
+                            "name": "noWords",
+                            "type": {
+                              "type-name": "Uint",
+                              "maxval": 65535
+                            }
+                          },
+                          {
+                            "name": "words",
+                            "type": {
+                              "type-name": "Vector",
+                              "length": 1,
+                              "type": {
+                                "type-name": "Bytes",
+                                "length": 32
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "accessListEntryCount",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 255
+                }
+              },
+              {
+                "name": "accessList",
+                "type": {
+                  "type-name": "Vector",
+                  "length": 0,
+                  "type": {
+                    "type-name": "Struct",
+                    "name": "EvmAccessListEntry",
+                    "elements": [
+                      {
+                        "name": "address",
+                        "type": {
+                          "type-name": "Bytes",
+                          "length": 20
+                        }
+                      },
+                      {
+                        "name": "storageKeyCount",
+                        "type": {
+                          "type-name": "Uint",
+                          "maxval": 255
+                        }
+                      },
+                      {
+                        "name": "storageKeys",
+                        "type": {
+                          "type-name": "Vector",
+                          "length": 0,
+                          "type": {
+                            "type-name": "Bytes",
+                            "length": 32
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Bytes",
+        "length": 32
+      }
+    },
+    {
+      "name": "calculateEvmType2TxParamsDigestV1_2_1_2",
+      "pure": true,
+      "proof": false,
+      "arguments": [
+        {
+          "name": "txParams",
+          "type": {
+            "type-name": "Struct",
+            "name": "EvmType2TxParams",
+            "elements": [
+              {
+                "name": "chainId",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 18446744073709551615
+                }
+              },
+              {
+                "name": "nonce",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 18446744073709551615
+                }
+              },
+              {
+                "name": "maxPriorityFeePerGas",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 340282366920938463463374607431768211455
+                }
+              },
+              {
+                "name": "maxFeePerGas",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 340282366920938463463374607431768211455
+                }
+              },
+              {
+                "name": "gasLimit",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 18446744073709551615
+                }
+              },
+              {
+                "name": "to",
+                "type": {
+                  "type-name": "Bytes",
+                  "length": 20
+                }
+              },
+              {
+                "name": "value",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 340282366920938463463374607431768211455
+                }
+              },
+              {
+                "name": "calldata",
+                "type": {
+                  "type-name": "Struct",
+                  "name": "Maybe",
+                  "elements": [
+                    {
+                      "name": "is_some",
+                      "type": {
+                        "type-name": "Boolean"
+                      }
+                    },
+                    {
+                      "name": "value",
+                      "type": {
+                        "type-name": "Struct",
+                        "name": "EvmCalldata",
+                        "elements": [
+                          {
+                            "name": "selector",
+                            "type": {
+                              "type-name": "Bytes",
+                              "length": 4
+                            }
+                          },
+                          {
+                            "name": "noWords",
+                            "type": {
+                              "type-name": "Uint",
+                              "maxval": 65535
+                            }
+                          },
+                          {
+                            "name": "words",
+                            "type": {
+                              "type-name": "Vector",
+                              "length": 2,
+                              "type": {
+                                "type-name": "Bytes",
+                                "length": 32
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "accessListEntryCount",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 255
+                }
+              },
+              {
+                "name": "accessList",
+                "type": {
+                  "type-name": "Vector",
+                  "length": 1,
+                  "type": {
+                    "type-name": "Struct",
+                    "name": "EvmAccessListEntry",
+                    "elements": [
+                      {
+                        "name": "address",
+                        "type": {
+                          "type-name": "Bytes",
+                          "length": 20
+                        }
+                      },
+                      {
+                        "name": "storageKeyCount",
+                        "type": {
+                          "type-name": "Uint",
+                          "maxval": 255
+                        }
+                      },
+                      {
+                        "name": "storageKeys",
+                        "type": {
+                          "type-name": "Vector",
+                          "length": 2,
+                          "type": {
+                            "type-name": "Bytes",
+                            "length": 32
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Bytes",
+        "length": 32
+      }
+    },
+    {
+      "name": "calculateEvmType2RequestIdV1_1_0_0_34",
+      "pure": true,
+      "proof": false,
+      "arguments": [
+        {
+          "name": "request",
+          "type": {
+            "type-name": "Struct",
+            "name": "SignBidirectionalEventV1",
+            "elements": [
+              {
+                "name": "keyVersion",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 255
+                }
+              },
+              {
+                "name": "sender",
+                "type": {
+                  "type-name": "Struct",
+                  "name": "ContractAddress",
+                  "elements": [
+                    {
+                      "name": "bytes",
+                      "type": {
+                        "type-name": "Bytes",
+                        "length": 32
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "path",
+                "type": {
+                  "type-name": "Bytes",
+                  "length": 32
+                }
+              },
+              {
+                "name": "algo",
+                "type": {
+                  "type-name": "Enum",
+                  "name": "MPCSignatureAlgorithm",
+                  "elements": [
+                    "ecdsa",
+                    "reserved"
+                  ]
+                }
+              },
+              {
+                "name": "txParamType",
+                "type": {
+                  "type-name": "Enum",
+                  "name": "TxParamType",
+                  "elements": [
+                    "evmType2",
+                    "reserved"
+                  ]
+                }
+              },
+              {
+                "name": "txParams",
+                "type": {
+                  "type-name": "Struct",
+                  "name": "EvmType2TxParams",
+                  "elements": [
+                    {
+                      "name": "chainId",
+                      "type": {
+                        "type-name": "Uint",
+                        "maxval": 18446744073709551615
+                      }
+                    },
+                    {
+                      "name": "nonce",
+                      "type": {
+                        "type-name": "Uint",
+                        "maxval": 18446744073709551615
+                      }
+                    },
+                    {
+                      "name": "maxPriorityFeePerGas",
+                      "type": {
+                        "type-name": "Uint",
+                        "maxval": 340282366920938463463374607431768211455
+                      }
+                    },
+                    {
+                      "name": "maxFeePerGas",
+                      "type": {
+                        "type-name": "Uint",
+                        "maxval": 340282366920938463463374607431768211455
+                      }
+                    },
+                    {
+                      "name": "gasLimit",
+                      "type": {
+                        "type-name": "Uint",
+                        "maxval": 18446744073709551615
+                      }
+                    },
+                    {
+                      "name": "to",
+                      "type": {
+                        "type-name": "Bytes",
+                        "length": 20
+                      }
+                    },
+                    {
+                      "name": "value",
+                      "type": {
+                        "type-name": "Uint",
+                        "maxval": 340282366920938463463374607431768211455
+                      }
+                    },
+                    {
+                      "name": "calldata",
+                      "type": {
+                        "type-name": "Struct",
+                        "name": "Maybe",
+                        "elements": [
+                          {
+                            "name": "is_some",
+                            "type": {
+                              "type-name": "Boolean"
+                            }
+                          },
+                          {
+                            "name": "value",
+                            "type": {
+                              "type-name": "Struct",
+                              "name": "EvmCalldata",
+                              "elements": [
+                                {
+                                  "name": "selector",
+                                  "type": {
+                                    "type-name": "Bytes",
+                                    "length": 4
+                                  }
+                                },
+                                {
+                                  "name": "noWords",
+                                  "type": {
+                                    "type-name": "Uint",
+                                    "maxval": 65535
+                                  }
+                                },
+                                {
+                                  "name": "words",
+                                  "type": {
+                                    "type-name": "Vector",
+                                    "length": 1,
+                                    "type": {
+                                      "type-name": "Bytes",
+                                      "length": 32
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "name": "accessListEntryCount",
+                      "type": {
+                        "type-name": "Uint",
+                        "maxval": 255
+                      }
+                    },
+                    {
+                      "name": "accessList",
+                      "type": {
+                        "type-name": "Vector",
+                        "length": 0,
+                        "type": {
+                          "type-name": "Struct",
+                          "name": "EvmAccessListEntry",
+                          "elements": [
+                            {
+                              "name": "address",
+                              "type": {
+                                "type-name": "Bytes",
+                                "length": 20
+                              }
+                            },
+                            {
+                              "name": "storageKeyCount",
+                              "type": {
+                                "type-name": "Uint",
+                                "maxval": 255
+                              }
+                            },
+                            {
+                              "name": "storageKeys",
+                              "type": {
+                                "type-name": "Vector",
+                                "length": 0,
+                                "type": {
+                                  "type-name": "Bytes",
+                                  "length": 32
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "executionDest",
+                "type": {
+                  "type-name": "Bytes",
+                  "length": 32
+                }
+              },
+              {
+                "name": "signatureDest",
+                "type": {
+                  "type-name": "Enum",
+                  "name": "MPCDestination",
+                  "elements": [
+                    "unused",
+                    "reserved"
+                  ]
+                }
+              },
+              {
+                "name": "params",
+                "type": {
+                  "type-name": "Bytes",
+                  "length": 64
+                }
+              },
+              {
+                "name": "outputDeserializationSchema",
+                "type": {
+                  "type-name": "Bytes",
+                  "length": 34
+                }
+              },
+              {
+                "name": "respondSerializationSchema",
+                "type": {
+                  "type-name": "Bytes",
+                  "length": 0
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Alias",
+        "name": "RequestId",
+        "type": {
+          "type-name": "Bytes",
+          "length": 32
+        }
+      }
+    },
+    {
+      "name": "calculateEvmType2RequestIdV1_2_1_2_34",
+      "pure": true,
+      "proof": false,
+      "arguments": [
+        {
+          "name": "request",
+          "type": {
+            "type-name": "Struct",
+            "name": "SignBidirectionalEventV1",
+            "elements": [
+              {
+                "name": "keyVersion",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 255
+                }
+              },
+              {
+                "name": "sender",
+                "type": {
+                  "type-name": "Struct",
+                  "name": "ContractAddress",
+                  "elements": [
+                    {
+                      "name": "bytes",
+                      "type": {
+                        "type-name": "Bytes",
+                        "length": 32
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "path",
+                "type": {
+                  "type-name": "Bytes",
+                  "length": 32
+                }
+              },
+              {
+                "name": "algo",
+                "type": {
+                  "type-name": "Enum",
+                  "name": "MPCSignatureAlgorithm",
+                  "elements": [
+                    "ecdsa",
+                    "reserved"
+                  ]
+                }
+              },
+              {
+                "name": "txParamType",
+                "type": {
+                  "type-name": "Enum",
+                  "name": "TxParamType",
+                  "elements": [
+                    "evmType2",
+                    "reserved"
+                  ]
+                }
+              },
+              {
+                "name": "txParams",
+                "type": {
+                  "type-name": "Struct",
+                  "name": "EvmType2TxParams",
+                  "elements": [
+                    {
+                      "name": "chainId",
+                      "type": {
+                        "type-name": "Uint",
+                        "maxval": 18446744073709551615
+                      }
+                    },
+                    {
+                      "name": "nonce",
+                      "type": {
+                        "type-name": "Uint",
+                        "maxval": 18446744073709551615
+                      }
+                    },
+                    {
+                      "name": "maxPriorityFeePerGas",
+                      "type": {
+                        "type-name": "Uint",
+                        "maxval": 340282366920938463463374607431768211455
+                      }
+                    },
+                    {
+                      "name": "maxFeePerGas",
+                      "type": {
+                        "type-name": "Uint",
+                        "maxval": 340282366920938463463374607431768211455
+                      }
+                    },
+                    {
+                      "name": "gasLimit",
+                      "type": {
+                        "type-name": "Uint",
+                        "maxval": 18446744073709551615
+                      }
+                    },
+                    {
+                      "name": "to",
+                      "type": {
+                        "type-name": "Bytes",
+                        "length": 20
+                      }
+                    },
+                    {
+                      "name": "value",
+                      "type": {
+                        "type-name": "Uint",
+                        "maxval": 340282366920938463463374607431768211455
+                      }
+                    },
+                    {
+                      "name": "calldata",
+                      "type": {
+                        "type-name": "Struct",
+                        "name": "Maybe",
+                        "elements": [
+                          {
+                            "name": "is_some",
+                            "type": {
+                              "type-name": "Boolean"
+                            }
+                          },
+                          {
+                            "name": "value",
+                            "type": {
+                              "type-name": "Struct",
+                              "name": "EvmCalldata",
+                              "elements": [
+                                {
+                                  "name": "selector",
+                                  "type": {
+                                    "type-name": "Bytes",
+                                    "length": 4
+                                  }
+                                },
+                                {
+                                  "name": "noWords",
+                                  "type": {
+                                    "type-name": "Uint",
+                                    "maxval": 65535
+                                  }
+                                },
+                                {
+                                  "name": "words",
+                                  "type": {
+                                    "type-name": "Vector",
+                                    "length": 2,
+                                    "type": {
+                                      "type-name": "Bytes",
+                                      "length": 32
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "name": "accessListEntryCount",
+                      "type": {
+                        "type-name": "Uint",
+                        "maxval": 255
+                      }
+                    },
+                    {
+                      "name": "accessList",
+                      "type": {
+                        "type-name": "Vector",
+                        "length": 1,
+                        "type": {
+                          "type-name": "Struct",
+                          "name": "EvmAccessListEntry",
+                          "elements": [
+                            {
+                              "name": "address",
+                              "type": {
+                                "type-name": "Bytes",
+                                "length": 20
+                              }
+                            },
+                            {
+                              "name": "storageKeyCount",
+                              "type": {
+                                "type-name": "Uint",
+                                "maxval": 255
+                              }
+                            },
+                            {
+                              "name": "storageKeys",
+                              "type": {
+                                "type-name": "Vector",
+                                "length": 2,
+                                "type": {
+                                  "type-name": "Bytes",
+                                  "length": 32
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "executionDest",
+                "type": {
+                  "type-name": "Bytes",
+                  "length": 32
+                }
+              },
+              {
+                "name": "signatureDest",
+                "type": {
+                  "type-name": "Enum",
+                  "name": "MPCDestination",
+                  "elements": [
+                    "unused",
+                    "reserved"
+                  ]
+                }
+              },
+              {
+                "name": "params",
+                "type": {
+                  "type-name": "Bytes",
+                  "length": 64
+                }
+              },
+              {
+                "name": "outputDeserializationSchema",
+                "type": {
+                  "type-name": "Bytes",
+                  "length": 34
+                }
+              },
+              {
+                "name": "respondSerializationSchema",
+                "type": {
+                  "type-name": "Bytes",
+                  "length": 0
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Alias",
+        "name": "RequestId",
+        "type": {
+          "type-name": "Bytes",
+          "length": 32
+        }
+      }
+    },
+    {
+      "name": "verifyRespondBidirectionalEvent0",
+      "pure": true,
+      "proof": false,
+      "arguments": [
+        {
+          "name": "serializedOutput",
+          "type": {
+            "type-name": "Bytes",
+            "length": 0
+          }
+        },
+        {
+          "name": "respondBidirectionalEvent",
+          "type": {
+            "type-name": "Struct",
+            "name": "RespondBidirectionalEventV1",
+            "elements": [
+              {
+                "name": "requestId",
+                "type": {
+                  "type-name": "Alias",
+                  "name": "RequestId",
+                  "type": {
+                    "type-name": "Bytes",
+                    "length": 32
+                  }
+                }
+              },
+              {
+                "name": "blockHeight",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 18446744073709551615
+                }
+              },
+              {
+                "name": "outputKind",
+                "type": {
+                  "type-name": "Enum",
+                  "name": "OutputKind",
+                  "elements": [
+                    "executed",
+                    "failed",
+                    "unviable"
+                  ]
+                }
+              },
+              {
+                "name": "serializedOutputLength",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 18446744073709551615
+                }
+              },
+              {
+                "name": "digest",
+                "type": {
+                  "type-name": "Bytes",
+                  "length": 32
+                }
+              },
+              {
+                "name": "signature",
+                "type": {
+                  "type-name": "Struct",
+                  "name": "Signature",
+                  "elements": [
+                    {
+                      "name": "bigR",
+                      "type": {
+                        "type-name": "Struct",
+                        "name": "AffinePoint",
+                        "elements": [
+                          {
+                            "name": "x",
+                            "type": {
+                              "type-name": "Bytes",
+                              "length": 32
+                            }
+                          },
+                          {
+                            "name": "y",
+                            "type": {
+                              "type-name": "Bytes",
+                              "length": 32
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "name": "s",
+                      "type": {
+                        "type-name": "Bytes",
+                        "length": 32
+                      }
+                    },
+                    {
+                      "name": "recoveryId",
+                      "type": {
+                        "type-name": "Uint",
+                        "maxval": 255
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "name": "mpcResponseKey",
+          "type": {
+            "type-name": "Secp256k1Point"
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Boolean"
+      }
+    },
+    {
+      "name": "verifyRespondBidirectionalEvent32",
+      "pure": true,
+      "proof": false,
+      "arguments": [
+        {
+          "name": "serializedOutput",
+          "type": {
+            "type-name": "Bytes",
+            "length": 32
+          }
+        },
+        {
+          "name": "respondBidirectionalEvent",
+          "type": {
+            "type-name": "Struct",
+            "name": "RespondBidirectionalEventV1",
+            "elements": [
+              {
+                "name": "requestId",
+                "type": {
+                  "type-name": "Alias",
+                  "name": "RequestId",
+                  "type": {
+                    "type-name": "Bytes",
+                    "length": 32
+                  }
+                }
+              },
+              {
+                "name": "blockHeight",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 18446744073709551615
+                }
+              },
+              {
+                "name": "outputKind",
+                "type": {
+                  "type-name": "Enum",
+                  "name": "OutputKind",
+                  "elements": [
+                    "executed",
+                    "failed",
+                    "unviable"
+                  ]
+                }
+              },
+              {
+                "name": "serializedOutputLength",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 18446744073709551615
+                }
+              },
+              {
+                "name": "digest",
+                "type": {
+                  "type-name": "Bytes",
+                  "length": 32
+                }
+              },
+              {
+                "name": "signature",
+                "type": {
+                  "type-name": "Struct",
+                  "name": "Signature",
+                  "elements": [
+                    {
+                      "name": "bigR",
+                      "type": {
+                        "type-name": "Struct",
+                        "name": "AffinePoint",
+                        "elements": [
+                          {
+                            "name": "x",
+                            "type": {
+                              "type-name": "Bytes",
+                              "length": 32
+                            }
+                          },
+                          {
+                            "name": "y",
+                            "type": {
+                              "type-name": "Bytes",
+                              "length": 32
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "name": "s",
+                      "type": {
+                        "type-name": "Bytes",
+                        "length": 32
+                      }
+                    },
+                    {
+                      "name": "recoveryId",
+                      "type": {
+                        "type-name": "Uint",
+                        "maxval": 255
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "name": "mpcResponseKey",
+          "type": {
+            "type-name": "Secp256k1Point"
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Boolean"
+      }
+    },
+    {
+      "name": "constructSignBidirectionalEventV1_1_0_0_34",
+      "pure": true,
+      "proof": false,
+      "arguments": [
+        {
+          "name": "request",
+          "type": {
+            "type-name": "Struct",
+            "name": "SignBidirectionalEventV1",
+            "elements": [
+              {
+                "name": "keyVersion",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 255
+                }
+              },
+              {
+                "name": "sender",
+                "type": {
+                  "type-name": "Struct",
+                  "name": "ContractAddress",
+                  "elements": [
+                    {
+                      "name": "bytes",
+                      "type": {
+                        "type-name": "Bytes",
+                        "length": 32
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "path",
+                "type": {
+                  "type-name": "Bytes",
+                  "length": 32
+                }
+              },
+              {
+                "name": "algo",
+                "type": {
+                  "type-name": "Enum",
+                  "name": "MPCSignatureAlgorithm",
+                  "elements": [
+                    "ecdsa",
+                    "reserved"
+                  ]
+                }
+              },
+              {
+                "name": "txParamType",
+                "type": {
+                  "type-name": "Enum",
+                  "name": "TxParamType",
+                  "elements": [
+                    "evmType2",
+                    "reserved"
+                  ]
+                }
+              },
+              {
+                "name": "txParams",
+                "type": {
+                  "type-name": "Struct",
+                  "name": "EvmType2TxParams",
+                  "elements": [
+                    {
+                      "name": "chainId",
+                      "type": {
+                        "type-name": "Uint",
+                        "maxval": 18446744073709551615
+                      }
+                    },
+                    {
+                      "name": "nonce",
+                      "type": {
+                        "type-name": "Uint",
+                        "maxval": 18446744073709551615
+                      }
+                    },
+                    {
+                      "name": "maxPriorityFeePerGas",
+                      "type": {
+                        "type-name": "Uint",
+                        "maxval": 340282366920938463463374607431768211455
+                      }
+                    },
+                    {
+                      "name": "maxFeePerGas",
+                      "type": {
+                        "type-name": "Uint",
+                        "maxval": 340282366920938463463374607431768211455
+                      }
+                    },
+                    {
+                      "name": "gasLimit",
+                      "type": {
+                        "type-name": "Uint",
+                        "maxval": 18446744073709551615
+                      }
+                    },
+                    {
+                      "name": "to",
+                      "type": {
+                        "type-name": "Bytes",
+                        "length": 20
+                      }
+                    },
+                    {
+                      "name": "value",
+                      "type": {
+                        "type-name": "Uint",
+                        "maxval": 340282366920938463463374607431768211455
+                      }
+                    },
+                    {
+                      "name": "calldata",
+                      "type": {
+                        "type-name": "Struct",
+                        "name": "Maybe",
+                        "elements": [
+                          {
+                            "name": "is_some",
+                            "type": {
+                              "type-name": "Boolean"
+                            }
+                          },
+                          {
+                            "name": "value",
+                            "type": {
+                              "type-name": "Struct",
+                              "name": "EvmCalldata",
+                              "elements": [
+                                {
+                                  "name": "selector",
+                                  "type": {
+                                    "type-name": "Bytes",
+                                    "length": 4
+                                  }
+                                },
+                                {
+                                  "name": "noWords",
+                                  "type": {
+                                    "type-name": "Uint",
+                                    "maxval": 65535
+                                  }
+                                },
+                                {
+                                  "name": "words",
+                                  "type": {
+                                    "type-name": "Vector",
+                                    "length": 1,
+                                    "type": {
+                                      "type-name": "Bytes",
+                                      "length": 32
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "name": "accessListEntryCount",
+                      "type": {
+                        "type-name": "Uint",
+                        "maxval": 255
+                      }
+                    },
+                    {
+                      "name": "accessList",
+                      "type": {
+                        "type-name": "Vector",
+                        "length": 0,
+                        "type": {
+                          "type-name": "Struct",
+                          "name": "EvmAccessListEntry",
+                          "elements": [
+                            {
+                              "name": "address",
+                              "type": {
+                                "type-name": "Bytes",
+                                "length": 20
+                              }
+                            },
+                            {
+                              "name": "storageKeyCount",
+                              "type": {
+                                "type-name": "Uint",
+                                "maxval": 255
+                              }
+                            },
+                            {
+                              "name": "storageKeys",
+                              "type": {
+                                "type-name": "Vector",
+                                "length": 0,
+                                "type": {
+                                  "type-name": "Bytes",
+                                  "length": 32
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "executionDest",
+                "type": {
+                  "type-name": "Bytes",
+                  "length": 32
+                }
+              },
+              {
+                "name": "signatureDest",
+                "type": {
+                  "type-name": "Enum",
+                  "name": "MPCDestination",
+                  "elements": [
+                    "unused",
+                    "reserved"
+                  ]
+                }
+              },
+              {
+                "name": "params",
+                "type": {
+                  "type-name": "Bytes",
+                  "length": 64
+                }
+              },
+              {
+                "name": "outputDeserializationSchema",
+                "type": {
+                  "type-name": "Bytes",
+                  "length": 34
+                }
+              },
+              {
+                "name": "respondSerializationSchema",
+                "type": {
+                  "type-name": "Bytes",
+                  "length": 0
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Struct",
+        "name": "SignBidirectionalEventV1",
+        "elements": [
+          {
+            "name": "keyVersion",
+            "type": {
+              "type-name": "Uint",
+              "maxval": 255
+            }
+          },
+          {
+            "name": "sender",
+            "type": {
+              "type-name": "Struct",
+              "name": "ContractAddress",
+              "elements": [
+                {
+                  "name": "bytes",
+                  "type": {
+                    "type-name": "Bytes",
+                    "length": 32
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "name": "path",
+            "type": {
+              "type-name": "Bytes",
+              "length": 32
+            }
+          },
+          {
+            "name": "algo",
+            "type": {
+              "type-name": "Enum",
+              "name": "MPCSignatureAlgorithm",
+              "elements": [
+                "ecdsa",
+                "reserved"
+              ]
+            }
+          },
+          {
+            "name": "txParamType",
+            "type": {
+              "type-name": "Enum",
+              "name": "TxParamType",
+              "elements": [
+                "evmType2",
+                "reserved"
+              ]
+            }
+          },
+          {
+            "name": "txParams",
+            "type": {
+              "type-name": "Struct",
+              "name": "EvmType2TxParams",
+              "elements": [
+                {
+                  "name": "chainId",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 18446744073709551615
+                  }
+                },
+                {
+                  "name": "nonce",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 18446744073709551615
+                  }
+                },
+                {
+                  "name": "maxPriorityFeePerGas",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 340282366920938463463374607431768211455
+                  }
+                },
+                {
+                  "name": "maxFeePerGas",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 340282366920938463463374607431768211455
+                  }
+                },
+                {
+                  "name": "gasLimit",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 18446744073709551615
+                  }
+                },
+                {
+                  "name": "to",
+                  "type": {
+                    "type-name": "Bytes",
+                    "length": 20
+                  }
+                },
+                {
+                  "name": "value",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 340282366920938463463374607431768211455
+                  }
+                },
+                {
+                  "name": "calldata",
+                  "type": {
+                    "type-name": "Struct",
+                    "name": "Maybe",
+                    "elements": [
+                      {
+                        "name": "is_some",
+                        "type": {
+                          "type-name": "Boolean"
+                        }
+                      },
+                      {
+                        "name": "value",
+                        "type": {
+                          "type-name": "Struct",
+                          "name": "EvmCalldata",
+                          "elements": [
+                            {
+                              "name": "selector",
+                              "type": {
+                                "type-name": "Bytes",
+                                "length": 4
+                              }
+                            },
+                            {
+                              "name": "noWords",
+                              "type": {
+                                "type-name": "Uint",
+                                "maxval": 65535
+                              }
+                            },
+                            {
+                              "name": "words",
+                              "type": {
+                                "type-name": "Vector",
+                                "length": 1,
+                                "type": {
+                                  "type-name": "Bytes",
+                                  "length": 32
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "name": "accessListEntryCount",
+                  "type": {
+                    "type-name": "Uint",
+                    "maxval": 255
+                  }
+                },
+                {
+                  "name": "accessList",
+                  "type": {
+                    "type-name": "Vector",
+                    "length": 0,
+                    "type": {
+                      "type-name": "Struct",
+                      "name": "EvmAccessListEntry",
+                      "elements": [
+                        {
+                          "name": "address",
+                          "type": {
+                            "type-name": "Bytes",
+                            "length": 20
+                          }
+                        },
+                        {
+                          "name": "storageKeyCount",
+                          "type": {
+                            "type-name": "Uint",
+                            "maxval": 255
+                          }
+                        },
+                        {
+                          "name": "storageKeys",
+                          "type": {
+                            "type-name": "Vector",
+                            "length": 0,
+                            "type": {
+                              "type-name": "Bytes",
+                              "length": 32
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "name": "executionDest",
+            "type": {
+              "type-name": "Bytes",
+              "length": 32
+            }
+          },
+          {
+            "name": "signatureDest",
+            "type": {
+              "type-name": "Enum",
+              "name": "MPCDestination",
+              "elements": [
+                "unused",
+                "reserved"
+              ]
+            }
+          },
+          {
+            "name": "params",
+            "type": {
+              "type-name": "Bytes",
+              "length": 64
+            }
+          },
+          {
+            "name": "outputDeserializationSchema",
+            "type": {
+              "type-name": "Bytes",
+              "length": 34
+            }
+          },
+          {
+            "name": "respondSerializationSchema",
+            "type": {
+              "type-name": "Bytes",
+              "length": 0
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "witnesses": [
+  ],
+  "contracts": [
+  ],
+  "ledger": [
+  ]
+}

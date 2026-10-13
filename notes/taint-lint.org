@@ -239,3 +239,116 @@ internal tier but must SAY so).
 - The workspace gate green against the frozen baseline; zero movement
   anywhere else (the change adds a module, an example, a test, and the
   baseline — no circuit code touched).
+
+* 8. M44 — the flush-pattern vault's guarded reads, and the =sub_with= residue (2026-10-08)
+
+The compat vault's re-port to upstream's flush pattern (M44 B/C, 29 circuits PI-equal to compactc) moves the frozen set by 4 removals and 20 additions: 81 → 97 findings. The removals are the old seventeen-circuit stream's own lines (=complete_withdraw= 88/=%pi.74=,=%pi.75=; =complete_swap= 158/=%add.93=; and =erc20_vault_pending::complete_swap= 197/=%add.129=), i.e. pure renumbering, not progress. The 20 additions are TWO classes, neither accepted into the baseline. The indices below are instruction indices in =MINOCRAB_ZKIR_DUMP= order at =f12ba67=; the compat vault's instruction order is fixed by PI-equality with compactc, so none of it is circuit code we may change.
+
+** Class A (19 findings — measured 18, see §9): the GUARDED =kernel.self()= read inside every =complete_*= branch — RULED, option 4 built (§9)
+
+Shape, identical in all five circuits: inside a =c.when(executed, …)= / =c.when(refunds, …)= arm, =common::mint_shielded_token{_to_key}= builds =tokenType(domainSep, kernel.self())= and the coin commitment, so the contract address's two =bytes<32>= limbs are read under the arm's guard and absorbed by a =persistent_hash=. Every one of the 19 wires traces to an Impact that parses EXACTLY as the =mark_popeq= shape — =[0x0d, 0x01, 0x20, hi, lo]=, popeqc of one =bytes<32>= atom — differing from the warranted case only in that the guard is a WIRE rather than an immediate:
+
+| circuit | hash | wires | the popeq, and its guard |
+|---------|------|-------|--------------------------|
+| =complete_deposit= | 146 | =%pi.84=, =%pi.85= | 145, guard =%sel.65= |
+| =complete_withdraw= | 136 | =%pi.77=, =%pi.78= | 135, guard =%sel.66= |
+| =complete_supply= | 138 / 182 | =%pi.70=,=%pi.71= / =%pi.97=,=%pi.98= | 137, guard =%eq.46= / 181, guard =%sel.87= |
+| =complete_redeem= | 138 / 182 | =%pi.70=,=%pi.71= / =%pi.97=,=%pi.98= | 137, guard =%eq.46= / 181, guard =%sel.87= |
+| =complete_swap= | 141 / 191 / 231 | =%pi.76=,=%pi.77= / =%pi.106=,=%pi.107= / =%pi.132=,=%pi.133= | 140 and 190, guard =%eq.52= / 230, guard =%sel.123= |
+
+THE QUESTION PUT TO THE RULE: does the ledger-read warrant extend to a guarded read — "a popeq'd value is the on-chain cell of that FAB alignment hence in range, and a SKIPPED guarded read yields 0, which is also in range"? IT DOES NOT, and the second half is the error. The two in-circuit facts:
+
+- A =public_input= IGNORES its guard in-circuit. The synthesis arm is =I::PublicInput { guard: _, val_t, output }= (zkir-v3 =ir_vm.rs:978-1004=, pinned at rev =04c9c5d=): it resolves the wire straight out of the preprocessed witness memory and =assign_incircuit='s it, with no constraint for a =Scalar<BLS12-381>=. So =public_input … guard: %g= is EXACTLY as free a witness as an unguarded one; the guard is metadata for the transcript walk, not a constraint.
+- The Impact pushes =select(guard, x, 0)= (=ir_vm.rs:869-882=). With =%g = 0= the pushed public input is 0 for ANY =x=, the verifier's transcript comparison passes on the zero, and the wire is unbound. That is precisely the sentence the M23 R3 ruling already carries ("guarded reads keep firing"), now met in five circuits instead of one.
+
+Where "a skipped read yields 0" comes from, and why it is not a warrant: it is the OFF-circuit semantics — upstream's =run= pushes zeros and records =pi_skips= for a guarded-off Impact (=ir_vm.rs:507-520=), and the guarded-off =public_input= yields =default_ir_value(val_t)= and consumes no transcript (our mirror, =minocrab-sim/src/v3.rs=, the =I::PublicInput= arm, commented "ir_vm.rs:348-366 — a guarded-off read yields the type's default and consumes nothing"). That run IS THE WITNESS GENERATOR. An honest prover's witness holds 0 there; a malicious prover's holds whatever it likes. Reading it as a bound would be exactly the category error §4's "soundness direction" warns against, and it would be an OVER-marking — the one direction that produces false negatives. So: no rule extension. Pinned instead by =a_guarded_read_under_a_guarded_popeq_stays_free= in =taint.rs=, which builds the real shape (guarded =public_input= + guarded popeq → still fires; the same guarded gate under an UNCONDITIONAL popeq → clean), plus a new "Limitations, stated plainly" bullet, so no future change can flip this quietly.
+
+THE ARGUMENT THAT WOULD DISCHARGE CLASS A, stated for dmd rather than written: OBSERVABILITY, not bounds. When =%g = 0= every Impact that would publish the digest — the mint's coin-commitment push, the =tokenType= embed — is guarded by the SAME bit and also pushes zeros, so a forged preimage buys the prover nothing: the branch has no effect to steal. That is a real argument and it is what makes the vault sound. It is also a different proof obligation from the one this lint discharges: it needs a reachability/taint walk showing the digest reaches the transcript ONLY through Impacts guarded by =%g= and reaches no =Assert= at all, and a single unguarded consumer makes it wrong. Call it option 4 beside §5's three. Until dmd rules, class A stands as the ruling's own live class, now larger.
+
+** Class B (1 new, 3 already frozen): =Uint::sub_with='s =add(a, neg(b))= — RULED, N1-N3 built (§9)
+
+The new line is =erc20_vault::complete_swap= 211, =%add.98= into the =bytes<16>= value atom. The premise of "is the result range-checked in a way the lint recognises UNGUARDED, and why does the guarded form lose it?" turns out to be false: THE UNGUARDED FORM FIRES TOO, and has since the first run. =kernel_tokens::s_send_shielded= 61 / =%add.20= is the unguarded instance and is baseline line 5. The lint has never recognised =sub_with= at all, in either form, and the reason is structural rather than about guards: the lowering is =c.assert(ge(a, b)); let n = c.neg(b); from_field_unchecked(c.add(a, n))= (=minocrab-std/src/v3.rs=, =Uint::sub_with= / =BoundedUint::sub_with=; =from_field= became =from_field_unchecked= at =06d268e=), =Neg= is explicitly unmarked because it wraps (§4), and NO rule in the pass reads an =Assert=. Bounds propagate through producers only, so the one fact that makes the difference non-negative is invisible.
+
+What the Pending lineage does about it, and the compat port cannot: =erc20_vault_pending::complete_swap= BUYS the bound with an extra instruction — =Uint::<64, Public>::from_field_checked(c, change.field())= at =erc20_vault_pending.rs:898=, commented in the source as "the taint lint's warrant for the 16-byte value atom", which lowers to the =constrain_bits 64= at instruction 176 right after the =add= at 175. The compat port is PI-equal to compactc and cannot add an instruction, so its difference reaches the coin commitment unbounded. That is the whole of the "guarded form loses it" effect: not the guard, the missing range check.
+
+The four sites, their exact shapes, and the warrant each would need — so one ruling can cover the class:
+
+- =kernel_tokens::s_send_shielded=, hash 61, =%add.20= (=bytes<16>=). UNGUARDED: =less_than(%input_value.4, %v.11, 128)= at 25, =cond_select(0, 1, %lt.17)= at 26 (= =not lt=), =assert= at 27, =neg(%v.11)= at 28, =add= at 29; both operands carry =constrain_bits 128= (instructions 5 and 12). WARRANT N2 — a ≤ Ma, b ≤ Mb, both ≤ 2^bits−1, plus an UNCONDITIONALLY asserted =a ≥ b= ⇒ the field difference is the integer difference, ≤ Ma. Entirely in-circuit.
+- =erc20_vault::complete_swap=, hash 211, =%add.98= (=bytes<16>=). GUARDED: =%sel.92 = cond_select(%sel.91, 0, %eq.52)= at 174 with =constrain_bits 64= at 175; =%sel.93 = cond_select(%pi.44, 0, %eq.52)= at 176 with =constrain_bits 64= at 177; =less_than= 178, =not= 179, =cond_select(%not.95, 1, %eq.52)= 180, =assert= 181, =neg= 182, =add= 183. WARRANT N3 — N2's assert is itself guarded, but BOTH operands are =cond_select{a: x, b: 0, bit: g}= on the SAME =g=: with =g = 1= N2 applies; with =g = 0= both operands are 0 and the difference is 0. Either way ≤ 2^64−1, inside the 128-bit slot. Also entirely in-circuit, at the cost of matching one guard across three instructions.
+- =erc20_vault_pending::complete_swap=, hash 199, =%add.133= (the =bytes<32>= hi limb, 1 byte). NOT a subtraction of two variables: =neg(%mintNonce_hi.11)= at 177, =add(0xff, …)= at 178 — the change-nonce complement =255 − mintNonce.hi= (=erc20_vault_pending.rs:440=, =change_nonce=), with =constrain_bits 8= on =%mintNonce_hi.11= at instruction 11. WARRANT N1, the cleanest of the three — =add(C, neg(b))= with C an immediate and b ≤ Mb ≤ C ⇒ the result is =C − b ∈ [0, C]=, no assert needed, because the range constraint alone rules out the wrap. This line is ALSO the baseline's one STALE entry: =erc20_vault_pending.rs= has not changed since M42 (=9f4d6a6=), the baseline was last regenerated at =b3fbe1f= (M37 D, 2026-09-06), and M42's =minocrab-std/src/v3/ledger.rs= rewrite moved this stream by two instructions. It is a renumbering that nobody regenerated, not an M44 movement (the memory note for 2026-09-19 records =taint_lint= already red).
+- =manager::execute=, hashes 811 and 888, =%add.703= / =%add.765= (=bytes<16>=). Shape as N3 (=less_than= 769, =cond_select= 770, guarded =cond_select(…, 1, %sel.690)= 771, =assert= 772, =neg= 773, =add= 774) but the MINUEND =%pi.677= is itself an unbounded guarded read — baseline line 31. No bound exists to propagate, so these stay findings under N1/N2/N3 alike, which is the right answer.
+
+WHY N1–N3 WERE NOT WRITTEN UNILATERALLY. Each is sound and each cites only in-circuit constraints — unlike the popeq rule, they would not widen the lint's one external dependency. But they resolve part of a baseline dmd froze under a ruling that explicitly DECLINED option 2 ("it would trade away the wires whose only bound is the absorption"), and doing that in the same session that hands dmd a new class would make the freeze mean two things at once. The class is small, fully enumerated above, and better ruled on in one go. Pinned meanwhile by =a_subtraction_proven_non_negative_still_fires= (the N2 shape, with both operands range-constrained and the assert unconditional, still fires; the SUM of the same operands is bounded by the exact interval arithmetic, so the test also shows the rule that does exist working) and by a second "Limitations" bullet saying plainly that an =Assert= is not a bound source in any rule.
+
+** State of the gate (SUPERSEDED 2026-10-13 — dmd ruled, §9: all 20 discharged, the gate is green)
+
+=cargo test -p minocrab-contracts --test taint_lint= is RED on exactly the 20 additions above and nothing else; the baseline file is untouched. =cargo test -p minocrab-ir= — 13 unit tests in the module, all green including the two new pins. (=tests/lean_dataflow.rs= is separately red on its corpus instruction-count pin, 18663 → 22885, from M44 A's corpus re-pin: not this instrument.)
+
+* 9. M23 R3 RULED — the subtraction warrants and the observability walk, as built (2026-10-13)
+
+dmd ruled on both classes §8 handed over: take N1–N3, and build option 4 as a real reachability walk rather than accept Class A into the baseline. Both are in =crates/minocrab-ir/src/v3/taint.rs=. The gate is GREEN for the first time since 2026-09-15, and the frozen set is *81 → 38*.
+
+The lint changes no circuit: the 226-circuit =MINOCRAB_ZKIR_DUMP= is byte-identical before and after (=diff -rq= empty). It is an analysis, and this is only ever a change in what it says.
+
+** Class B as built — N1, N2, N3
+
+The structural problem §8 identified, restated: ZKIR v3 has no =Sub=, so =Uint::sub_with= lowers to =assert(ge(a, b)); n = neg(b); add(a, n)=, =Neg= wraps and is unmarked, and no rule read an =Assert=. Three rules now do, and ONLY for this shape. Pass A2 indexes the four shapes they must see through (=neg=, =not=, =cond_select=, =less_than=) and collects the =a ≥ b= facts the stream asserts; position-independent for pass A's reason, since an assert constrains the witness wherever it sits.
+
+- *N1* =add(C, neg(b))= with =C= immediate and =Mb ≤ C= is the integer =C − b ∈ [0, C]=. No assert needed — the range constraint alone rules out the wrap. The precondition is TIGHT at the real site: =erc20_vault_pending='s =change_nonce= is =255 − mintNonce.hi= with =constrain_bits 8=, so =Mb = C = 255= exactly, and a 9-bit constraint correctly fails it. Pinned at that boundary.
+- *N2* both operands inside the =less_than= width, plus an unconditional =a ≥ b=, gives =≤ Ma=.
+- *N3* the same with the assert GUARDED, when both operands are =cond_select{a: x, b: 0, bit: g}= on the SAME =g=: with =g = 1= N2 applies, with =g = 0= both operands are exactly 0.
+
+Both encodings of =NOT (a < b)= occur in the real streams and both are accepted: a =Not= instruction (=erc20_vault=) and =cond_select{a: 0, b: 1, bit: lt}= (=kernel_tokens=). Note these two shapes are ambiguous with N3's guarded-assert shape — both are a =cond_select= with =b: 1= — so =ge_fact= tries the unconditional reading FIRST and the guarded one only on failure. Getting that order wrong silently drops the =kernel_tokens= warrant and nothing else; it cost one test round.
+
+Soundness direction held: a =less_than= narrower than its operands is not the comparison the rule reads it as and marks nothing; an assert naming another pair, or the same pair in the wrong order, marks nothing; an unbounded minuend marks nothing. =manager::execute='s three =%add= findings stay for exactly that last reason, which §8 called the right answer and which is the sharpest evidence the rules do not over-mark — the shape is N3's and only the precondition fails.
+
+** Class A as built — option 4, the observability walk
+
+The obligation §8 stated: the digest reaches the transcript only through Impacts guarded by =%g=, and reaches no =Assert= at all. Built as a forward closure from the read, with every consumer classified exhaustively and every unknown a refusal.
+
+THE ONE THING §8 DID NOT ANTICIPATE, and the reason a naive reading of it fails: the publishing Impact's guard is NOT =%g=. In =erc20_vault::complete_deposit= the read sits under =%sel.65= and the coin commitment is pushed under =%sel.102 = cond_select(%mul.101, 0, %sel.65)= — a guard NESTED inside =%g=, which is what =when= does when it nests one arm in another. Requiring syntactic equality discharges nothing. The relation that is actually needed is DOMINANCE: =h= is zero whenever =g= is zero, which is true for =h = g= and through any chain of =cond_select{a: _, b: 0, bit: k}=. Syntactic and conservative; a guard that is semantically but not syntactically dominated marks nothing.
+
+Sinks, and why each is a refusal rather than a pass:
+
+- =Impact= with a variable guard: inert iff that guard is dominated by =g=. With an IMMEDIATE guard: never — it publishes whatever =g= does.
+- =Assert=, =ConstrainEq=, =ConstrainBits=, =ConstrainToBoolean=: a forged value then changes whether the circuit is SATISFIABLE. That may well be safe, but it is a different argument and this rule does not make it.
+- =Output=: leaving the circuit named is an effect of its own.
+- =PublicInput= / =PrivateInput=: the only way these read a tainted wire is as their GUARD, which steers the transcript WALK — how many elements are consumed. Observable even though the arm ignores the guard in-circuit.
+- everything else only computes, and whatever it binds is already in the closure.
+
+The walk reads operands through =passes::operands= + =passes::returned= and definitions through =passes::defined_identifiers= rather than restating the match: those three are exhaustive by construction AND are the lists =tests/lean_dataflow.rs= diffs against =MinocrabZkir.Dataflow=, so a new upstream operand position cannot hide from the walk. They clone, so =Flow= precomputes reads/defines once per circuit instead of inside the fixpoint.
+
+** Measured, over all 226 circuits
+
+*81 → 38.* The 43 lines that left, each attributed:
+
+| cause | n | what |
+|-------|---|------|
+| option 4 | 38 | guarded ledger reads whose digest is inert under their own guard |
+| N1 / N2 / N3 | 3 | =kernel_tokens::s_send_shielded= =%add.20= (N2), =erc20_vault_pending::complete_swap= =%add.129= (N1), =erc20_vault::complete_swap= =%add.93= (N3's site, renumbered) |
+| M44's own renumbering | 2 | =erc20_vault::complete_withdraw= 88 =%pi.74=, =%pi.75= — §8 listed these as its removals |
+
+All 20 of M44's additions are gone: the 18 Class A and the 2 Class B. NB §8's prose says 19 Class A findings while its own table says 18; the measured number is *18* — nine hash sites with two limb wires each. Every =erc20_vault=, =erc20_vault_pending= and =kernel_tokens= finding is now discharged; the vault is clean.
+
+CROSS-CHECKED INDEPENDENTLY. The walk was prototyped in Python against the JSONL dumps before being written in Rust, and all 43 discharges were then re-derived with that separate implementation: 38 confirmed confined, *zero disagreements*, and the 5 it reports as "not a guarded read" are exactly the 3 subtraction cases and the 2 renumberings. Two implementations agreeing is not a proof, but it is what this rests on beside the tests.
+
+** The 38 that remain, all in =manager::*=
+
+| n | why the rules refuse |
+|---|----------------------|
+| 16 | the digest reaches an =assert= — §8's "no =Assert= at all" |
+| 2 | the digest reaches a =constrain_bits= |
+| 17 | a =%sel.*= wire DERIVED from a guarded read, not a read itself |
+| 3 | =%add.*= with an unbounded minuend (the Class B refusal above) |
+
+The derived-wire group is a deliberate limitation, not an oversight: option 4 discharges the READ, and a wire merely derived from one keeps its finding. Extending the discharge to derived wires would be the next rung if the residue ever matters; it is the safe direction to leave it, and it would not clear =manager= anyway, since those digests reach asserts.
+
+** Limitations, added to the module docs
+
+Both new warrants are stated in "Limitations, stated plainly" beside the popeq rule's: that an =Assert= is now a bound source in exactly three rules and nowhere else; that observability discharges the read and not derived wires; and that dominance is syntactic. The two bullets §8 pinned are updated — =a_subtraction_proven_non_negative_still_fires= pinned the OLD behaviour and is replaced by =a_subtraction_proven_non_negative_is_bounded=, keeping its second half (the SUM of the same operands fires correctly, for the interval reason).
+
+=a_guarded_read_under_a_guarded_popeq_stays_free= and =guarded_popeq_stays_free= still pass and still pin what they were built to pin, but needed a change worth recording: their streams hashed a guarded read and did NOTHING with the digest, so option 4 discharges them — soundly, since a digest no one observes cannot be stolen, but for the wrong reason. Both now =publish("digest")= unconditionally, which keeps them about the absence of a BOUND. A dead hash reading clean is a real consequence of this rule and is the honest behaviour.
+
+** Gates
+
+18 unit tests in the module (up from 13), including the three near-miss refusals for Class B and the six refused sinks for Class A; =cargo test -p minocrab-ir= all green; =cargo clippy -p minocrab-ir --all-targets -D warnings= clean; the 226-circuit ZKIR dump byte-identical; =taint_lint= GREEN with the baseline regenerated to 38, every removal attributed above.

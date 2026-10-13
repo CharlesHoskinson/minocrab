@@ -23,6 +23,7 @@ use std::path::PathBuf;
 
 use borsh::schema::BorshSchemaContainer;
 use borsh::{BorshSchema, BorshSerialize};
+use minocrab_contracts::signet_v1::ETHEREUM_CAIP2_ID;
 use minocrab_contracts::{erc20_vault, erc20_vault_pending};
 use serde::Serialize;
 use sha2::Sha256;
@@ -31,6 +32,7 @@ use sha3::{Digest, Keccak256};
 use super::deployed;
 use super::oracle::{borsh_bytes, layout_rows};
 use super::spec_types::*;
+use crate::vault::prims::pad32;
 
 /// The marker pair the generated offset tables live between in
 /// `spec/borsh-subset.md`. Prose outside them is hand-written and is never
@@ -394,17 +396,25 @@ fn schema<const N: usize>(bytes: &[u8]) -> ByteArray<N> {
     ByteArray(bytes.try_into().expect("schema literal has its declared width"))
 }
 
-/// The 2-word request record, in the shape `deposit` writes: a
+/// `ethereumCaip2Id()` — a protocol constant, not a free byte, so the vectors
+/// carry the real value rather than a pattern.
+fn execution_dest() -> [u8; 32] {
+    pad32(ETHEREUM_CAIP2_ID)
+}
+
+/// The request nonce the V2 vectors carry. The V1 record has no such field —
+/// it is one of the two the V1 move dropped — so the V2 vectors, which are a
+/// specification, pick one.
+const V2_REQUEST_NONCE: u64 = 7;
+
+/// The 2-word V1 request record, in the shape `sendDeposit` writes: a
 /// `transfer(to, amount)` calldata signed under a depositor's derived path.
-pub fn vault_event() -> VaultEvent {
-    VaultEvent {
-        sender: pattern(0x10, 1),
-        request_nonce: 7,
+pub fn vault_event_v1() -> VaultEventV1 {
+    VaultEventV1 {
         key_version: 1,
+        sender: pattern(0x10, 1),
         path: pattern(0x40, 3),
         algo: 0,
-        dest: 0,
-        params: ByteArray::default(),
         tx_param_type: 0,
         tx_params: EvmType2TxParams2 {
             chain_id: 1,
@@ -424,30 +434,61 @@ pub fn vault_event() -> VaultEvent {
             },
             access_list_entry_count: 0,
         },
-        caip2_id: pattern(0x01, 2),
-        output_deserialization_schema: schema(erc20_vault::VAULT_RESPONSE_SCHEMA),
-        respond_serialization_schema: schema(erc20_vault::VAULT_RESPONSE_SCHEMA),
+        execution_dest: execution_dest(),
+        signature_dest: 0,
+        params: ByteArray::default(),
+        output_deserialization_schema: schema(erc20_vault::VAULT_OUTPUT_SCHEMA),
+        respond_serialization_schema: ByteArray::default(),
     }
 }
 
-/// The 7-word swap record, in the shape `swap` writes.
-pub fn swap_event() -> SwapEvent {
-    SwapEvent {
-        sender: pattern(0x10, 1),
-        request_nonce: 9,
-        key_version: 1,
-        path: pattern(0x40, 3),
-        algo: 0,
-        dest: 0,
-        params: ByteArray::default(),
-        tx_param_type: 0,
+/// The nonce-replacement record: the ONE V1 record whose `calldata.is_some` is
+/// 0 — the vector a decoder should test its `Flagged` handling on, because the
+/// word slots are still there and still read.
+pub fn replace_nonce_event_v1() -> ReplaceNonceEventV1 {
+    let e = vault_event_v1();
+    ReplaceNonceEventV1 {
+        key_version: e.key_version,
+        sender: e.sender,
+        path: pattern(0x60, 5),
+        algo: e.algo,
+        tx_param_type: e.tx_param_type,
+        tx_params: EvmType2TxParams2 {
+            nonce: 46,
+            calldata: Flagged {
+                is_some: false,
+                value: EvmCalldata2 {
+                    selector: [0u8; 4],
+                    no_words: 0,
+                    words: [[0u8; 32]; 2],
+                },
+            },
+            ..e.tx_params
+        },
+        execution_dest: e.execution_dest,
+        signature_dest: e.signature_dest,
+        params: e.params,
+        output_deserialization_schema: schema(erc20_vault::REPLACE_NONCE_OUTPUT_SCHEMA),
+        respond_serialization_schema: ByteArray::default(),
+    }
+}
+
+/// The 7-word swap record, in the shape `sendSwap` writes.
+pub fn swap_event_v1() -> SwapEventV1 {
+    let e = vault_event_v1();
+    SwapEventV1 {
+        key_version: e.key_version,
+        sender: e.sender,
+        path: e.path,
+        algo: e.algo,
+        tx_param_type: e.tx_param_type,
         tx_params: EvmType2TxParams7 {
-            chain_id: 1,
+            chain_id: e.tx_params.chain_id,
             nonce: 43,
-            max_priority_fee_per_gas: 1_000_000_000,
-            max_fee_per_gas: 30_000_000_000,
+            max_priority_fee_per_gas: e.tx_params.max_priority_fee_per_gas,
+            max_fee_per_gas: e.tx_params.max_fee_per_gas,
             gas_limit: 700_000,
-            to: pattern(0xa0, 1),
+            to: e.tx_params.to,
             value: 0,
             calldata: Flagged {
                 is_some: true,
@@ -467,26 +508,25 @@ pub fn swap_event() -> SwapEvent {
             },
             access_list_entry_count: 0,
         },
-        caip2_id: pattern(0x01, 2),
+        execution_dest: e.execution_dest,
+        signature_dest: e.signature_dest,
+        params: e.params,
         output_deserialization_schema: schema(erc20_vault::SWAP_OUTPUT_SCHEMA),
-        respond_serialization_schema: schema(erc20_vault::SWAP_RESPOND_SCHEMA),
+        respond_serialization_schema: ByteArray::default(),
     }
 }
 
-/// The supply record, in the shape `startSupply` writes: an ERC-4626
+/// The supply record, in the shape `sendSupply` writes: an ERC-4626
 /// `deposit(assets, receiver)` to the stata token under the vault's own path.
-/// The same 2-word middle as [`vault_event`] with the lending schemas, so the
-/// two vectors differ only in the last 71 bytes.
-pub fn supply_event() -> SupplyEvent {
-    let e = vault_event();
-    SupplyEvent {
-        sender: e.sender,
-        request_nonce: 11,
+/// The same 2-word middle as [`vault_event_v1`] with the lending schema, so
+/// the two vectors differ only in the calldata and the last 36 bytes.
+pub fn supply_event_v1() -> SupplyEventV1 {
+    let e = vault_event_v1();
+    SupplyEventV1 {
         key_version: e.key_version,
+        sender: e.sender,
         path: e.path,
         algo: e.algo,
-        dest: e.dest,
-        params: e.params,
         tx_param_type: e.tx_param_type,
         tx_params: EvmType2TxParams2 {
             nonce: 44,
@@ -501,24 +541,23 @@ pub fn supply_event() -> SupplyEvent {
             },
             ..e.tx_params
         },
-        caip2_id: e.caip2_id,
+        execution_dest: e.execution_dest,
+        signature_dest: e.signature_dest,
+        params: e.params,
         output_deserialization_schema: schema(erc20_vault::SUPPLY_OUTPUT_SCHEMA),
-        respond_serialization_schema: schema(erc20_vault::SUPPLY_RESPOND_SCHEMA),
+        respond_serialization_schema: ByteArray::default(),
     }
 }
 
-/// The 3-word redeem record, in the shape `startRedeem` writes: an ERC-4626
+/// The 3-word redeem record, in the shape `sendRedeem` writes: an ERC-4626
 /// `redeem(shares, receiver, owner)` with receiver and owner both the vault.
-pub fn redeem_event() -> RedeemEvent {
-    let e = vault_event();
-    RedeemEvent {
-        sender: e.sender,
-        request_nonce: 13,
+pub fn redeem_event_v1() -> RedeemEventV1 {
+    let e = vault_event_v1();
+    RedeemEventV1 {
         key_version: e.key_version,
+        sender: e.sender,
         path: e.path,
         algo: e.algo,
-        dest: e.dest,
-        params: e.params,
         tx_param_type: e.tx_param_type,
         tx_params: EvmType2TxParams3 {
             chain_id: e.tx_params.chain_id,
@@ -538,97 +577,105 @@ pub fn redeem_event() -> RedeemEvent {
             },
             access_list_entry_count: 0,
         },
-        caip2_id: e.caip2_id,
+        execution_dest: e.execution_dest,
+        signature_dest: e.signature_dest,
+        params: e.params,
         output_deserialization_schema: schema(erc20_vault::REDEEM_OUTPUT_SCHEMA),
-        respond_serialization_schema: schema(erc20_vault::REDEEM_RESPOND_SCHEMA),
+        respond_serialization_schema: ByteArray::default(),
     }
 }
 
-/// The 2-word record as M11 STAGE 7 writes it: the same value as
-/// [`vault_event`] with the version byte in front and the response kind (0,
-/// CLAIM — a `deposit` request) where the two schema strings were.
+/// The 2-word record as the V2 format writes it: the same values as
+/// [`vault_event_v1`], in the V2 field order, with the version byte in front,
+/// a request nonce restored and the response kind (0, CLAIM — a `deposit`
+/// request) where the output schema was.
 ///
-/// Built FROM the deployed value, so the two vectors differ in exactly the two
-/// fields stage 7 changes and a reader can diff them byte for byte.
+/// Built FROM the V1 value, so a reader can diff the two vectors and see
+/// exactly what the format change is.
 pub fn vault_event_v2() -> VaultEventV2 {
-    let e = vault_event();
+    let e = vault_event_v1();
     VaultEventV2 {
         format_version: RECORD_FORMAT_VERSION,
         sender: e.sender,
-        request_nonce: e.request_nonce,
+        request_nonce: V2_REQUEST_NONCE,
         key_version: e.key_version,
         path: e.path,
         algo: e.algo,
-        dest: e.dest,
+        dest: e.signature_dest,
         params: e.params,
         tx_param_type: e.tx_param_type,
         tx_params: e.tx_params,
-        caip2_id: e.caip2_id,
+        caip2_id: e.execution_dest,
         response_kind: erc20_vault_pending::RESPONSE_KIND_CLAIM as u8,
     }
 }
 
-/// The 7-word swap record as M11 stage 7 writes it — response kind 2, SWAP.
+/// The 7-word swap record in V2 — response kind 2, SWAP.
 pub fn swap_event_v2() -> SwapEventV2 {
-    let e = swap_event();
+    let e = swap_event_v1();
     SwapEventV2 {
         format_version: RECORD_FORMAT_VERSION,
         sender: e.sender,
-        request_nonce: e.request_nonce,
+        request_nonce: V2_REQUEST_NONCE,
         key_version: e.key_version,
         path: e.path,
         algo: e.algo,
-        dest: e.dest,
+        dest: e.signature_dest,
         params: e.params,
         tx_param_type: e.tx_param_type,
         tx_params: e.tx_params,
-        caip2_id: e.caip2_id,
+        caip2_id: e.execution_dest,
         response_kind: erc20_vault_pending::RESPONSE_KIND_SWAP as u8,
     }
 }
 
 /// The supply record in V2 — `VaultEventV2` at kind 5, SUPPLY: the lending
-/// schemas were the only thing that told a supply record from a vault record,
+/// schema was the only thing that told a supply record from a vault record,
 /// and V2 carries neither.
 pub fn supply_event_v2() -> VaultEventV2 {
-    let e = supply_event();
+    let e = supply_event_v1();
     VaultEventV2 {
         format_version: RECORD_FORMAT_VERSION,
         sender: e.sender,
-        request_nonce: e.request_nonce,
+        request_nonce: V2_REQUEST_NONCE,
         key_version: e.key_version,
         path: e.path,
         algo: e.algo,
-        dest: e.dest,
+        dest: e.signature_dest,
         params: e.params,
         tx_param_type: e.tx_param_type,
         tx_params: e.tx_params,
-        caip2_id: e.caip2_id,
+        caip2_id: e.execution_dest,
         response_kind: erc20_vault_pending::RESPONSE_KIND_SUPPLY as u8,
     }
 }
 
 /// The 3-word redeem record in V2 — kind 6, REDEEM.
 pub fn redeem_event_v2() -> RedeemEventV2 {
-    let e = redeem_event();
+    let e = redeem_event_v1();
     RedeemEventV2 {
         format_version: RECORD_FORMAT_VERSION,
         sender: e.sender,
-        request_nonce: e.request_nonce,
+        request_nonce: V2_REQUEST_NONCE,
         key_version: e.key_version,
         path: e.path,
         algo: e.algo,
-        dest: e.dest,
+        dest: e.signature_dest,
         params: e.params,
         tx_param_type: e.tx_param_type,
         tx_params: e.tx_params,
-        caip2_id: e.caip2_id,
+        caip2_id: e.execution_dest,
         response_kind: erc20_vault_pending::RESPONSE_KIND_REDEEM as u8,
     }
 }
 
-/// The request id a vector's record hashes to — the value the MPC recomputes
-/// and drops the request on mismatch.
+/// A 32-byte checksum over a record's bytes, for the vectors' `request_id`
+/// fields.
+///
+/// NOT the request id: V1 hashes a `RequestIdPreimageV1` with Poseidon, and
+/// the V2 lineage hashes the record's field elements. This is a fixed,
+/// reproducible 32 bytes to put where a notification carries an id, and the
+/// vector files say so.
 fn request_id_of<T: BorshSerialize>(value: &T) -> [u8; 32] {
     Keccak256::digest(borsh_bytes(value)).into()
 }
@@ -690,32 +737,36 @@ fn leaves() -> String {
     )
 }
 
-/// The request records — the deployed pair and M11 stage 7's — and the request
-/// ids they hash to.
+/// The request records — the deployed V1 instantiations and the V2 lineage's —
+/// and the checksums over their bytes.
 fn records() -> String {
     file(
-        "The request-record instantiations, DEPLOYED (the 2-word vault record, the 7-word swap \
-         record, and the lending pair: the 2-word supply record with its own schema strings \
-         and the 3-word redeem record) and V2. The request id is NOT a hash of these bytes: it \
-         is Poseidon over the record's field elements (borsh-subset.md §6a); keccak256 here is \
-         a checksum. Each V2 record carries the same values as its deployed twin, so the diff \
-         is exactly the format change: a formatVersion = 0x80 byte at offset 0, and a 1-byte \
-         responseKind where the two in-band ABI-JSON schema strings were (404 → 338, 571 → \
-         498, 407 → 338 and 439 → 370 bytes).",
+        "The request-record instantiations. DEPLOYED (V1, @sig-net/midnight 0.24.1): the 2-word \
+         vault record that sendDeposit / sendWithdraw / sendApprove write, the nonce-replacement \
+         record (the one record with NO calldata — calldata.is_some is 0 and the word slots are \
+         still read), the 7-word swap record, and the lending pair. Every V1 record ends with a \
+         respondSerializationSchema of width 0: a field that is present and empty, not a field \
+         that is absent. The request id is NOT a hash of these bytes — V1 hashes a \
+         RequestIdPreimageV1 with Poseidon (borsh-subset.md §6a) — and keccak256 here is a \
+         checksum. The V2 records carry the same values as their V1 twins in the V2 field order, \
+         so the diff is exactly the format change: a formatVersion = 0x80 byte at offset 0, a \
+         requestNonce the V1 record does not have, and a 1-byte responseKind where the output \
+         schema was.",
         vec![
-            vector("VaultEvent", &vault_event()),
-            vector("SwapEvent", &swap_event()),
-            vector("SupplyEvent", &supply_event()),
-            vector("RedeemEvent", &redeem_event()),
-            vector("VaultEventV2 (M11 stage 7, kind 0 CLAIM)", &vault_event_v2()),
-            vector("SwapEventV2 (M11 stage 7, kind 2 SWAP)", &swap_event_v2()),
+            vector("VaultEventV1", &vault_event_v1()),
+            vector("ReplaceNonceEventV1", &replace_nonce_event_v1()),
+            vector("SwapEventV1", &swap_event_v1()),
+            vector("SupplyEventV1", &supply_event_v1()),
+            vector("RedeemEventV1", &redeem_event_v1()),
+            vector("VaultEventV2 (kind 0 CLAIM)", &vault_event_v2()),
+            vector("SwapEventV2 (kind 2 SWAP)", &swap_event_v2()),
             vector("VaultEventV2 (kind 5 SUPPLY)", &supply_event_v2()),
             vector("RedeemEventV2 (kind 6 REDEEM)", &redeem_event_v2()),
         ],
     )
 }
 
-/// The attested outputs THIS SPEC defines (M11 stage 5), with their signed
+/// The attested outputs THIS SPEC defines (the V2 lineage), with their signed
 /// digest preimages.
 fn attested_outputs() -> String {
     let request_id = request_id_of(&vault_event_v2());
@@ -787,52 +838,41 @@ fn attested_outputs() -> String {
     ];
     assert_kinds_are_declared(&vectors);
     file(
-        "The kind-tagged attested outputs and their digest preimages. keccak256 of an \
-         AttestationPreimage IS the digest the MPC signs; request_id here is the request id of \
-         the VaultEventV2 vector in records.json — the stage-7 record is the one these \
-         responses settle, and its last byte is the kind these carry at their first.",
+        "The V2 lineage's kind-tagged attested outputs and their digest preimages. keccak256 of \
+         an AttestationPreimage IS the digest the MPC would sign in that format; request_id here \
+         is the checksum over the VaultEventV2 vector in records.json — the V2 record is the one \
+         these responses settle, and its last byte is the kind these carry at their first. \
+         Nothing is deployed in this format: what is on the wire today is \
+         attested-outputs-deployed.json.",
         vectors,
     )
 }
 
-/// The attested outputs the DEPLOYED contract accepts today — kept because
-/// the deployed vault is still running, and because the difference is the
-/// point.
+/// The attested outputs the DEPLOYED V1 protocol carries.
 fn deployed_attested_outputs() -> String {
-    let request_id = request_id_of(&vault_event());
     file(
-        "TODAY'S deployed attested outputs, for reference only: no kind byte, success as a \
-         raw u8 (any byte is accepted — the 0x02 hazard), and a 5-byte 0xdeadbeef01 failure \
-         sentinel. New implementations use attested-outputs.json.",
+        "TODAY'S deployed (V1) attested outputs: a Bytes<LEN> at one of THREE widths, with no \
+         kind byte. 0 — the EMPTY output, which queueAttestation0 takes and which EVERY failed \
+         or unviable verdict carries whatever the request asked for; 1 — the EVM bool, as a raw \
+         byte (any byte is accepted and everything but 0x01 routes to the failure branch: the \
+         0x02 hazard); 32 — one big-endian ABI word, which is how V1 carries every uint256 the \
+         destination chain returns (the swap's amountIn, the supply's shares, the redeem's \
+         assets). There is NO failure sentinel: the superseded 5-byte 0xdeadbeef01 output has no \
+         successor, because the verdict and the output's width are signed into the attestation \
+         digest instead. That digest is Poseidon over FIELD elements — [HashDomain, requestId, \
+         blockHeight, outputKind, LEN, ..output] — so it has no byte preimage and no vector here.",
         vec![
-            vector("ClaimOutput", &ClaimOutput { success: 1 }),
-            vector("CompleteWithdrawOutput", &CompleteWithdrawOutput { success: 1 }),
             vector(
-                "RefundOutput",
-                &RefundOutput {
-                    failure: [0xde, 0xad, 0xbe, 0xef, 0x01],
+                "EmptyOutput",
+                &EmptyOutput {
+                    output: ByteArray::default(),
                 },
             ),
+            vector("BoolOutput", &BoolOutput { success: 1 }),
             vector(
-                "CompleteSwapOutput",
-                &CompleteSwapOutput {
-                    amount_in: 1_234_567_890,
-                },
-            ),
-            vector(
-                "AttestationPreimage<ClaimOutput>",
-                &AttestationPreimage {
-                    request_id,
-                    output: ClaimOutput { success: 1 },
-                },
-            ),
-            vector(
-                "AttestationPreimage<CompleteSwapOutput>",
-                &AttestationPreimage {
-                    request_id,
-                    output: CompleteSwapOutput {
-                        amount_in: 1_234_567_890,
-                    },
+                "WordOutput",
+                &WordOutput {
+                    word: pattern(0x80, 1),
                 },
             ),
         ],
@@ -840,13 +880,8 @@ fn deployed_attested_outputs() -> String {
 }
 
 /// The singleton's logged payloads, inside the envelope they are logged in.
-///
-/// THE DEPLOYED request id, on purpose (stage-0 deployed conformance): these
-/// payloads are what the singleton logs TODAY, so the id inside them is the
-/// deployed [`vault_event`]'s and not [`vault_event_v2`]'s. Stage 7 changes
-/// the record, not the notification, and the vector says so in its `about`.
 fn misc_payloads() -> String {
-    let request_id = request_id_of(&vault_event());
+    let request_id = request_id_of(&vault_event_v1());
     let mut payload = [0u8; 128];
     // callerAddress ‖ depth ‖ path[0..4] ‖ zeros — the V1 notification
     // payload `construct_notification_v1` packs.
@@ -857,10 +892,9 @@ fn misc_payloads() -> String {
         "The Signet singleton's Misc log payloads, in the DEPLOYED singleton format. `hex` is \
          the payload; `envelope_hex` is the 288-byte Misc value actually logged — pad(32, \
          eventName) ‖ payload ‖ zeros — and the trailing zeros are REQUIRED, not optional (the \
-         deployed circuit hashes them). The request id inside these payloads is the DEPLOYED \
-         VaultEvent's (records.json), deliberately: stage 7 changes the request record, not the \
-         notification, so what the singleton logs is unchanged. A stage-7 notification carries \
-         the VaultEventV2 request id instead — that is the id attested-outputs.json is built on.",
+         deployed circuit hashes them). The request id inside these payloads is a checksum over \
+         the V1 VaultEventV1 vector (records.json), standing in for the Poseidon request id a \
+         real notification carries.",
         vec![
             misc_vector(
                 "SignBidirectionalMisc",

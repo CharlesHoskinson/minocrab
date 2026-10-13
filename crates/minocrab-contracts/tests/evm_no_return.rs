@@ -4,7 +4,7 @@
 //! Two things this file is the witness for, neither of which could be
 //! written before this rung:
 //!
-//! 1. A `Pending<Kinded<usdt::Transfer, K>, Env, 2>` — the NON-CONFORMING
+//! 1. A `Pending<Filed<usdt::Transfer, NoReturn>, Env, 2>` — the NON-CONFORMING
 //!    token's transfer, the one whose absent `bool` would otherwise be read
 //!    as a flag (notes/evm-calls.org §3.1) — forms `Succeeded` and `Failed`
 //!    tickets and settles with them. The attested value is `()`: zero
@@ -24,11 +24,12 @@
 
 use minocrab::v3::Circuit3;
 use minocrab::Public;
-use minocrab_contracts::evm::{erc20, usdt, weth, Kinded};
+use minocrab_contracts::evm::{erc20, usdt, weth, Filed};
 use minocrab_contracts::evm_flow::{
     Contract, Failed, Owned, Pending, Succeeded,
 };
 use minocrab_contracts::signet_flow::{Requested, Settled, Signet};
+use minocrab_contracts::signet_v1::schema;
 use minocrab_sim::v3::cost;
 use minocrab_std::v3::{
     circuit, label, Bytes, Disclose, Discloses, Ledger, LedgerRepr, Uint,
@@ -36,12 +37,13 @@ use minocrab_std::v3::{
 
 // ---- the filings --------------------------------------------------------------
 
-/// A USDT-like `transfer`, filed under kind 1.
-type Tether = Kinded<usdt::Transfer, 1>;
-/// WETH's payable `deposit()`, filed under kind 2 — no argument words.
-type Wrap = Kinded<weth::Deposit, 2>;
-/// WETH's `withdraw(uint256)`, filed under kind 3.
-type Unwrap = Kinded<weth::Withdraw, 3>;
+/// A USDT-like `transfer`, filed with the `[]` schema — the MPC is asked to
+/// decode NOTHING, which is the whole point: there is no `bool` to look for.
+type Tether = Filed<usdt::Transfer, schema::NoReturn>;
+/// WETH's payable `deposit()` — no argument words, no return.
+type Wrap = Filed<weth::Deposit, schema::NoReturn>;
+/// WETH's `withdraw(uint256)`.
+type Unwrap = Filed<weth::Withdraw, schema::NoReturn>;
 
 /// What a settle needs back.
 #[derive(LedgerRepr)]
@@ -49,7 +51,7 @@ struct Amount {
     amount: Uint<64, Public>,
 }
 
-/// Six Signet fields and three slots — the tether's two maps, and one pair
+/// Four Signet fields and three slots — the tether's two maps, and one pair
 /// each for the two WETH calls.
 #[derive(Ledger)]
 struct Wallet {
@@ -76,7 +78,6 @@ label! {
 fn send_tether(
     c: &mut Circuit3,
     evm_nonce: Uint<64>,
-    key_version: Uint<8>,
     tether: Contract<usdt::UsdtLike>,
     to: Bytes<20>,
     amount: Uint<64>,
@@ -86,7 +87,6 @@ fn send_tether(
         c,
         tether,
         (to, amount.widen::<128>()),
-        key_version,
         evm_nonce,
         |_, _| Amount {
             amount: Uint::from_field_unchecked(sent),
@@ -135,7 +135,6 @@ fn refund_tether(
 fn wrap(
     c: &mut Circuit3,
     evm_nonce: Uint<64>,
-    key_version: Uint<8>,
     weth: Contract<weth::Weth>,
     amount: Uint<64>,
 ) -> Discloses<(Sent, Requested)> {
@@ -145,7 +144,6 @@ fn wrap(
         weth,
         (),
         amount.widen::<128>(),
-        key_version,
         evm_nonce,
         |_, _| Amount {
             amount: Uint::from_field_unchecked(sent),
@@ -160,7 +158,6 @@ fn wrap(
 fn unwrap(
     c: &mut Circuit3,
     evm_nonce: Uint<64>,
-    key_version: Uint<8>,
     weth: Contract<weth::Weth>,
     amount: Uint<64>,
 ) -> Discloses<(Sent, Requested)> {
@@ -169,7 +166,6 @@ fn unwrap(
         c,
         weth,
         (amount.widen::<128>(),),
-        key_version,
         evm_nonce,
         |_, _| Amount {
             amount: Uint::from_field_unchecked(sent),
@@ -188,19 +184,19 @@ fn complete_wrap(c: &mut Circuit3, ticket: Succeeded<Wrap>) -> Discloses<Settled
 
 // ---- the tests ----------------------------------------------------------------
 
-/// The block's layout: six Signet fields, then two fields per slot.
+/// The block's layout: four Signet fields, then two fields per slot.
 #[test]
 fn the_block_is_laid_out_by_slot_width() {
     assert_eq!(WALLET.signet.signer.index(), 0);
-    assert_eq!(WALLET.tethers.record_path().as_slice(), &[5]);
-    assert_eq!(WALLET.wraps.record_path().as_slice(), &[7]);
-    assert_eq!(WALLET.unwraps.record_path().as_slice(), &[9]);
+    assert_eq!(WALLET.tethers.record_path().as_slice(), &[4]);
+    assert_eq!(WALLET.wraps.record_path().as_slice(), &[6]);
+    assert_eq!(WALLET.unwraps.record_path().as_slice(), &[8]);
     assert_eq!(WALLET.unwraps.record_path().depth(), 1);
 }
 
 /// Every circuit builds, and a settle costs what a secp256k1 verification
-/// costs — the `Unit` return changes nothing about that, because there was
-/// never anything to hash in the value beyond the kind byte.
+/// costs — the `Unit` return changes nothing about that, because the
+/// attested output is empty at both widths the digest can take.
 #[test]
 fn the_circuits_build_at_a_finite_cost() {
     let (k_send, rows_send) = cost(&send_tether().ir);

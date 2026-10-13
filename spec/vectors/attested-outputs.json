@@ -2,7 +2,7 @@
   "$comment": "GENERATED — do not edit. Regenerate with: cargo test --release -p minocrab-contracts --test serialization_conformance -- --ignored regenerate_spec",
   "format": "borsh-subset-vectors/1",
   "spec": "spec/borsh-subset.md",
-  "about": "The kind-tagged attested outputs and their digest preimages. keccak256 of an AttestationPreimage IS the digest the MPC signs; request_id here is the request id of the VaultEventV2 vector in records.json — the stage-7 record is the one these responses settle, and its last byte is the kind these carry at their first.",
+  "about": "The V2 lineage's kind-tagged attested outputs and their digest preimages. keccak256 of an AttestationPreimage IS the digest the MPC would sign in that format; request_id here is the checksum over the VaultEventV2 vector in records.json — the V2 record is the one these responses settle, and its last byte is the kind these carry at their first. Nothing is deployed in this format: what is on the wire today is attested-outputs-deployed.json.",
   "vectors": [
     {
       "type": "VaultResponse (kind 0, CLAIM, success)",
@@ -149,16 +149,16 @@
     {
       "type": "AttestationPreimage<VaultResponse>",
       "len": 34,
-      "hex": "61ff008c04ade6de5645f131f04873d7040d2765e6758d3fc9fb23f45579b11a0001",
-      "sha256": "71e47ee31adf30a540eaa6fe40fab318ee89131ee5f7e6556de2f956bed43e1b",
-      "keccak256": "62c170ddc30a8b3bd2f8a5a81aed4487b96babf0b8df0410605f3774a960ac15",
+      "hex": "c70ca439a79a0d8b8b6642ecf3c328927f3d59bf4e6376d8bf545fcd3c61c88e0001",
+      "sha256": "38eec9cda59954a7a33fadcfdea2ddf0ff4633cfe2c5cdfe088bb0f914f31418",
+      "keccak256": "835c7b9a41c7a8e057eaa1782b2da86bdbae0f10dc05b6ccb1886171b3568172",
       "fields": [
         {
           "path": "request_id",
           "type": "[u8; 32]",
           "offset": 0,
           "width": 32,
-          "hex": "61ff008c04ade6de5645f131f04873d7040d2765e6758d3fc9fb23f45579b11a"
+          "hex": "c70ca439a79a0d8b8b6642ecf3c328927f3d59bf4e6376d8bf545fcd3c61c88e"
         },
         {
           "path": "output.kind",
@@ -181,16 +181,16 @@
     {
       "type": "AttestationPreimage<SwapResponse>",
       "len": 41,
-      "hex": "61ff008c04ade6de5645f131f04873d7040d2765e6758d3fc9fb23f45579b11a02d202964900000000",
-      "sha256": "1ca1d8dc4ce1e1c2f6cf51e09464ede2f7cd91dfa5efbba5af400a50717021ef",
-      "keccak256": "2670bfc6a88fbe6a10dad16db8eeba6eea7d50c74fe24edd1bf39f9c62b38715",
+      "hex": "c70ca439a79a0d8b8b6642ecf3c328927f3d59bf4e6376d8bf545fcd3c61c88e02d202964900000000",
+      "sha256": "4a26b69f70bc34b659e5f99ae54c95742e2ded0d1abad590db20b52c04ab4497",
+      "keccak256": "c05d65cf2fc316b92be477b53d86dd7cac5e0a98010bff0fddadc515bf8f5256",
       "fields": [
         {
           "path": "request_id",
           "type": "[u8; 32]",
           "offset": 0,
           "width": 32,
-          "hex": "61ff008c04ade6de5645f131f04873d7040d2765e6758d3fc9fb23f45579b11a"
+          "hex": "c70ca439a79a0d8b8b6642ecf3c328927f3d59bf4e6376d8bf545fcd3c61c88e"
         },
         {
           "path": "output.kind",
@@ -213,16 +213,16 @@
     {
       "type": "AttestationPreimage<FailureResponse>",
       "len": 33,
-      "hex": "61ff008c04ade6de5645f131f04873d7040d2765e6758d3fc9fb23f45579b11a03",
-      "sha256": "2862f5908fa3a34e2d1a19dff0c55ad7c394ccac50aee86f4317d787bbe0d04b",
-      "keccak256": "8c660833e9ddf99ebd636df0a18d8ecc15188cb80d6aa0127ead9ed9e621fa68",
+      "hex": "c70ca439a79a0d8b8b6642ecf3c328927f3d59bf4e6376d8bf545fcd3c61c88e03",
+      "sha256": "1a2ec9c151b68d8635376b4457105b4b6274b734804bcc29f9288aab92e448c6",
+      "keccak256": "03d4e06fe1b5d7dd9b33582325c5219a1ba992868afad0460d2ddf7a1e0f4cad",
       "fields": [
         {
           "path": "request_id",
           "type": "[u8; 32]",
           "offset": 0,
           "width": 32,
-          "hex": "61ff008c04ade6de5645f131f04873d7040d2765e6758d3fc9fb23f45579b11a"
+          "hex": "c70ca439a79a0d8b8b6642ecf3c328927f3d59bf4e6376d8bf545fcd3c61c88e"
         },
         {
           "path": "output.kind",
@@ -237,16 +237,16 @@
     {
       "type": "AttestationPreimage<SupplyResponse>",
       "len": 41,
-      "hex": "61ff008c04ade6de5645f131f04873d7040d2765e6758d3fc9fb23f45579b11a05b168de3a00000000",
-      "sha256": "895b467309faa159d32a88d5d479d88ca7f780ca97a5ca0d03831d5e212c8482",
-      "keccak256": "3e4161dc0fd7be8647b176dca3c5db3bf7c1f92508366f66810e7ffb914568ab",
+      "hex": "c70ca439a79a0d8b8b6642ecf3c328927f3d59bf4e6376d8bf545fcd3c61c88e05b168de3a00000000",
+      "sha256": "d48d1362cc8bff9eb6539de96ee35d69363fa757e031a7dd5bfebcc0a8928f52",
+      "keccak256": "1b7088af530a14ba9836f9235247aa6dbaba3b956bc8822f7a5aeb5a2b579f87",
       "fields": [
         {
           "path": "request_id",
           "type": "[u8; 32]",
           "offset": 0,
           "width": 32,
-          "hex": "61ff008c04ade6de5645f131f04873d7040d2765e6758d3fc9fb23f45579b11a"
+          "hex": "c70ca439a79a0d8b8b6642ecf3c328927f3d59bf4e6376d8bf545fcd3c61c88e"
         },
         {
           "path": "output.kind",
@@ -269,16 +269,16 @@
     {
       "type": "AttestationPreimage<RedeemResponse>",
       "len": 41,
-      "hex": "61ff008c04ade6de5645f131f04873d7040d2765e6758d3fc9fb23f45579b11a06b168de3a00000000",
-      "sha256": "b64d9d0be0bce135265ad1c718516337effbe304fc02a77ad612afb622d90055",
-      "keccak256": "87ebeeac0a34524f15c8acfda2abf7a266901531c975c92b189ac014ff3d1439",
+      "hex": "c70ca439a79a0d8b8b6642ecf3c328927f3d59bf4e6376d8bf545fcd3c61c88e06b168de3a00000000",
+      "sha256": "67c21ef04b3bc4904213db1a2b191454b05ab85a74cf982797ed08493184a087",
+      "keccak256": "c77c113f2841abb32b6ac6346de68edcd2919ec1400c4037ab7b5059cff78725",
       "fields": [
         {
           "path": "request_id",
           "type": "[u8; 32]",
           "offset": 0,
           "width": 32,
-          "hex": "61ff008c04ade6de5645f131f04873d7040d2765e6758d3fc9fb23f45579b11a"
+          "hex": "c70ca439a79a0d8b8b6642ecf3c328927f3d59bf4e6376d8bf545fcd3c61c88e"
         },
         {
           "path": "output.kind",

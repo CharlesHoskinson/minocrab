@@ -46,7 +46,9 @@ pub struct LedgerValue {
 /// (notes/ledger-adts.org finding (c)).
 pub fn atom_limbs(atom: &AlignmentAtom) -> usize {
     match atom {
-        AlignmentAtom::Bytes { length } => (*length as usize).div_ceil(31).max(1),
+        // A `Bytes<0>` atom is in the alignment but holds NO limb (compactc's
+        // V1 Signet record: 23 atoms, 30 limbs — M44).
+        AlignmentAtom::Bytes { length } => (*length as usize).div_ceil(31),
         AlignmentAtom::Field | AlignmentAtom::Compress => 1,
     }
 }

@@ -14,12 +14,11 @@
 //! commitment, and the returned slot count. It is the same comparison
 //! `minocrab-abi` runs against a corpus artifact, pointed at ourselves.
 //!
-//! It is at its most valuable for `respond` and `respondBidirectional`,
-//! whose parameter list is the event's fields ONE LEVEL FLATTER than the
-//! interface's `{ signature: { … } }` (see `respond_like`'s note): the
-//! leaves are the crate's own `AffinePoint`/`RequestId`, but the nesting is
-//! not, so nothing at the type level says the flattening is faithful. This
-//! test is what says it.
+//! Since PR #127 (M43) all three circuits take the interface crate's own
+//! structs, so the type level already says most of this; what the test
+//! still adds is the constraint prefix slot for slot — that the enum
+//! argument is constrained below 3 and the two `Uint<64>`s to 64 bits, as
+//! the deployed artifact constrains them.
 
 use minocrab::Public;
 use minocrab_abi::assert_ir_matches_interface;
@@ -30,8 +29,8 @@ use signet_signer_interface::{
 };
 
 type SignBidirectional = (RequestId<Public>, SignBidirectionalEventNotification<Public>);
-type Respond = (RequestId<Public>, SignatureRespondedEvent<Public>);
-type RespondBidirectional = (RequestId<Public>, RespondBidirectionalEvent<Public>);
+type Respond = (SignatureRespondedEvent<Public>,);
+type RespondBidirectional = (RespondBidirectionalEvent<Public>,);
 
 /// The one whose argument type IS the interface crate's: one declaration,
 /// used at `Private` by the callee and `Public` by every caller.
@@ -43,9 +42,8 @@ fn sign_bidirectional_matches_its_interface() {
     );
 }
 
-/// The two whose parameter list flattens the interface's wrapper struct.
-/// Nothing but this test ties `respond_like`'s nine slots to
-/// `SignatureRespondedEvent`.
+/// The two respond circuits: nine and fourteen slots, the interface's
+/// structs at `Private`.
 #[test]
 fn the_respond_circuits_match_their_interface() {
     assert_ir_matches_interface::<Respond, ()>(&signet_contract::SignetContract::respond().ir, SignetSigner::RESPOND);

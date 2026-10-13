@@ -94,10 +94,11 @@ use crate::erc20_vault::{REDEEM_WORDS, SUPPLY_WORDS, SWAP_WORDS, VAULT_WORDS};
 use crate::evm::erc20::Erc20;
 use crate::evm::erc4626::Erc4626;
 use crate::evm::uniswap_v3::UniswapV3Router;
-use crate::evm::{erc20, erc4626, uniswap_v3, Envelope, Filing, Kinded};
+use crate::evm::{erc20, erc4626, uniswap_v3, Envelope, Filed, Filing};
 use crate::evm_flow::{Commit, Contract, Failed, Fired, Owned, Pending, Succeeded};
 use crate::signet;
-use crate::signet_flow::{Requested, Settled, Signet};
+use crate::signet_flow::{Requested, Settled, Signet, Signing};
+use crate::signet_v1::schema;
 
 // ---- the wire: constants inherited from the retired borsh fork ---------------------
 
@@ -191,8 +192,7 @@ pub struct Deposit;
 
 impl Filing for Deposit {
     type Call = erc20::Transfer;
-    const KIND: u8 = RESPONSE_KIND_CLAIM as u8;
-    const RETURN_FIELD: Option<&'static str> = Some("success");
+    type Schema = schema::Success;
 }
 
 /// `erc20::Transfer` AS A WITHDRAWAL — the vault's outbound transfer, filed
@@ -202,8 +202,7 @@ pub struct Withdrawal;
 
 impl Filing for Withdrawal {
     type Call = erc20::Transfer;
-    const KIND: u8 = RESPONSE_KIND_WITHDRAW as u8;
-    const RETURN_FIELD: Option<&'static str> = Some("success");
+    type Schema = schema::Success;
 }
 
 /// `uniswap_v3::ExactOutputSingle` under SWAP; the record is
@@ -212,8 +211,7 @@ pub struct Swap;
 
 impl Filing for Swap {
     type Call = uniswap_v3::ExactOutputSingle;
-    const KIND: u8 = RESPONSE_KIND_SWAP as u8;
-    const RETURN_FIELD: Option<&'static str> = Some("amountIn");
+    type Schema = schema::AmountIn;
 }
 
 /// `erc4626::Deposit` on the stata wrapper, under SUPPLY; the record is
@@ -222,8 +220,7 @@ pub struct Supply;
 
 impl Filing for Supply {
     type Call = erc4626::Deposit;
-    const KIND: u8 = RESPONSE_KIND_SUPPLY as u8;
-    const RETURN_FIELD: Option<&'static str> = Some("shares");
+    type Schema = schema::Shares;
 }
 
 /// `erc4626::Redeem` on the stata wrapper, under REDEEM; the record is
@@ -232,15 +229,13 @@ pub struct Redeem;
 
 impl Filing for Redeem {
     type Call = erc4626::Redeem;
-    const KIND: u8 = RESPONSE_KIND_REDEEM as u8;
-    const RETURN_FIELD: Option<&'static str> = Some("assets");
+    type Schema = schema::Assets;
 }
 
-/// `erc20::Approve` under APPROVE — the ONE filing with nothing to say
-/// beyond its kind, so it is the off-the-shelf [`Kinded`] rather than an
-/// impl: the slot is [`Fired`], nothing settles it, and no record names an
-/// attested value.
-pub type Approval = Kinded<erc20::Approve, { RESPONSE_KIND_APPROVE as u8 }>;
+/// `erc20::Approve` — the ONE filing with nothing to say beyond its schema,
+/// so it is the off-the-shelf [`Filed`] rather than an impl: the slot is
+/// [`Fired`], nothing settles it, and the attested `bool` is never read.
+pub type Approval = Filed<erc20::Approve, schema::Success>;
 
 /// What `claim` needs back: who may claim, which token, how much.
 ///
@@ -304,7 +299,8 @@ pub struct Vault {
     pub deployer: LedgerCell<common::UserCommitment<Public>>,
     pub vault_evm_address: LedgerCell<Bytes<20, Public>>,
     pub uniswap_router: LedgerCell<Bytes<20, Public>>,
-    /// signer, mpcResponseKey, requestNonce, caip2Id, evmChainId.
+    /// signer, mpcResponseKey, mpcKeyVersion, evmChainId — FOUR fields
+    /// under V1, where the V2 vocabulary had six.
     pub signet: Signet,
     pub deposits: Pending<Deposit, DepositEnv, VAULT_WORDS>,
     pub withdrawals: Pending<Withdrawal, Owned<WithdrawEnv>, VAULT_WORDS>,
@@ -323,7 +319,7 @@ label! {
     VaultEvmAddress = "the vault's derived EVM address";
     UniswapRouter = "the Uniswap router address";
     EvmChainId = "the EVM chain id";
-    Caip2Id = "the CAIP-2 chain id";
+    MpcKeyVersion = "the MPC key version";
     MpcResponseKey = "the MPC response key";
     DepositorCommitment = "depositor identity commitment";
     DepositedErc20 = "the deposited ERC20";
@@ -489,7 +485,11 @@ impl Vault {
     // ---- initialize ---------------------------------------------------------------------------------
 
     /// `initialize(vaultEvm, swapRouter, stataUnderlyingAddr, stataTokenAddr,
-    /// chainId, chainCaip2Id, responseKey)`.
+    /// chainId, keyVersion, responseKey)`.
+    ///
+    /// The caip2 id went with the V1 vocabulary (`executionDest` is the
+    /// constant `ethereumCaip2Id()`); the MPC key version arrived in its
+    /// place, as a cell, so no later circuit takes one.
     #[circuit]
     pub fn initialize(
         c: &mut Circuit3,
@@ -498,7 +498,7 @@ impl Vault {
         stata_underlying_addr: Bytes<20>,
         stata_token_addr: Bytes<20>,
         chain_id: Uint<64>,
-        chain_caip2_id: common::Caip2Id<Private>,
+        key_version: Uint<8>,
         response_key: Secp256k1Point,
     ) -> Discloses<(
         VaultEvmAddress,
@@ -506,7 +506,7 @@ impl Vault {
         StataUnderlying,
         StataToken,
         EvmChainId,
-        Caip2Id,
+        MpcKeyVersion,
         MpcResponseKey,
     )> {
         c.region("initialized gate", |c| {
@@ -514,6 +514,12 @@ impl Vault {
             c.assert(count.eq(0u64).message("Already initialized"));
         });
         c.region("deployer gate", assert_deployer);
+        // THE KEY VERSION IS GUARDED HERE, and only here: it is a write-once
+        // cell under V1, so this is the one circuit that can choose it. The
+        // compat lineage carries the same assert on its own `initialize`
+        // (`erc20_vault::initialize`), and before M44 rung D every request
+        // circuit repeated it because every request took a version.
+        c.assert(key_version.ge(1u64).message("keyVersion must be >= 1"));
         c.assert(chain_id.gt(0u64).message("Chain ID must be positive"));
         c.assert(swap_router.ne(0u64).message("Router cannot be zero"));
         c.assert(stata_underlying_addr.ne(0u64).message("stataUnderlying cannot be zero"));
@@ -536,9 +542,9 @@ impl Vault {
             let stata_token = stata_token_addr.disclose_as::<StataToken>(c);
             VAULT.stata_token.write(c, &stata_token);
             let chain_id = chain_id.disclose_as::<EvmChainId>(c);
-            let caip2 = chain_caip2_id.disclose_as::<Caip2Id>(c);
+            let key_version = key_version.disclose_as::<MpcKeyVersion>(c);
             let response_key = response_key.disclose_as::<MpcResponseKey>(c);
-            VAULT.signet.initialize(c, &response_key, &caip2, &chain_id);
+            VAULT.signet.initialize(c, &response_key, &key_version, &chain_id);
         });
         Discloses::of(())
     }
@@ -555,7 +561,6 @@ impl Vault {
         gas_limit: Uint<64>,
         max_fee_per_gas: Uint<128>,
         max_priority_fee_per_gas: Uint<128>,
-        key_version: Uint<8>,
         deposit_request: DepositRequest,
     ) -> Discloses<(DepositorCommitment, DepositedErc20, DepositedAmount, Requested)> {
         c.region("guards", |c| {
@@ -582,9 +587,8 @@ impl Vault {
                 |_c: &mut Circuit3| deposit_request.amount,
             ),
             Envelope::caller(max_priority_fee_per_gas, max_fee_per_gas, gas_limit),
-            key_version,
             evm_nonce,
-            |_c| (common::SigningPath::from(caller.private()), ()),
+            |_c| (Signing::derived(common::SigningPath::from(caller.private())), ()),
             |_c, _id, ()| DepositEnv {
                 depositor: caller,
                 erc20,
@@ -671,7 +675,6 @@ impl Vault {
     pub fn withdraw(
         c: &mut Circuit3,
         evm_nonce: Uint<64>,
-        key_version: Uint<8>,
         withdraw_request: WithdrawRequest,
         coin: ShieldedCoinArg,
     ) -> Discloses<(
@@ -703,7 +706,6 @@ impl Vault {
                 |_c: &mut Circuit3| withdraw_request.amount,
             ),
             Envelope::fixed(),
-            key_version,
             evm_nonce,
             // The secret is witnessed HERE — after the transaction, before
             // the record is filed, which is where the deployed circuit
@@ -711,7 +713,7 @@ impl Vault {
             |c| {
                 let sk = common::witness_sk(c);
                 let amount = amount.disclose_as::<WithdrawnAmount>(c);
-                (common::SigningPath::vault_path(c).private(), (sk, amount))
+                (Signing::contract(c), (sk, amount))
             },
             |c, id, (sk, amount)| Owned {
                 owner: Commit::to::<WithdrawerRefundCommitment, _>(c, sk, id),
@@ -775,7 +777,6 @@ impl Vault {
     pub fn swap(
         c: &mut Circuit3,
         evm_nonce: Uint<64>,
-        key_version: Uint<8>,
         swap_request: SwapRequest,
         coin: ShieldedCoinArg,
     ) -> Discloses<(
@@ -832,14 +833,13 @@ impl Vault {
             // The struct-literal spelling: the zero and the one are the
             // circuit's own (see `Envelope::literal`).
             Envelope::fixed().literal(Some(zero.private()), one.private()),
-            key_version,
             evm_nonce,
             |c| {
                 let sk = common::witness_sk(c);
                 let amount_out = amount_out.disclose_as::<SwapAmountOut>(c);
                 let amount_in_max = amount_in_max.disclose_as::<SwapAmountInMaximum>(c);
                 (
-                    common::SigningPath::vault_path(c).private(),
+                    Signing::contract(c),
                     (sk, amount_out, amount_in_max),
                 )
             },
@@ -937,7 +937,6 @@ impl Vault {
         c: &mut Circuit3,
         erc20_address: Bytes<20>,
         evm_nonce: Uint<64>,
-        key_version: Uint<8>,
     ) -> Discloses<(ApprovedErc20, Requested)> {
         c.region("guards", |c| {
             assert_initialized(c);
@@ -953,9 +952,8 @@ impl Vault {
                 |c: &mut Circuit3| unlimited_allowance_word(c),
             ),
             Envelope::fixed(),
-            key_version,
             evm_nonce,
-            |c| common::SigningPath::vault_path(c).private(),
+            Signing::contract,
         );
         Discloses::of(())
     }
@@ -967,7 +965,6 @@ impl Vault {
     pub fn approve_stata(
         c: &mut Circuit3,
         evm_nonce: Uint<64>,
-        key_version: Uint<8>,
     ) -> Discloses<(Requested,)> {
         assert_initialized(c);
 
@@ -985,9 +982,8 @@ impl Vault {
                 |c: &mut Circuit3| unlimited_allowance_word(c),
             ),
             Envelope::fixed(),
-            key_version,
             evm_nonce,
-            |c| common::SigningPath::vault_path(c).private(),
+            Signing::contract,
         );
         Discloses::of(())
     }
@@ -1001,7 +997,6 @@ impl Vault {
     pub fn supply(
         c: &mut Circuit3,
         evm_nonce: Uint<64>,
-        key_version: Uint<8>,
         amount: Uint<128>,
         coin: ShieldedCoinArg,
     ) -> Discloses<(
@@ -1036,12 +1031,11 @@ impl Vault {
                 |c: &mut Circuit3| cell_address(c, &VAULT.vault_evm_address),
             ),
             Envelope::fixed(),
-            key_version,
             evm_nonce,
             |c| {
                 let sk = common::witness_sk(c);
                 let amount = amount_field.disclose_as::<SuppliedAmount>(c);
-                (common::SigningPath::vault_path(c).private(), (sk, amount))
+                (Signing::contract(c), (sk, amount))
             },
             |c, id, (sk, amount)| Owned {
                 owner: Commit::to::<SupplierRefundCommitment, _>(c, sk, id),
@@ -1111,7 +1105,6 @@ impl Vault {
     pub fn redeem(
         c: &mut Circuit3,
         evm_nonce: Uint<64>,
-        key_version: Uint<8>,
         shares: Uint<128>,
         coin: ShieldedCoinArg,
     ) -> Discloses<(
@@ -1158,12 +1151,11 @@ impl Vault {
             // The struct-literal spelling; the one is the circuit's own (it
             // guarded the coin burn), the zero is named by the builder.
             Envelope::fixed().literal(None, one.private()),
-            key_version,
             evm_nonce,
             |c| {
                 let sk = common::witness_sk(c);
                 let shares = shares_field.disclose_as::<RedeemedShares>(c);
-                (common::SigningPath::vault_path(c).private(), (sk, shares))
+                (Signing::contract(c), (sk, shares))
             },
             |c, id, (sk, shares)| Owned {
                 owner: Commit::to::<RedeemerRefundCommitment, _>(c, sk, id),

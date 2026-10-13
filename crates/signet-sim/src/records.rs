@@ -5,6 +5,14 @@
 //! twin ([`SignBidirectionalRecordV2`]) the MPC's own work order describes
 //! (notes/borsh-format.org §"THE READER CONSTANTS"): a format-version byte
 //! at the head, one response-kind byte where the two schema strings were.
+//!
+//! AND THE V1 RECORD ([`SignBidirectionalRecordV1`], M44 rung D): the shape
+//! `@sig-net/midnight` 0.24.1 ships and the deployed flush-pattern vault
+//! files. It is translated from `minocrab_contracts::signet_v1` rather than
+//! from the MPC, because the MPC has NOT moved — `sig-net/mpc` at `0d1e5d6e`
+//! (develop, 2026-10) still decodes the `fff3421c` record, request nonce and
+//! caip2 field included. When its reader lands, this is the twin to diff
+//! against.
 
 /// One signing request, the DEPLOYED `SignBidirectionalEvent` record.
 #[derive(Debug, Clone, PartialEq)]
@@ -54,6 +62,39 @@ pub struct SignBidirectionalRecordV2 {
 
 /// The stage-7 format-version byte.
 pub const RECORD_FORMAT_VERSION: u8 = 0x80;
+
+/// The V1 record: `keyVersion` FIRST, no request nonce, the destination
+/// third from last, and the two schemas at the tail with
+/// `respondSerializationSchema` pinned to `Bytes<0>` — an atom with no bytes
+/// at all, which is why it has no field here.
+///
+/// What a reader must do differently from the V2 twin, beyond the field
+/// order: the request id is NOT a hash of this record. It is
+/// [`crate::hashing::v1::request_id`] over a seven-field preimage whose
+/// transaction enters as [`crate::hashing::v1::tx_params_digest`], computed
+/// over the USED calldata words only — so two records differing in an unused
+/// word slot share an id, and a record cannot be verified by hashing its
+/// cell.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SignBidirectionalRecordV1 {
+    /// `Uint<8>`, at least 1 (the constructor asserts it).
+    pub key_version: u8,
+    /// `ContractAddress { bytes: Bytes<32> }`.
+    pub sender: [u8; 32],
+    pub path: [u8; 32],
+    /// `MPCSignatureAlgorithm`: ecdsa = 0, reserved = 1.
+    pub algo: u8,
+    /// `TxParamType`: evmType2 = 0, reserved = 1.
+    pub tx_param_type: u8,
+    pub tx_params: EvmType2TxParams,
+    /// `executionDest` — `pad(32, "eip155:1")` for every Ethereum network.
+    pub execution_dest: [u8; 32],
+    /// `MPCDestination`: unused = 0, reserved = 1.
+    pub signature_dest: u8,
+    pub params: [u8; 64],
+    /// `Bytes<LenOut>`, runtime width chosen per integrator.
+    pub output_deserialization_schema: Vec<u8>,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct EvmType2TxParams {

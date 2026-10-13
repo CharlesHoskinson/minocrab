@@ -43,7 +43,8 @@
 //! ```compile_fail
 //! use minocrab::v3::Circuit3;
 //! use minocrab::{Private, Public};
-//! use minocrab_contracts::evm::{erc20, erc721, Kinded};
+//! use minocrab_contracts::evm::{erc20, erc721, Filed};
+//! use minocrab_contracts::signet_v1::schema;
 //! use minocrab_contracts::evm_flow::{Contract, Pending};
 //! use minocrab_contracts::signet_flow::Signet;
 //! use minocrab_std::v3::{Bytes, Ledger, LedgerRepr, Uint};
@@ -53,7 +54,7 @@
 //! #[derive(Ledger)]
 //! struct Block {
 //!     signet: Signet,
-//!     pulls: Pending<Kinded<erc20::TransferFrom, 1>, Amount, 3>,
+//!     pulls: Pending<Filed<erc20::TransferFrom, schema::Success>, Amount, 3>,
 //! }
 //! const BLOCK: Block = Block::new();
 //!
@@ -64,13 +65,12 @@
 //!     from: Bytes<20, Private>,
 //!     to: Bytes<20, Private>,
 //!     amount: Uint<128, Private>,
-//!     key_version: Uint<8>,
 //!     nonce: Uint<64>,
 //!     env: Amount,
 //! ) {
 //!     // ERROR: the trait bound `Erc721: Extends<Erc20>` is not satisfied
 //!     BLOCK.pulls.request(
-//!         c, callee, (from, to, amount), key_version, nonce, |_, _| env,
+//!         c, callee, (from, to, amount), nonce, |_, _| env,
 //!     );
 //! }
 //! ```
@@ -80,7 +80,8 @@
 //! ```compile_fail
 //! use minocrab::v3::Circuit3;
 //! use minocrab::{Private, Public};
-//! use minocrab_contracts::evm::{erc20, erc721, Kinded};
+//! use minocrab_contracts::evm::{erc20, erc721, Filed};
+//! use minocrab_contracts::signet_v1::schema;
 //! use minocrab_contracts::evm_flow::{Contract, Pending};
 //! use minocrab_contracts::signet_flow::Signet;
 //! use minocrab_std::v3::{Bytes, Ledger, LedgerRepr, Uint, B32};
@@ -90,7 +91,7 @@
 //! #[derive(Ledger)]
 //! struct Block {
 //!     signet: Signet,
-//!     pulls: Pending<Kinded<erc721::TransferFrom, 1>, Amount, 3>,
+//!     pulls: Pending<Filed<erc721::TransferFrom, schema::NoReturn>, Amount, 3>,
 //! }
 //! const BLOCK: Block = Block::new();
 //!
@@ -101,13 +102,12 @@
 //!     from: Bytes<20, Private>,
 //!     to: Bytes<20, Private>,
 //!     token_id: B32<Private>,
-//!     key_version: Uint<8>,
 //!     nonce: Uint<64>,
 //!     env: Amount,
 //! ) {
 //!     // ERROR: the trait bound `Erc20: Extends<Erc721>` is not satisfied
 //!     BLOCK.pulls.request(
-//!         c, callee, (from, to, token_id), key_version, nonce, |_, _| env,
+//!         c, callee, (from, to, token_id), nonce, |_, _| env,
 //!     );
 //! }
 //! ```
@@ -118,7 +118,8 @@
 //! ```
 //! use minocrab::v3::Circuit3;
 //! use minocrab::{Private, Public};
-//! use minocrab_contracts::evm::{erc20, erc721, Kinded};
+//! use minocrab_contracts::evm::{erc20, erc721, Filed};
+//! use minocrab_contracts::signet_v1::schema;
 //! use minocrab_contracts::evm_flow::{Contract, Pending};
 //! use minocrab_contracts::signet_flow::Signet;
 //! use minocrab_std::v3::{Bytes, Ledger, LedgerRepr, Uint, B32};
@@ -128,8 +129,8 @@
 //! #[derive(Ledger)]
 //! struct Block {
 //!     signet: Signet,
-//!     coins: Pending<Kinded<erc20::TransferFrom, 1>, Amount, 3>,
-//!     nfts: Pending<Kinded<erc721::TransferFrom, 2>, Amount, 3>,
+//!     coins: Pending<Filed<erc20::TransferFrom, schema::Success>, Amount, 3>,
+//!     nfts: Pending<Filed<erc721::TransferFrom, schema::NoReturn>, Amount, 3>,
 //! }
 //! const BLOCK: Block = Block::new();
 //!
@@ -142,15 +143,14 @@
 //!     to: Bytes<20, Private>,
 //!     amount: Uint<128, Private>,
 //!     token_id: B32<Private>,
-//!     key_version: Uint<8>,
 //!     nonce: Uint<64>,
 //! ) {
 //!     BLOCK.coins.request(
-//!         c, token, (from, to, amount), key_version, nonce,
+//!         c, token, (from, to, amount), nonce,
 //!         |c, _| Amount { amount: Uint::from_field_unchecked(c.constant(0)) },
 //!     );
 //!     BLOCK.nfts.request(
-//!         c, nft, (from, to, token_id), key_version, nonce,
+//!         c, nft, (from, to, token_id), nonce,
 //!         |c, _| Amount { amount: Uint::from_field_unchecked(c.constant(0)) },
 //!     );
 //! }

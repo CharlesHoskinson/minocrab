@@ -17,18 +17,18 @@
 //!   `Pending::request` files one, and moves the environment together with
 //!   the snapshotted last-seen into the outstanding set under the request
 //!   id (the spec's C2: last seen travels with the record). Permissionless:
-//!   nothing witness-dependent, nothing to go stale in the stream. It does
-//!   read and bump the Signet REQUEST nonce inside `file_request`, as every
-//!   filing in this crate does; that counter is the protocol record's, not
-//!   the outbox's, and its contention is the audited one of
-//!   notes/nonce-admin.org §10.1.
+//!   nothing witness-dependent, nothing to go stale in the stream. SINCE M44
+//!   RUNG D IT READS NOTHING SHARED AT ALL — the Signet request nonce every
+//!   `file_request` used to read and bump is gone with the V1 vocabulary, so
+//!   the audited counter of notes/nonce-admin.org §10.1 is not there to
+//!   audit.
 //! - [`Outbox::complete`] / [`Outbox::refund`] are `Pending`'s settle
 //!   bodies over the same two maps, returning the outstanding entry; then
 //!   [`Outbox::raise_seen`] checks the attested height is strictly after
 //!   the entry's last seen (C3) and raises last seen by a blind max (C3
-//!   step 4). The height is the attestation's (spec M2); until the
-//!   attested payload carries one, the reference contract attests it as
-//!   the call's return word.
+//!   step 4). The height is the ATTESTATION'S OWN (spec M2, landed in V1's
+//!   `RespondBidirectionalEvent.blockHeight`), so `raise_seen` takes the
+//!   settled outcome and no height argument at all.
 //!
 //! Identical pre-records collide only between call and emit (they share a
 //! handle); once emitted they are distinct requests, since the id includes
@@ -41,17 +41,17 @@ use minocrab::{Private, Public};
 use minocrab_ledger::{XcallCommitment, XcallEntryPointHash};
 use minocrab_std::v3::blind::{Add, Max};
 use minocrab_std::v3::{
-    label, own_public_key, repr_limbs, Assumed, Disclose, DisclosureLabel, FieldPath, LedgerRepr, ProofWires,
-    LedgerWidth, Stream, StreamSpec, Uint, ZswapCoinPublicKey,
+    label, own_public_key, repr_limbs, Disclose, DisclosureLabel, FieldPath, LedgerRepr,
+    LedgerWidth, ProofWires, Stream, StreamSpec, Uint, ZswapCoinPublicKey,
 };
 use signet_signer_interface::RequestId;
 
 use super::{
-    build_tx_from_words, common, file_request, AbiTuple, Attestable, Called, Callee, Commit,
+    build_tx_from_words, common, file_request, AbiReturn, AbiTuple, Called, Callee, Commit,
     Contract, Envelope, EvmCall, Extends, Failed, Filing, Handle, HandleOwned, Outcome, Pending,
-    PreRecord, QueueEntry, Ret, SignRequest, SigningPath, Succeeded,
+    PreRecord, QueueEntry, Ret, Returned, SignRequest, Succeeded,
 };
-use crate::signet_flow::{RequestIdFiled, RequestRecordFiled};
+use crate::signet_flow::{RequestIdFiled, RequestRecordFiled, Signing};
 
 label! {
     /// The handle an emit takes, disclosed: it is the map key of everything
@@ -141,24 +141,28 @@ impl<Env: LedgerRepr> LedgerRepr for Outstanding<Env> {
 ///
 /// ```compile_fail
 /// use minocrab::v3::Circuit3;
-/// use minocrab_contracts::evm::{erc20, Kinded};
+/// use minocrab_contracts::evm::{erc20, Filed};
 /// use minocrab_contracts::evm_flow::{Outbox, Succeeded};
 /// use minocrab_contracts::signet_flow::Signet;
+/// use minocrab_contracts::signet_v1::schema;
 /// use minocrab_std::v3::{Ledger, LedgerRepr, Uint};
 /// use minocrab::Public;
 ///
 /// #[derive(LedgerRepr)] struct Amount { amount: Uint<64, Public> }
 ///
+/// type Transfer = Filed<erc20::Transfer, schema::Success>;
+/// type Approve = Filed<erc20::Approve, schema::Success>;
+///
 /// #[derive(Ledger)]
 /// struct Block {
 ///     signet: Signet,
-///     transfers: Outbox<Kinded<erc20::Transfer, 1>, Amount, 2>,
-///     approvals: Outbox<Kinded<erc20::Approve, 2>, Amount, 2>,
+///     transfers: Outbox<Transfer, Amount, 2>,
+///     approvals: Outbox<Approve, Amount, 2>,
 /// }
 /// const BLOCK: Block = Block::new();
 ///
-/// fn settle(c: &mut Circuit3, ticket: Succeeded<Kinded<erc20::Approve, 2>>) {
-///     // ERROR: expected `Succeeded<Kinded<Transfer, 1>>`
+/// fn settle(c: &mut Circuit3, ticket: Succeeded<Approve>) {
+///     // ERROR: expected `Succeeded<Filed<Transfer, Success>>`
 ///     BLOCK.transfers.complete(c, ticket);
 /// }
 /// ```
@@ -197,33 +201,32 @@ impl<F: Filing, Env: LedgerRepr, const WORDS: usize> Outbox<F, Env, WORDS> {
 
 impl<F: Filing, Env: LedgerRepr, const WORDS: usize> LedgerWidth for Outbox<F, Env, WORDS> {
     const WIDTH: usize = 2 + <Stream<OutboxSpec<Env, WORDS>> as LedgerWidth>::WIDTH;
-    const KINDS: &'static [u8] = &[F::KIND];
 }
 
 impl<F: Filing, Env: LedgerRepr + ProofWires, const WORDS: usize> Outbox<F, Env, WORDS>
 where
-    Ret<Called<F>>: Attestable,
+    Returned<F>: AbiReturn,
 {
     /// CALL: encode the arguments, file the pre-record under its handle
     /// with the environment, and let the stream assign the nonce blind.
     /// Returns the handle, and discloses [`super::Inserted`] plus whatever
     /// `env` discloses.
     ///
-    /// NO NONCE AND NO FEE ARGUMENT (notes/nonce-admin.org §1.1): the nonce
-    /// is the accumulator's, the envelope the contract's. Nothing is hashed
-    /// but the handle, and nothing is notified — the MPC learns of the call
-    /// when the emit files its record. The one read is the not-member
-    /// check on the handle: per key, never shared.
+    /// NO NONCE, NO FEE AND NO KEY VERSION ARGUMENT
+    /// (notes/nonce-admin.org §1.1): the nonce is the accumulator's, the
+    /// envelope the contract's, the key version the `Signet` block's.
+    /// Nothing is hashed but the handle, and nothing is notified — the MPC
+    /// learns of the call when the emit files its record. The one read is the
+    /// not-member check on the handle: per key, never shared.
     pub fn call(
         &self,
         c: &mut Circuit3,
         callee: Contract<impl Extends<Callee<F>>>,
         args: <<Called<F> as EvmCall>::Args as AbiTuple>::Wires<Private>,
-        key_version: Uint<8>,
         env: impl FnOnce(&mut Circuit3, Handle<Public>) -> Env,
     ) -> Handle<Public> {
         let words = <<Called<F> as EvmCall>::Args as AbiTuple>::words(c, args);
-        let pre = PreRecord::<WORDS>::file(c, callee.address(), key_version, &words);
+        let pre = PreRecord::<WORDS>::file(c, callee.address(), &words);
         let handle = pre.handle(c);
         c.region("outbox: call", |c| {
             // The environment is built AFTER the handle exists, so a
@@ -259,17 +262,13 @@ where
             nonce.field().private(),
             F::GAS_LIMIT,
         );
-        let path = SigningPath::contract_path(c).private();
-        file_request(
+        let signing = Signing::contract(c);
+        file_request::<WORDS, F::Schema>(
             c,
             &self.pending.signet,
             &self.pending.records,
-            SignRequest {
-                key_version: pre.key_version(),
-                path,
-                tx,
-            },
-            F::KIND,
+            SignRequest { signing, tx },
+            <<Called<F> as EvmCall>::Args as AbiTuple>::WORDS,
             |c, request_id| {
                 self.pending
                     .envs
@@ -284,7 +283,7 @@ where
         &self,
         c: &mut Circuit3,
         ticket: Succeeded<F>,
-    ) -> Outcome<Outstanding<Env>, <Called<F> as EvmCall>::Success, WORDS> {
+    ) -> Outcome<Outstanding<Env>, <Called<F> as EvmCall>::Success> {
         self.pending.complete(c, ticket)
     }
 
@@ -294,7 +293,7 @@ where
         &self,
         c: &mut Circuit3,
         ticket: Failed<F>,
-    ) -> Outcome<Outstanding<Env>, Ret<Called<F>>, WORDS> {
+    ) -> Outcome<Outstanding<Env>, Ret<Called<F>>> {
         self.pending.refund(c, ticket)
     }
 
@@ -303,16 +302,20 @@ where
     /// the spec's table says), and last seen is raised to it — a blind max
     /// on the accumulator, so a response contends with nothing.
     ///
-    /// `height` is the attestation's (spec M2), disclosed here under `L`:
-    /// it becomes ledger state.
-    pub fn raise_seen<L: DisclosureLabel>(
-        &self,
-        c: &mut Circuit3,
-        outstanding: &Outstanding<Env>,
-        height: Uint<64>,
-    ) {
-        let height = height.disclose_as::<L>(c);
-        c.assert(height.gt(outstanding.seen).message("Response not after the call"));
+    /// THE HEIGHT IS THE ATTESTATION'S OWN (spec M2, landed in V1): it comes
+    /// off the settled [`Outcome`], which read it from the
+    /// `RespondBidirectionalEvent` and disclosed it there — so this takes the
+    /// outcome rather than a height argument, and there is no way to raise
+    /// last seen past a height the MPC did not sign. Before V1 the attested
+    /// payload carried no height and the reference contract had to attest one
+    /// as the call's return word (`HeightedTransfer`, now gone).
+    pub fn raise_seen<R>(&self, c: &mut Circuit3, outcome: &Outcome<Outstanding<Env>, R>) {
+        let height = outcome.block_height;
+        c.assert(
+            height
+                .gt(outcome.env.seen)
+                .message("Response not after the call"),
+        );
         let zero = Uint::from_field_unchecked(c.constant(0u64));
         self.stream.combine(c, (zero, height));
     }
@@ -320,7 +323,7 @@ where
 
 impl<F: Filing, E: LedgerRepr + ProofWires, const WORDS: usize> Outbox<F, HandleOwned<E>, WORDS>
 where
-    Ret<Called<F>>: Attestable,
+    Returned<F>: AbiReturn,
 {
     /// [`Outbox::call`] with the requester's identity committed into the
     /// environment, bound to the HANDLE — the outbox twin of
@@ -331,11 +334,10 @@ where
         c: &mut Circuit3,
         callee: Contract<impl Extends<Callee<F>>>,
         args: <<Called<F> as EvmCall>::Args as AbiTuple>::Wires<Private>,
-        key_version: Uint<8>,
         inner: impl FnOnce(&mut Circuit3, Handle<Public>) -> E,
     ) -> Handle<Public> {
         let sk = common::witness_sk(c);
-        self.call(c, callee, args, key_version, |c, handle| HandleOwned {
+        self.call(c, callee, args, |c, handle| HandleOwned {
             handle,
             owner: Commit::to::<L, _>(c, &sk, handle),
             inner: inner(c, handle),
@@ -351,12 +353,15 @@ where
         &self,
         c: &mut Circuit3,
         ticket: Failed<F>,
-    ) -> (ZswapCoinPublicKey<Public>, Assumed<Outstanding<HandleOwned<E>>>, Ret<Called<F>>) {
+    ) -> (
+        ZswapCoinPublicKey<Public>,
+        Outcome<Outstanding<HandleOwned<E>>, Ret<Called<F>>>,
+    ) {
         let outcome = self.pending.refund(c, ticket);
         let sk = common::witness_sk(c);
-        let env = outcome.env;
+        let env = &outcome.env;
         env.env.owner.open(c, &sk, env.env.handle, "Not the owner");
         let owner = own_public_key(c).disclose_as::<L>(c);
-        (owner, env, outcome.output)
+        (owner, outcome)
     }
 }

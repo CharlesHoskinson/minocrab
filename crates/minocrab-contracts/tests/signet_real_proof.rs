@@ -57,115 +57,33 @@
 //! construction — that a real chain will one day carry it is deploy
 //! tooling's job, tracked outside this repo.
 
-use std::collections::BTreeMap;
-use std::io;
 use std::time::Instant;
 
 use midnight_base_crypto::data_provider::{FetchMode, MidnightDataProvider, OutputMode};
 use midnight_base_crypto::fab::AlignedValue;
-use midnight_base_crypto::rng::SplittableRng;
 use midnight_base_crypto::time::Timestamp;
 use midnight_ledger::semantics::TransactionResult;
 use midnight_ledger::verify::ProofVerificationMode;
 use midnight_onchain_runtime::cost_model::INITIAL_COST_MODEL;
-use midnight_transient_crypto::curve::Fr;
-use midnight_transient_crypto::proofs::{
-    KeyLocation, ParamsProverProvider, Proof, ProofPreimage, ProvingKeyMaterial, ProvingProvider,
-    Resolver, Zkir,
-};
+use midnight_transient_crypto::proofs::{ParamsProverProvider, ProvingKeyMaterial, Zkir};
 use minocrab::v3::Compiled3;
 use minocrab_contracts::events::MISC_SIZE;
 use minocrab_contracts::signet_contract;
-use minocrab_zkir::v3::IrSource;
 use rand::rngs::StdRng;
-use rand::{CryptoRng, Rng, SeedableRng};
+use rand::SeedableRng;
 
 mod support;
 
+use support::proving::{peak_rss_bytes, ManagedKeys, V3ProvingProvider};
 use support::signet_call::{
     bytesn_value, call_intent, call_prototype, deploy_singleton, managed_verifier_key, preimage_tx,
-    respond_input, respond_misc, singleton_contract_state, ttl, tx_context, unbalanced_strictness,
+    respond_bidirectional_input, respond_bidirectional_misc, respond_input, respond_misc,
+    sample_attestation, singleton_contract_state, ttl, tx_context, unbalanced_strictness,
     SIGNER_CIRCUITS,
 };
 
-// ---- the in-process proving provider ---------------------------------------
-
-/// The managed key material, keyed by `KeyLocation` — which
-/// `support::signet_call::call_prototype` sets to the Compact circuit name,
-/// the same name the managed directory's files carry and the same name the
-/// deployed operations use as their entry point.
-#[derive(Default, Clone)]
-struct ManagedKeys(BTreeMap<String, ProvingKeyMaterial>);
-
-impl Resolver for ManagedKeys {
-    async fn resolve_key(&self, key: KeyLocation) -> io::Result<Option<ProvingKeyMaterial>> {
-        Ok(self.0.get(key.0.as_ref()).cloned())
-    }
-}
-
-/// MECHANICAL TRANSLATION of `midnight_ledger::test_utilities`'
-/// `CombinedProofProvider`, v3 arm only
-/// (`ledger/src/test_utilities.rs:749-818`). The module header says why the
-/// upstream one is not usable directly.
-struct V3ProvingProvider<'a, R: Rng + CryptoRng + SplittableRng> {
-    rng: R,
-    keys: &'a ManagedKeys,
-    params: &'a MidnightDataProvider,
-}
-
-impl<R: Rng + CryptoRng + SplittableRng> ProvingProvider for V3ProvingProvider<'_, R> {
-    async fn check(&self, preimage: &ProofPreimage) -> Result<Vec<Option<usize>>, anyhow::Error> {
-        let material = self
-            .keys
-            .resolve_key(preimage.key_location.clone())
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("no key material for '{}'", preimage.key_location.0))?;
-        let ir = IrSource::load_ir_from_tagged(io::Cursor::new(&material.ir_source[..]))?;
-        preimage.check(&ir)
-    }
-
-    async fn prove(
-        self,
-        preimage: &ProofPreimage,
-        overwrite_binding_input: Option<Fr>,
-    ) -> Result<Proof, anyhow::Error> {
-        let mut preimage = preimage.clone();
-        if let Some(binding_input) = overwrite_binding_input {
-            preimage.binding_input = binding_input;
-        }
-        preimage
-            .prove::<IrSource>(self.rng, self.params, self.keys)
-            .await
-            .map(|(proof, _)| proof)
-    }
-
-    fn split(&mut self) -> Self {
-        V3ProvingProvider { rng: self.rng.split(), keys: self.keys, params: self.params }
-    }
-
-    fn resolver(&self) -> &impl Resolver {
-        self.keys
-    }
-}
-
-// ---- measurement -----------------------------------------------------------
-
-/// Peak RSS of this process, in bytes — `getrusage(RUSAGE_SELF)`, the same
-/// measurement `crates/minocrab-bench` reports. Process-wide and MONOTONIC:
-/// the figure after the third circuit is the whole run's high-water mark,
-/// not that circuit's own footprint. The bench harness spawns one subprocess
-/// per measurement precisely to separate those; here the question is the
-/// opposite one — what a publisher process serving all three circuits costs
-/// — so they are proved sequentially in one process and the per-step deltas
-/// are printed beside the mark.
-fn peak_rss_bytes() -> u64 {
-    let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
-    let rc = unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut ru) };
-    assert_eq!(rc, 0, "getrusage failed");
-    let raw = ru.ru_maxrss as u64;
-    // macOS reports bytes, Linux kilobytes.
-    if cfg!(target_os = "macos") { raw } else { raw * 1024 }
-}
+// The in-process proving provider and the RSS probe live in
+// `support::proving` since M43 D, shared with `signet_posting.rs`.
 
 fn params_provider() -> MidnightDataProvider {
     MidnightDataProvider::new(FetchMode::OnDemand, OutputMode::Log, vec![])
@@ -227,17 +145,21 @@ fn call_arguments(circuit: &str) -> (Vec<u8>, AlignedValue) {
             ]);
             (misc, input)
         }
-        "respond" | "respondBidirectional" => {
-            let name = if circuit == "respond" {
-                signet_contract::SIGNATURE_RESPONDED_EVENT
-            } else {
-                signet_contract::RESPOND_BIDIRECTIONAL_EVENT
-            };
+        "respond" => {
             let (rid, x, y, s, recovery_id) =
                 (request_id(), fill(0x11), fill(0x47), fill(0xa3), 1u8);
             (
-                respond_misc(name, &rid, &x, &y, &s, recovery_id),
+                respond_misc(signet_contract::SIGNATURE_RESPONDED_EVENT, &rid, &x, &y, &s, recovery_id),
                 respond_input(&rid, &x, &y, &s, recovery_id),
+            )
+        }
+        "respondBidirectional" => {
+            let (rid, x, y, s, recovery_id) =
+                (request_id(), fill(0x11), fill(0x47), fill(0xa3), 1u8);
+            let att = sample_attestation();
+            (
+                respond_bidirectional_misc(&rid, &att, &x, &y, &s, recovery_id),
+                respond_bidirectional_input(&rid, &att, &x, &y, &s, recovery_id),
             )
         }
         other => panic!("unknown signer circuit {other}"),

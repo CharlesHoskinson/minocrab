@@ -116,7 +116,13 @@ fn lean_dataflow_agrees_with_the_rust_functions_on_every_corpus_instruction() {
     assert_eq!(
         // 16815 → 16666 at the M28 corpus refresh (4d9cf61): the Poseidon
         // protocol's seventeen vault circuits replace the nine keccak/SHA ones.
-        instructions, 16666,
+        // 16666 → 18663 at M43 A: the second signet-midnight-integration pin
+        // (pr127, e9350c4) adds the singleton's three circuits at PR #127
+        // (569 + 736 + 692 instructions) beside the fff3421c ones.
+        // 18663 → 22885 at M44 A: the vault at 375071b (29 flush-pattern
+        // circuits replacing 17) and the third signet-midnight-integration
+        // pin (v0.24.1, a80e98e), the singleton's three circuits again.
+        instructions, 22885,
         "corpus instruction count moved ({instructions}); recompiled or extended corpus?"
     );
     println!("lean and rust dataflow agree on {instructions} corpus instructions");

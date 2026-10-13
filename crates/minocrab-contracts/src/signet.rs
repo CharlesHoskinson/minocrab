@@ -71,7 +71,7 @@ pub struct EvmType2TxParams<V: Vis3, const WORDS: usize> {
 
 impl<V: Vis3, const WORDS: usize> EvmType2TxParams<V, WORDS> {
     /// FAB limbs, slot order (one per atom except `bytes<32>` words = 2).
-    fn limbs(&self) -> Vec<Wire3<FieldT, V>> {
+    pub fn limbs(&self) -> Vec<Wire3<FieldT, V>> {
         let mut l = vec![
             self.chain_id,
             self.nonce,

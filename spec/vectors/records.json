@@ -2,72 +2,49 @@
   "$comment": "GENERATED — do not edit. Regenerate with: cargo test --release -p minocrab-contracts --test serialization_conformance -- --ignored regenerate_spec",
   "format": "borsh-subset-vectors/1",
   "spec": "spec/borsh-subset.md",
-  "about": "The request-record instantiations, DEPLOYED (the 2-word vault record, the 7-word swap record, and the lending pair: the 2-word supply record with its own schema strings and the 3-word redeem record) and V2. The request id is NOT a hash of these bytes: it is Poseidon over the record's field elements (borsh-subset.md §6a); keccak256 here is a checksum. Each V2 record carries the same values as its deployed twin, so the diff is exactly the format change: a formatVersion = 0x80 byte at offset 0, and a 1-byte responseKind where the two in-band ABI-JSON schema strings were (404 → 338, 571 → 498, 407 → 338 and 439 → 370 bytes).",
+  "about": "The request-record instantiations. DEPLOYED (V1, @sig-net/midnight 0.24.1): the 2-word vault record that sendDeposit / sendWithdraw / sendApprove write, the nonce-replacement record (the one record with NO calldata — calldata.is_some is 0 and the word slots are still read), the 7-word swap record, and the lending pair. Every V1 record ends with a respondSerializationSchema of width 0: a field that is present and empty, not a field that is absent. The request id is NOT a hash of these bytes — V1 hashes a RequestIdPreimageV1 with Poseidon (borsh-subset.md §6a) — and keccak256 here is a checksum. The V2 records carry the same values as their V1 twins in the V2 field order, so the diff is exactly the format change: a formatVersion = 0x80 byte at offset 0, a requestNonce the V1 record does not have, and a 1-byte responseKind where the output schema was.",
   "vectors": [
     {
-      "type": "VaultEvent",
-      "len": 404,
-      "hex": "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f070000000000000001404346494c4f5255585b5e6164676a6d707376797c7f8285888b8e9194979a9d0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000002a0000000000000000ca9a3b00000000000000000000000000ac23fc060000000000000000000000a086010000000000a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b30000000000000000000000000000000001a9059cbb0200b0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecf00000000000000000000000000000000000000000000000000000000000000ff0001030507090b0d0f11131517191b1d1f21232527292b2d2f31333537393b3d3f5b7b226e616d65223a2273756363657373222c2274797065223a22626f6f6c227d5d5b7b226e616d65223a2273756363657373222c2274797065223a22626f6f6c227d5d",
-      "sha256": "79a12713f3171b6b65754b34f7259916d1f9ef9288e3902bdbddc5f2a2adf14c",
-      "keccak256": "ae7b37c0e414fb7b4a30c61b9cbda5f8468c30a322b1eb1210e22c6916a2b279",
+      "type": "VaultEventV1",
+      "len": 362,
+      "hex": "01101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f404346494c4f5255585b5e6164676a6d707376797c7f8285888b8e9194979a9d000001000000000000002a0000000000000000ca9a3b00000000000000000000000000ac23fc060000000000000000000000a086010000000000a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b30000000000000000000000000000000001a9059cbb0200b0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecf00000000000000000000000000000000000000000000000000000000000000ff006569703135353a3100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000005b7b226e616d65223a2273756363657373222c2274797065223a22626f6f6c227d5d",
+      "sha256": "3ce56c8eefef52782d6910f6c73c5fb5083f53fa1028056fb8be4c951e6ef3e0",
+      "keccak256": "6caba7b63d38fc0c77e6b2193f3bb03560ce45482b6b8c48d4a10a9bf70275f2",
       "fields": [
-        {
-          "path": "sender",
-          "type": "[u8; 32]",
-          "offset": 0,
-          "width": 32,
-          "hex": "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f"
-        },
-        {
-          "path": "request_nonce",
-          "type": "u64",
-          "offset": 32,
-          "width": 8,
-          "hex": "0700000000000000",
-          "number": 7
-        },
         {
           "path": "key_version",
           "type": "u8",
-          "offset": 40,
+          "offset": 0,
           "width": 1,
           "hex": "01",
           "number": 1
         },
         {
+          "path": "sender",
+          "type": "[u8; 32]",
+          "offset": 1,
+          "width": 32,
+          "hex": "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f"
+        },
+        {
           "path": "path",
           "type": "[u8; 32]",
-          "offset": 41,
+          "offset": 33,
           "width": 32,
           "hex": "404346494c4f5255585b5e6164676a6d707376797c7f8285888b8e9194979a9d"
         },
         {
           "path": "algo",
           "type": "u8",
-          "offset": 73,
+          "offset": 65,
           "width": 1,
           "hex": "00",
           "number": 0
-        },
-        {
-          "path": "dest",
-          "type": "u8",
-          "offset": 74,
-          "width": 1,
-          "hex": "00",
-          "number": 0
-        },
-        {
-          "path": "params",
-          "type": "[u8; 64]",
-          "offset": 75,
-          "width": 64,
-          "hex": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
         },
         {
           "path": "tx_param_type",
           "type": "u8",
-          "offset": 139,
+          "offset": 66,
           "width": 1,
           "hex": "00",
           "number": 0
@@ -75,7 +52,7 @@
         {
           "path": "tx_params.chain_id",
           "type": "u64",
-          "offset": 140,
+          "offset": 67,
           "width": 8,
           "hex": "0100000000000000",
           "number": 1
@@ -83,7 +60,7 @@
         {
           "path": "tx_params.nonce",
           "type": "u64",
-          "offset": 148,
+          "offset": 75,
           "width": 8,
           "hex": "2a00000000000000",
           "number": 42
@@ -91,7 +68,7 @@
         {
           "path": "tx_params.max_priority_fee_per_gas",
           "type": "u128",
-          "offset": 156,
+          "offset": 83,
           "width": 16,
           "hex": "00ca9a3b000000000000000000000000",
           "number": 1000000000
@@ -99,7 +76,7 @@
         {
           "path": "tx_params.max_fee_per_gas",
           "type": "u128",
-          "offset": 172,
+          "offset": 99,
           "width": 16,
           "hex": "00ac23fc060000000000000000000000",
           "number": 30000000000
@@ -107,7 +84,7 @@
         {
           "path": "tx_params.gas_limit",
           "type": "u64",
-          "offset": 188,
+          "offset": 115,
           "width": 8,
           "hex": "a086010000000000",
           "number": 100000
@@ -115,14 +92,14 @@
         {
           "path": "tx_params.to",
           "type": "[u8; 20]",
-          "offset": 196,
+          "offset": 123,
           "width": 20,
           "hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3"
         },
         {
           "path": "tx_params.value",
           "type": "u128",
-          "offset": 216,
+          "offset": 143,
           "width": 16,
           "hex": "00000000000000000000000000000000",
           "number": 0
@@ -130,7 +107,7 @@
         {
           "path": "tx_params.calldata.is_some",
           "type": "bool",
-          "offset": 232,
+          "offset": 159,
           "width": 1,
           "hex": "01",
           "number": 1
@@ -138,14 +115,14 @@
         {
           "path": "tx_params.calldata.value.selector",
           "type": "[u8; 4]",
-          "offset": 233,
+          "offset": 160,
           "width": 4,
           "hex": "a9059cbb"
         },
         {
           "path": "tx_params.calldata.value.no_words",
           "type": "u16",
-          "offset": 237,
+          "offset": 164,
           "width": 2,
           "hex": "0200",
           "number": 2
@@ -153,97 +130,36 @@
         {
           "path": "tx_params.calldata.value.words[0]",
           "type": "[u8; 32]",
-          "offset": 239,
+          "offset": 166,
           "width": 32,
           "hex": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecf"
         },
         {
           "path": "tx_params.calldata.value.words[1]",
           "type": "[u8; 32]",
-          "offset": 271,
+          "offset": 198,
           "width": 32,
           "hex": "00000000000000000000000000000000000000000000000000000000000000ff"
         },
         {
           "path": "tx_params.access_list_entry_count",
           "type": "u8",
-          "offset": 303,
+          "offset": 230,
           "width": 1,
           "hex": "00",
           "number": 0
         },
         {
-          "path": "caip2_id",
+          "path": "execution_dest",
           "type": "[u8; 32]",
-          "offset": 304,
+          "offset": 231,
           "width": 32,
-          "hex": "01030507090b0d0f11131517191b1d1f21232527292b2d2f31333537393b3d3f"
+          "hex": "6569703135353a31000000000000000000000000000000000000000000000000"
         },
         {
-          "path": "output_deserialization_schema",
-          "type": "[u8; 34]",
-          "offset": 336,
-          "width": 34,
-          "hex": "5b7b226e616d65223a2273756363657373222c2274797065223a22626f6f6c227d5d"
-        },
-        {
-          "path": "respond_serialization_schema",
-          "type": "[u8; 34]",
-          "offset": 370,
-          "width": 34,
-          "hex": "5b7b226e616d65223a2273756363657373222c2274797065223a22626f6f6c227d5d"
-        }
-      ]
-    },
-    {
-      "type": "SwapEvent",
-      "len": 571,
-      "hex": "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f090000000000000001404346494c4f5255585b5e6164676a6d707376797c7f8285888b8e9194979a9d0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000002b0000000000000000ca9a3b00000000000000000000000000ac23fc06000000000000000000000060ae0a0000000000a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b300000000000000000000000000000000015023b4df0700000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000050000000000000000000000000000000000000000000000000000000000000006c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedf0001030507090b0d0f11131517191b1d1f21232527292b2d2f31333537393b3d3f5b7b226e616d65223a22616d6f756e74496e222c2274797065223a2275696e74323536227d5d5b7b226e616d65223a22616d6f756e74496e222c2274797065223a2275696e743634227d5d",
-      "sha256": "9b1db9c5a039512b37781135bbce23228eafa3b51f8b0b044a27229c2e22ed4a",
-      "keccak256": "68b0e7ce013264119e04380fa9c6a312d305bdf63aa1c8e93b9e8d8369ea3b9c",
-      "fields": [
-        {
-          "path": "sender",
-          "type": "[u8; 32]",
-          "offset": 0,
-          "width": 32,
-          "hex": "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f"
-        },
-        {
-          "path": "request_nonce",
-          "type": "u64",
-          "offset": 32,
-          "width": 8,
-          "hex": "0900000000000000",
-          "number": 9
-        },
-        {
-          "path": "key_version",
+          "path": "signature_dest",
           "type": "u8",
-          "offset": 40,
-          "width": 1,
-          "hex": "01",
-          "number": 1
-        },
-        {
-          "path": "path",
-          "type": "[u8; 32]",
-          "offset": 41,
-          "width": 32,
-          "hex": "404346494c4f5255585b5e6164676a6d707376797c7f8285888b8e9194979a9d"
-        },
-        {
-          "path": "algo",
-          "type": "u8",
-          "offset": 73,
-          "width": 1,
-          "hex": "00",
-          "number": 0
-        },
-        {
-          "path": "dest",
-          "type": "u8",
-          "offset": 74,
+          "offset": 263,
           "width": 1,
           "hex": "00",
           "number": 0
@@ -251,14 +167,67 @@
         {
           "path": "params",
           "type": "[u8; 64]",
-          "offset": 75,
+          "offset": 264,
           "width": 64,
           "hex": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
         },
         {
+          "path": "output_deserialization_schema",
+          "type": "[u8; 34]",
+          "offset": 328,
+          "width": 34,
+          "hex": "5b7b226e616d65223a2273756363657373222c2274797065223a22626f6f6c227d5d"
+        },
+        {
+          "path": "respond_serialization_schema",
+          "type": "[u8; 0]",
+          "offset": 362,
+          "width": 0,
+          "hex": ""
+        }
+      ]
+    },
+    {
+      "type": "ReplaceNonceEventV1",
+      "len": 330,
+      "hex": "01101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f60656a6f74797e83888d92979ca1a6abb0b5babfc4c9ced3d8dde2e7ecf1f6fb000001000000000000002e0000000000000000ca9a3b00000000000000000000000000ac23fc060000000000000000000000a086010000000000a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006569703135353a3100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000005b5d",
+      "sha256": "69c75ecf3c983875f6e6fabcad67784189703e950e88b546379fd1a5cff5f479",
+      "keccak256": "ee9ea37f6b6f216d9b2e8477008646d966503bee3c425c8b58af7a107036d60a",
+      "fields": [
+        {
+          "path": "key_version",
+          "type": "u8",
+          "offset": 0,
+          "width": 1,
+          "hex": "01",
+          "number": 1
+        },
+        {
+          "path": "sender",
+          "type": "[u8; 32]",
+          "offset": 1,
+          "width": 32,
+          "hex": "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f"
+        },
+        {
+          "path": "path",
+          "type": "[u8; 32]",
+          "offset": 33,
+          "width": 32,
+          "hex": "60656a6f74797e83888d92979ca1a6abb0b5babfc4c9ced3d8dde2e7ecf1f6fb"
+        },
+        {
+          "path": "algo",
+          "type": "u8",
+          "offset": 65,
+          "width": 1,
+          "hex": "00",
+          "number": 0
+        },
+        {
           "path": "tx_param_type",
           "type": "u8",
-          "offset": 139,
+          "offset": 66,
           "width": 1,
           "hex": "00",
           "number": 0
@@ -266,7 +235,7 @@
         {
           "path": "tx_params.chain_id",
           "type": "u64",
-          "offset": 140,
+          "offset": 67,
           "width": 8,
           "hex": "0100000000000000",
           "number": 1
@@ -274,7 +243,190 @@
         {
           "path": "tx_params.nonce",
           "type": "u64",
-          "offset": 148,
+          "offset": 75,
+          "width": 8,
+          "hex": "2e00000000000000",
+          "number": 46
+        },
+        {
+          "path": "tx_params.max_priority_fee_per_gas",
+          "type": "u128",
+          "offset": 83,
+          "width": 16,
+          "hex": "00ca9a3b000000000000000000000000",
+          "number": 1000000000
+        },
+        {
+          "path": "tx_params.max_fee_per_gas",
+          "type": "u128",
+          "offset": 99,
+          "width": 16,
+          "hex": "00ac23fc060000000000000000000000",
+          "number": 30000000000
+        },
+        {
+          "path": "tx_params.gas_limit",
+          "type": "u64",
+          "offset": 115,
+          "width": 8,
+          "hex": "a086010000000000",
+          "number": 100000
+        },
+        {
+          "path": "tx_params.to",
+          "type": "[u8; 20]",
+          "offset": 123,
+          "width": 20,
+          "hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3"
+        },
+        {
+          "path": "tx_params.value",
+          "type": "u128",
+          "offset": 143,
+          "width": 16,
+          "hex": "00000000000000000000000000000000",
+          "number": 0
+        },
+        {
+          "path": "tx_params.calldata.is_some",
+          "type": "bool",
+          "offset": 159,
+          "width": 1,
+          "hex": "00",
+          "number": 0
+        },
+        {
+          "path": "tx_params.calldata.value.selector",
+          "type": "[u8; 4]",
+          "offset": 160,
+          "width": 4,
+          "hex": "00000000"
+        },
+        {
+          "path": "tx_params.calldata.value.no_words",
+          "type": "u16",
+          "offset": 164,
+          "width": 2,
+          "hex": "0000",
+          "number": 0
+        },
+        {
+          "path": "tx_params.calldata.value.words[0]",
+          "type": "[u8; 32]",
+          "offset": 166,
+          "width": 32,
+          "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "path": "tx_params.calldata.value.words[1]",
+          "type": "[u8; 32]",
+          "offset": 198,
+          "width": 32,
+          "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "path": "tx_params.access_list_entry_count",
+          "type": "u8",
+          "offset": 230,
+          "width": 1,
+          "hex": "00",
+          "number": 0
+        },
+        {
+          "path": "execution_dest",
+          "type": "[u8; 32]",
+          "offset": 231,
+          "width": 32,
+          "hex": "6569703135353a31000000000000000000000000000000000000000000000000"
+        },
+        {
+          "path": "signature_dest",
+          "type": "u8",
+          "offset": 263,
+          "width": 1,
+          "hex": "00",
+          "number": 0
+        },
+        {
+          "path": "params",
+          "type": "[u8; 64]",
+          "offset": 264,
+          "width": 64,
+          "hex": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "path": "output_deserialization_schema",
+          "type": "[u8; 2]",
+          "offset": 328,
+          "width": 2,
+          "hex": "5b5d"
+        },
+        {
+          "path": "respond_serialization_schema",
+          "type": "[u8; 0]",
+          "offset": 330,
+          "width": 0,
+          "hex": ""
+        }
+      ]
+    },
+    {
+      "type": "SwapEventV1",
+      "len": 526,
+      "hex": "01101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f404346494c4f5255585b5e6164676a6d707376797c7f8285888b8e9194979a9d000001000000000000002b0000000000000000ca9a3b00000000000000000000000000ac23fc06000000000000000000000060ae0a0000000000a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b300000000000000000000000000000000015023b4df0700000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000050000000000000000000000000000000000000000000000000000000000000006c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedf006569703135353a3100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000005b7b226e616d65223a22616d6f756e74496e222c2274797065223a2275696e74323536227d5d",
+      "sha256": "f6fb436aa6a6866ea0da277eb8c54c6ae8bcf12a62f585cb7bb80d3dcfb12dbc",
+      "keccak256": "02356cb4134b344daf931ff3c022647814a07dad22b3433efdf661b368a3d418",
+      "fields": [
+        {
+          "path": "key_version",
+          "type": "u8",
+          "offset": 0,
+          "width": 1,
+          "hex": "01",
+          "number": 1
+        },
+        {
+          "path": "sender",
+          "type": "[u8; 32]",
+          "offset": 1,
+          "width": 32,
+          "hex": "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f"
+        },
+        {
+          "path": "path",
+          "type": "[u8; 32]",
+          "offset": 33,
+          "width": 32,
+          "hex": "404346494c4f5255585b5e6164676a6d707376797c7f8285888b8e9194979a9d"
+        },
+        {
+          "path": "algo",
+          "type": "u8",
+          "offset": 65,
+          "width": 1,
+          "hex": "00",
+          "number": 0
+        },
+        {
+          "path": "tx_param_type",
+          "type": "u8",
+          "offset": 66,
+          "width": 1,
+          "hex": "00",
+          "number": 0
+        },
+        {
+          "path": "tx_params.chain_id",
+          "type": "u64",
+          "offset": 67,
+          "width": 8,
+          "hex": "0100000000000000",
+          "number": 1
+        },
+        {
+          "path": "tx_params.nonce",
+          "type": "u64",
+          "offset": 75,
           "width": 8,
           "hex": "2b00000000000000",
           "number": 43
@@ -282,7 +434,7 @@
         {
           "path": "tx_params.max_priority_fee_per_gas",
           "type": "u128",
-          "offset": 156,
+          "offset": 83,
           "width": 16,
           "hex": "00ca9a3b000000000000000000000000",
           "number": 1000000000
@@ -290,7 +442,7 @@
         {
           "path": "tx_params.max_fee_per_gas",
           "type": "u128",
-          "offset": 172,
+          "offset": 99,
           "width": 16,
           "hex": "00ac23fc060000000000000000000000",
           "number": 30000000000
@@ -298,7 +450,7 @@
         {
           "path": "tx_params.gas_limit",
           "type": "u64",
-          "offset": 188,
+          "offset": 115,
           "width": 8,
           "hex": "60ae0a0000000000",
           "number": 700000
@@ -306,14 +458,14 @@
         {
           "path": "tx_params.to",
           "type": "[u8; 20]",
-          "offset": 196,
+          "offset": 123,
           "width": 20,
           "hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3"
         },
         {
           "path": "tx_params.value",
           "type": "u128",
-          "offset": 216,
+          "offset": 143,
           "width": 16,
           "hex": "00000000000000000000000000000000",
           "number": 0
@@ -321,7 +473,7 @@
         {
           "path": "tx_params.calldata.is_some",
           "type": "bool",
-          "offset": 232,
+          "offset": 159,
           "width": 1,
           "hex": "01",
           "number": 1
@@ -329,14 +481,14 @@
         {
           "path": "tx_params.calldata.value.selector",
           "type": "[u8; 4]",
-          "offset": 233,
+          "offset": 160,
           "width": 4,
           "hex": "5023b4df"
         },
         {
           "path": "tx_params.calldata.value.no_words",
           "type": "u16",
-          "offset": 237,
+          "offset": 164,
           "width": 2,
           "hex": "0700",
           "number": 7
@@ -344,132 +496,71 @@
         {
           "path": "tx_params.calldata.value.words[0]",
           "type": "[u8; 32]",
-          "offset": 239,
+          "offset": 166,
           "width": 32,
           "hex": "0000000000000000000000000000000000000000000000000000000000000001"
         },
         {
           "path": "tx_params.calldata.value.words[1]",
           "type": "[u8; 32]",
-          "offset": 271,
+          "offset": 198,
           "width": 32,
           "hex": "0000000000000000000000000000000000000000000000000000000000000002"
         },
         {
           "path": "tx_params.calldata.value.words[2]",
           "type": "[u8; 32]",
-          "offset": 303,
+          "offset": 230,
           "width": 32,
           "hex": "0000000000000000000000000000000000000000000000000000000000000003"
         },
         {
           "path": "tx_params.calldata.value.words[3]",
           "type": "[u8; 32]",
-          "offset": 335,
+          "offset": 262,
           "width": 32,
           "hex": "0000000000000000000000000000000000000000000000000000000000000004"
         },
         {
           "path": "tx_params.calldata.value.words[4]",
           "type": "[u8; 32]",
-          "offset": 367,
+          "offset": 294,
           "width": 32,
           "hex": "0000000000000000000000000000000000000000000000000000000000000005"
         },
         {
           "path": "tx_params.calldata.value.words[5]",
           "type": "[u8; 32]",
-          "offset": 399,
+          "offset": 326,
           "width": 32,
           "hex": "0000000000000000000000000000000000000000000000000000000000000006"
         },
         {
           "path": "tx_params.calldata.value.words[6]",
           "type": "[u8; 32]",
-          "offset": 431,
+          "offset": 358,
           "width": 32,
           "hex": "c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedf"
         },
         {
           "path": "tx_params.access_list_entry_count",
           "type": "u8",
-          "offset": 463,
+          "offset": 390,
           "width": 1,
           "hex": "00",
           "number": 0
         },
         {
-          "path": "caip2_id",
+          "path": "execution_dest",
           "type": "[u8; 32]",
-          "offset": 464,
+          "offset": 391,
           "width": 32,
-          "hex": "01030507090b0d0f11131517191b1d1f21232527292b2d2f31333537393b3d3f"
+          "hex": "6569703135353a31000000000000000000000000000000000000000000000000"
         },
         {
-          "path": "output_deserialization_schema",
-          "type": "[u8; 38]",
-          "offset": 496,
-          "width": 38,
-          "hex": "5b7b226e616d65223a22616d6f756e74496e222c2274797065223a2275696e74323536227d5d"
-        },
-        {
-          "path": "respond_serialization_schema",
-          "type": "[u8; 37]",
-          "offset": 534,
-          "width": 37,
-          "hex": "5b7b226e616d65223a22616d6f756e74496e222c2274797065223a2275696e743634227d5d"
-        }
-      ]
-    },
-    {
-      "type": "SupplyEvent",
-      "len": 407,
-      "hex": "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f0b0000000000000001404346494c4f5255585b5e6164676a6d707376797c7f8285888b8e9194979a9d0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000002c0000000000000000ca9a3b00000000000000000000000000ac23fc06000000000000000000000020a1070000000000a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b300000000000000000000000000000000016e553f65020000000000000000000000000000000000000000000000000000000000000000ffb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecf0001030507090b0d0f11131517191b1d1f21232527292b2d2f31333537393b3d3f5b7b226e616d65223a22736861726573222c2274797065223a2275696e74323536227d5d5b7b226e616d65223a22736861726573222c2274797065223a2275696e743634227d5d",
-      "sha256": "70646a87d2b56bdc7825273fd38e9272b1ede40167bc46a5aac7c8c0a3edb6e0",
-      "keccak256": "4ed79a488bdccd1ef118cab453805fdb400d7d40c9090ec5d1c6f003eebdf73d",
-      "fields": [
-        {
-          "path": "sender",
-          "type": "[u8; 32]",
-          "offset": 0,
-          "width": 32,
-          "hex": "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f"
-        },
-        {
-          "path": "request_nonce",
-          "type": "u64",
-          "offset": 32,
-          "width": 8,
-          "hex": "0b00000000000000",
-          "number": 11
-        },
-        {
-          "path": "key_version",
+          "path": "signature_dest",
           "type": "u8",
-          "offset": 40,
-          "width": 1,
-          "hex": "01",
-          "number": 1
-        },
-        {
-          "path": "path",
-          "type": "[u8; 32]",
-          "offset": 41,
-          "width": 32,
-          "hex": "404346494c4f5255585b5e6164676a6d707376797c7f8285888b8e9194979a9d"
-        },
-        {
-          "path": "algo",
-          "type": "u8",
-          "offset": 73,
-          "width": 1,
-          "hex": "00",
-          "number": 0
-        },
-        {
-          "path": "dest",
-          "type": "u8",
-          "offset": 74,
+          "offset": 423,
           "width": 1,
           "hex": "00",
           "number": 0
@@ -477,14 +568,67 @@
         {
           "path": "params",
           "type": "[u8; 64]",
-          "offset": 75,
+          "offset": 424,
           "width": 64,
           "hex": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
         },
         {
+          "path": "output_deserialization_schema",
+          "type": "[u8; 38]",
+          "offset": 488,
+          "width": 38,
+          "hex": "5b7b226e616d65223a22616d6f756e74496e222c2274797065223a2275696e74323536227d5d"
+        },
+        {
+          "path": "respond_serialization_schema",
+          "type": "[u8; 0]",
+          "offset": 526,
+          "width": 0,
+          "hex": ""
+        }
+      ]
+    },
+    {
+      "type": "SupplyEventV1",
+      "len": 364,
+      "hex": "01101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f404346494c4f5255585b5e6164676a6d707376797c7f8285888b8e9194979a9d000001000000000000002c0000000000000000ca9a3b00000000000000000000000000ac23fc06000000000000000000000020a1070000000000a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b300000000000000000000000000000000016e553f65020000000000000000000000000000000000000000000000000000000000000000ffb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecf006569703135353a3100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000005b7b226e616d65223a22736861726573222c2274797065223a2275696e74323536227d5d",
+      "sha256": "1e270fb17c36117df94ac1cc002548fdda71bc0dc868a3987801feea048e5a5c",
+      "keccak256": "87304a0b547138b2094274e678b2b217477c3dedc476bcf627b1309635c6d9ec",
+      "fields": [
+        {
+          "path": "key_version",
+          "type": "u8",
+          "offset": 0,
+          "width": 1,
+          "hex": "01",
+          "number": 1
+        },
+        {
+          "path": "sender",
+          "type": "[u8; 32]",
+          "offset": 1,
+          "width": 32,
+          "hex": "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f"
+        },
+        {
+          "path": "path",
+          "type": "[u8; 32]",
+          "offset": 33,
+          "width": 32,
+          "hex": "404346494c4f5255585b5e6164676a6d707376797c7f8285888b8e9194979a9d"
+        },
+        {
+          "path": "algo",
+          "type": "u8",
+          "offset": 65,
+          "width": 1,
+          "hex": "00",
+          "number": 0
+        },
+        {
           "path": "tx_param_type",
           "type": "u8",
-          "offset": 139,
+          "offset": 66,
           "width": 1,
           "hex": "00",
           "number": 0
@@ -492,7 +636,7 @@
         {
           "path": "tx_params.chain_id",
           "type": "u64",
-          "offset": 140,
+          "offset": 67,
           "width": 8,
           "hex": "0100000000000000",
           "number": 1
@@ -500,7 +644,7 @@
         {
           "path": "tx_params.nonce",
           "type": "u64",
-          "offset": 148,
+          "offset": 75,
           "width": 8,
           "hex": "2c00000000000000",
           "number": 44
@@ -508,7 +652,7 @@
         {
           "path": "tx_params.max_priority_fee_per_gas",
           "type": "u128",
-          "offset": 156,
+          "offset": 83,
           "width": 16,
           "hex": "00ca9a3b000000000000000000000000",
           "number": 1000000000
@@ -516,7 +660,7 @@
         {
           "path": "tx_params.max_fee_per_gas",
           "type": "u128",
-          "offset": 172,
+          "offset": 99,
           "width": 16,
           "hex": "00ac23fc060000000000000000000000",
           "number": 30000000000
@@ -524,7 +668,7 @@
         {
           "path": "tx_params.gas_limit",
           "type": "u64",
-          "offset": 188,
+          "offset": 115,
           "width": 8,
           "hex": "20a1070000000000",
           "number": 500000
@@ -532,14 +676,14 @@
         {
           "path": "tx_params.to",
           "type": "[u8; 20]",
-          "offset": 196,
+          "offset": 123,
           "width": 20,
           "hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3"
         },
         {
           "path": "tx_params.value",
           "type": "u128",
-          "offset": 216,
+          "offset": 143,
           "width": 16,
           "hex": "00000000000000000000000000000000",
           "number": 0
@@ -547,7 +691,7 @@
         {
           "path": "tx_params.calldata.is_some",
           "type": "bool",
-          "offset": 232,
+          "offset": 159,
           "width": 1,
           "hex": "01",
           "number": 1
@@ -555,14 +699,14 @@
         {
           "path": "tx_params.calldata.value.selector",
           "type": "[u8; 4]",
-          "offset": 233,
+          "offset": 160,
           "width": 4,
           "hex": "6e553f65"
         },
         {
           "path": "tx_params.calldata.value.no_words",
           "type": "u16",
-          "offset": 237,
+          "offset": 164,
           "width": 2,
           "hex": "0200",
           "number": 2
@@ -570,97 +714,36 @@
         {
           "path": "tx_params.calldata.value.words[0]",
           "type": "[u8; 32]",
-          "offset": 239,
+          "offset": 166,
           "width": 32,
           "hex": "00000000000000000000000000000000000000000000000000000000000000ff"
         },
         {
           "path": "tx_params.calldata.value.words[1]",
           "type": "[u8; 32]",
-          "offset": 271,
+          "offset": 198,
           "width": 32,
           "hex": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecf"
         },
         {
           "path": "tx_params.access_list_entry_count",
           "type": "u8",
-          "offset": 303,
+          "offset": 230,
           "width": 1,
           "hex": "00",
           "number": 0
         },
         {
-          "path": "caip2_id",
+          "path": "execution_dest",
           "type": "[u8; 32]",
-          "offset": 304,
+          "offset": 231,
           "width": 32,
-          "hex": "01030507090b0d0f11131517191b1d1f21232527292b2d2f31333537393b3d3f"
+          "hex": "6569703135353a31000000000000000000000000000000000000000000000000"
         },
         {
-          "path": "output_deserialization_schema",
-          "type": "[u8; 36]",
-          "offset": 336,
-          "width": 36,
-          "hex": "5b7b226e616d65223a22736861726573222c2274797065223a2275696e74323536227d5d"
-        },
-        {
-          "path": "respond_serialization_schema",
-          "type": "[u8; 35]",
-          "offset": 372,
-          "width": 35,
-          "hex": "5b7b226e616d65223a22736861726573222c2274797065223a2275696e743634227d5d"
-        }
-      ]
-    },
-    {
-      "type": "RedeemEvent",
-      "len": 439,
-      "hex": "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f0d0000000000000001404346494c4f5255585b5e6164676a6d707376797c7f8285888b8e9194979a9d0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000002d0000000000000000ca9a3b00000000000000000000000000ac23fc06000000000000000000000020a1070000000000a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b30000000000000000000000000000000001ba087652030000000000000000000000000000000000000000000000000000000000000000feb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecf0001030507090b0d0f11131517191b1d1f21232527292b2d2f31333537393b3d3f5b7b226e616d65223a22617373657473222c2274797065223a2275696e74323536227d5d5b7b226e616d65223a22617373657473222c2274797065223a2275696e743634227d5d",
-      "sha256": "dbcbad9bdc319ea13125c83996340a6aded61c6b41d49a9a28e49aafd34d576f",
-      "keccak256": "5126872221fb145fed956622401472292efbdab02933f4c40d1de7a9a21902a7",
-      "fields": [
-        {
-          "path": "sender",
-          "type": "[u8; 32]",
-          "offset": 0,
-          "width": 32,
-          "hex": "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f"
-        },
-        {
-          "path": "request_nonce",
-          "type": "u64",
-          "offset": 32,
-          "width": 8,
-          "hex": "0d00000000000000",
-          "number": 13
-        },
-        {
-          "path": "key_version",
+          "path": "signature_dest",
           "type": "u8",
-          "offset": 40,
-          "width": 1,
-          "hex": "01",
-          "number": 1
-        },
-        {
-          "path": "path",
-          "type": "[u8; 32]",
-          "offset": 41,
-          "width": 32,
-          "hex": "404346494c4f5255585b5e6164676a6d707376797c7f8285888b8e9194979a9d"
-        },
-        {
-          "path": "algo",
-          "type": "u8",
-          "offset": 73,
-          "width": 1,
-          "hex": "00",
-          "number": 0
-        },
-        {
-          "path": "dest",
-          "type": "u8",
-          "offset": 74,
+          "offset": 263,
           "width": 1,
           "hex": "00",
           "number": 0
@@ -668,14 +751,67 @@
         {
           "path": "params",
           "type": "[u8; 64]",
-          "offset": 75,
+          "offset": 264,
           "width": 64,
           "hex": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
         },
         {
+          "path": "output_deserialization_schema",
+          "type": "[u8; 36]",
+          "offset": 328,
+          "width": 36,
+          "hex": "5b7b226e616d65223a22736861726573222c2274797065223a2275696e74323536227d5d"
+        },
+        {
+          "path": "respond_serialization_schema",
+          "type": "[u8; 0]",
+          "offset": 364,
+          "width": 0,
+          "hex": ""
+        }
+      ]
+    },
+    {
+      "type": "RedeemEventV1",
+      "len": 396,
+      "hex": "01101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f404346494c4f5255585b5e6164676a6d707376797c7f8285888b8e9194979a9d000001000000000000002d0000000000000000ca9a3b00000000000000000000000000ac23fc06000000000000000000000020a1070000000000a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b30000000000000000000000000000000001ba087652030000000000000000000000000000000000000000000000000000000000000000feb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecf006569703135353a3100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000005b7b226e616d65223a22617373657473222c2274797065223a2275696e74323536227d5d",
+      "sha256": "9e7f5a7ac227ac18558f3b7af21d50b292262505bcb76a0cea7ea5ec49f9f3f2",
+      "keccak256": "39db564120baf9088f621537a9b5fb29f8df825cfbd6b00a8ce9772807088aa3",
+      "fields": [
+        {
+          "path": "key_version",
+          "type": "u8",
+          "offset": 0,
+          "width": 1,
+          "hex": "01",
+          "number": 1
+        },
+        {
+          "path": "sender",
+          "type": "[u8; 32]",
+          "offset": 1,
+          "width": 32,
+          "hex": "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f"
+        },
+        {
+          "path": "path",
+          "type": "[u8; 32]",
+          "offset": 33,
+          "width": 32,
+          "hex": "404346494c4f5255585b5e6164676a6d707376797c7f8285888b8e9194979a9d"
+        },
+        {
+          "path": "algo",
+          "type": "u8",
+          "offset": 65,
+          "width": 1,
+          "hex": "00",
+          "number": 0
+        },
+        {
           "path": "tx_param_type",
           "type": "u8",
-          "offset": 139,
+          "offset": 66,
           "width": 1,
           "hex": "00",
           "number": 0
@@ -683,7 +819,7 @@
         {
           "path": "tx_params.chain_id",
           "type": "u64",
-          "offset": 140,
+          "offset": 67,
           "width": 8,
           "hex": "0100000000000000",
           "number": 1
@@ -691,7 +827,7 @@
         {
           "path": "tx_params.nonce",
           "type": "u64",
-          "offset": 148,
+          "offset": 75,
           "width": 8,
           "hex": "2d00000000000000",
           "number": 45
@@ -699,7 +835,7 @@
         {
           "path": "tx_params.max_priority_fee_per_gas",
           "type": "u128",
-          "offset": 156,
+          "offset": 83,
           "width": 16,
           "hex": "00ca9a3b000000000000000000000000",
           "number": 1000000000
@@ -707,7 +843,7 @@
         {
           "path": "tx_params.max_fee_per_gas",
           "type": "u128",
-          "offset": 172,
+          "offset": 99,
           "width": 16,
           "hex": "00ac23fc060000000000000000000000",
           "number": 30000000000
@@ -715,7 +851,7 @@
         {
           "path": "tx_params.gas_limit",
           "type": "u64",
-          "offset": 188,
+          "offset": 115,
           "width": 8,
           "hex": "20a1070000000000",
           "number": 500000
@@ -723,14 +859,14 @@
         {
           "path": "tx_params.to",
           "type": "[u8; 20]",
-          "offset": 196,
+          "offset": 123,
           "width": 20,
           "hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3"
         },
         {
           "path": "tx_params.value",
           "type": "u128",
-          "offset": 216,
+          "offset": 143,
           "width": 16,
           "hex": "00000000000000000000000000000000",
           "number": 0
@@ -738,7 +874,7 @@
         {
           "path": "tx_params.calldata.is_some",
           "type": "bool",
-          "offset": 232,
+          "offset": 159,
           "width": 1,
           "hex": "01",
           "number": 1
@@ -746,14 +882,14 @@
         {
           "path": "tx_params.calldata.value.selector",
           "type": "[u8; 4]",
-          "offset": 233,
+          "offset": 160,
           "width": 4,
           "hex": "ba087652"
         },
         {
           "path": "tx_params.calldata.value.no_words",
           "type": "u16",
-          "offset": 237,
+          "offset": 164,
           "width": 2,
           "hex": "0300",
           "number": 3
@@ -761,61 +897,76 @@
         {
           "path": "tx_params.calldata.value.words[0]",
           "type": "[u8; 32]",
-          "offset": 239,
+          "offset": 166,
           "width": 32,
           "hex": "00000000000000000000000000000000000000000000000000000000000000fe"
         },
         {
           "path": "tx_params.calldata.value.words[1]",
           "type": "[u8; 32]",
-          "offset": 271,
+          "offset": 198,
           "width": 32,
           "hex": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecf"
         },
         {
           "path": "tx_params.calldata.value.words[2]",
           "type": "[u8; 32]",
-          "offset": 303,
+          "offset": 230,
           "width": 32,
           "hex": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecf"
         },
         {
           "path": "tx_params.access_list_entry_count",
           "type": "u8",
-          "offset": 335,
+          "offset": 262,
           "width": 1,
           "hex": "00",
           "number": 0
         },
         {
-          "path": "caip2_id",
+          "path": "execution_dest",
           "type": "[u8; 32]",
-          "offset": 336,
+          "offset": 263,
           "width": 32,
-          "hex": "01030507090b0d0f11131517191b1d1f21232527292b2d2f31333537393b3d3f"
+          "hex": "6569703135353a31000000000000000000000000000000000000000000000000"
+        },
+        {
+          "path": "signature_dest",
+          "type": "u8",
+          "offset": 295,
+          "width": 1,
+          "hex": "00",
+          "number": 0
+        },
+        {
+          "path": "params",
+          "type": "[u8; 64]",
+          "offset": 296,
+          "width": 64,
+          "hex": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
         },
         {
           "path": "output_deserialization_schema",
           "type": "[u8; 36]",
-          "offset": 368,
+          "offset": 360,
           "width": 36,
           "hex": "5b7b226e616d65223a22617373657473222c2274797065223a2275696e74323536227d5d"
         },
         {
           "path": "respond_serialization_schema",
-          "type": "[u8; 35]",
-          "offset": 404,
-          "width": 35,
-          "hex": "5b7b226e616d65223a22617373657473222c2274797065223a2275696e743634227d5d"
+          "type": "[u8; 0]",
+          "offset": 396,
+          "width": 0,
+          "hex": ""
         }
       ]
     },
     {
-      "type": "VaultEventV2 (M11 stage 7, kind 0 CLAIM)",
+      "type": "VaultEventV2 (kind 0 CLAIM)",
       "len": 338,
-      "hex": "80101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f070000000000000001404346494c4f5255585b5e6164676a6d707376797c7f8285888b8e9194979a9d0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000002a0000000000000000ca9a3b00000000000000000000000000ac23fc060000000000000000000000a086010000000000a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b30000000000000000000000000000000001a9059cbb0200b0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecf00000000000000000000000000000000000000000000000000000000000000ff0001030507090b0d0f11131517191b1d1f21232527292b2d2f31333537393b3d3f00",
-      "sha256": "a0b3c7a532ebaebb962f9a8cdefe645abf7ad1726883cda3c24270cd4243dc99",
-      "keccak256": "61ff008c04ade6de5645f131f04873d7040d2765e6758d3fc9fb23f45579b11a",
+      "hex": "80101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f070000000000000001404346494c4f5255585b5e6164676a6d707376797c7f8285888b8e9194979a9d0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000002a0000000000000000ca9a3b00000000000000000000000000ac23fc060000000000000000000000a086010000000000a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b30000000000000000000000000000000001a9059cbb0200b0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecf00000000000000000000000000000000000000000000000000000000000000ff006569703135353a3100000000000000000000000000000000000000000000000000",
+      "sha256": "bd2ba0b596d95a74e1becbb0952d3a4bf8d3c87e93d313a76fba6866938dc99b",
+      "keccak256": "c70ca439a79a0d8b8b6642ecf3c328927f3d59bf4e6376d8bf545fcd3c61c88e",
       "fields": [
         {
           "path": "format_version",
@@ -991,7 +1142,7 @@
           "type": "[u8; 32]",
           "offset": 305,
           "width": 32,
-          "hex": "01030507090b0d0f11131517191b1d1f21232527292b2d2f31333537393b3d3f"
+          "hex": "6569703135353a31000000000000000000000000000000000000000000000000"
         },
         {
           "path": "response_kind",
@@ -1004,11 +1155,11 @@
       ]
     },
     {
-      "type": "SwapEventV2 (M11 stage 7, kind 2 SWAP)",
+      "type": "SwapEventV2 (kind 2 SWAP)",
       "len": 498,
-      "hex": "80101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f090000000000000001404346494c4f5255585b5e6164676a6d707376797c7f8285888b8e9194979a9d0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000002b0000000000000000ca9a3b00000000000000000000000000ac23fc06000000000000000000000060ae0a0000000000a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b300000000000000000000000000000000015023b4df0700000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000050000000000000000000000000000000000000000000000000000000000000006c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedf0001030507090b0d0f11131517191b1d1f21232527292b2d2f31333537393b3d3f02",
-      "sha256": "3e6bf02c56ffe6f32f5a7457a119abb04e539239213806f37c0265bf8e4a0b2a",
-      "keccak256": "24c6f313d3474a1ecccb1334a842e5ff270932e9286a08baf6d452b661cebfdc",
+      "hex": "80101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f070000000000000001404346494c4f5255585b5e6164676a6d707376797c7f8285888b8e9194979a9d0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000002b0000000000000000ca9a3b00000000000000000000000000ac23fc06000000000000000000000060ae0a0000000000a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b300000000000000000000000000000000015023b4df0700000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000050000000000000000000000000000000000000000000000000000000000000006c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedf006569703135353a3100000000000000000000000000000000000000000000000002",
+      "sha256": "20e202831c3b536f888127a4598db89ddf5b107038e7d2c7164abe65dcdfd063",
+      "keccak256": "e44818aefbf46d7752f55bfcc453f645856e5fa5266f5ab5f85f774534d0ab79",
       "fields": [
         {
           "path": "format_version",
@@ -1030,8 +1181,8 @@
           "type": "u64",
           "offset": 33,
           "width": 8,
-          "hex": "0900000000000000",
-          "number": 9
+          "hex": "0700000000000000",
+          "number": 7
         },
         {
           "path": "key_version",
@@ -1219,7 +1370,7 @@
           "type": "[u8; 32]",
           "offset": 465,
           "width": 32,
-          "hex": "01030507090b0d0f11131517191b1d1f21232527292b2d2f31333537393b3d3f"
+          "hex": "6569703135353a31000000000000000000000000000000000000000000000000"
         },
         {
           "path": "response_kind",
@@ -1234,9 +1385,9 @@
     {
       "type": "VaultEventV2 (kind 5 SUPPLY)",
       "len": 338,
-      "hex": "80101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f0b0000000000000001404346494c4f5255585b5e6164676a6d707376797c7f8285888b8e9194979a9d0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000002c0000000000000000ca9a3b00000000000000000000000000ac23fc06000000000000000000000020a1070000000000a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b300000000000000000000000000000000016e553f65020000000000000000000000000000000000000000000000000000000000000000ffb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecf0001030507090b0d0f11131517191b1d1f21232527292b2d2f31333537393b3d3f05",
-      "sha256": "29d52e87f846707dea3ab3b9be26ce740195111b217b250fee9858b842658e9b",
-      "keccak256": "1569822d5ed748457add7f7f3af10c26044e8f526d2118789b091ed1acc0e44f",
+      "hex": "80101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f070000000000000001404346494c4f5255585b5e6164676a6d707376797c7f8285888b8e9194979a9d0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000002c0000000000000000ca9a3b00000000000000000000000000ac23fc06000000000000000000000020a1070000000000a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b300000000000000000000000000000000016e553f65020000000000000000000000000000000000000000000000000000000000000000ffb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecf006569703135353a3100000000000000000000000000000000000000000000000005",
+      "sha256": "2c6ce75e9b57460967442404a0dd2b48a9042f6fbf5274ddd9ae38ad099440f5",
+      "keccak256": "d76ac48cbcc068b80721fc07e973b94f7f9b7cd191e881deb01fd8a4abdf7faa",
       "fields": [
         {
           "path": "format_version",
@@ -1258,8 +1409,8 @@
           "type": "u64",
           "offset": 33,
           "width": 8,
-          "hex": "0b00000000000000",
-          "number": 11
+          "hex": "0700000000000000",
+          "number": 7
         },
         {
           "path": "key_version",
@@ -1412,7 +1563,7 @@
           "type": "[u8; 32]",
           "offset": 305,
           "width": 32,
-          "hex": "01030507090b0d0f11131517191b1d1f21232527292b2d2f31333537393b3d3f"
+          "hex": "6569703135353a31000000000000000000000000000000000000000000000000"
         },
         {
           "path": "response_kind",
@@ -1427,9 +1578,9 @@
     {
       "type": "RedeemEventV2 (kind 6 REDEEM)",
       "len": 370,
-      "hex": "80101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f0d0000000000000001404346494c4f5255585b5e6164676a6d707376797c7f8285888b8e9194979a9d0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000002d0000000000000000ca9a3b00000000000000000000000000ac23fc06000000000000000000000020a1070000000000a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b30000000000000000000000000000000001ba087652030000000000000000000000000000000000000000000000000000000000000000feb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecf0001030507090b0d0f11131517191b1d1f21232527292b2d2f31333537393b3d3f06",
-      "sha256": "517f1d686e477adf24bf5df18ccc7972373259b0c61120626e159129e96386ba",
-      "keccak256": "825e99488978dc5f47794f4e2629ace225fd87b9ba516c5935b41dbb583594e1",
+      "hex": "80101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f070000000000000001404346494c4f5255585b5e6164676a6d707376797c7f8285888b8e9194979a9d0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000002d0000000000000000ca9a3b00000000000000000000000000ac23fc06000000000000000000000020a1070000000000a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b30000000000000000000000000000000001ba087652030000000000000000000000000000000000000000000000000000000000000000feb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecf006569703135353a3100000000000000000000000000000000000000000000000006",
+      "sha256": "10ee07bf3a7b83bac83161256b141c7fca1b28cba8fe0ed1e49a57743ec397fe",
+      "keccak256": "6ab330cdbd50552cbefb8eb082b6d3d79d0bb6cb8362a65c85ed959ebb2ad0be",
       "fields": [
         {
           "path": "format_version",
@@ -1451,8 +1602,8 @@
           "type": "u64",
           "offset": 33,
           "width": 8,
-          "hex": "0d00000000000000",
-          "number": 13
+          "hex": "0700000000000000",
+          "number": 7
         },
         {
           "path": "key_version",
@@ -1612,7 +1763,7 @@
           "type": "[u8; 32]",
           "offset": 337,
           "width": 32,
-          "hex": "01030507090b0d0f11131517191b1d1f21232527292b2d2f31333537393b3d3f"
+          "hex": "6569703135353a31000000000000000000000000000000000000000000000000"
         },
         {
           "path": "response_kind",
